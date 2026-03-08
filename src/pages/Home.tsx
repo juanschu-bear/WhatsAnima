@@ -1,8 +1,19 @@
+import { useAuth } from '../contexts/AuthContext'
+
 export default function Home() {
+  const { user, signOut } = useAuth()
+
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-purple-600 to-blue-500 text-white">
       <h1 className="text-6xl font-extrabold tracking-tight">WhatsAnima</h1>
-      <p className="mt-4 text-xl opacity-80">Dein Anime-Universum wartet auf dich 🚀</p>
+      <p className="mt-4 text-xl opacity-80">Dein Anime-Universum wartet auf dich</p>
+      <p className="mt-2 text-sm opacity-60">Angemeldet als {user?.email}</p>
+      <button
+        onClick={signOut}
+        className="mt-6 rounded-lg border border-white/30 px-6 py-2 text-sm font-medium transition hover:bg-white/10"
+      >
+        Abmelden
+      </button>
     </div>
   )
 }
