@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 
 export default function Home() {
@@ -8,12 +9,20 @@ export default function Home() {
       <h1 className="text-6xl font-extrabold tracking-tight">WhatsAnima</h1>
       <p className="mt-4 text-xl opacity-80">Dein Anime-Universum wartet auf dich</p>
       <p className="mt-2 text-sm opacity-60">Angemeldet als {user?.email}</p>
-      <button
-        onClick={signOut}
-        className="mt-6 rounded-lg border border-white/30 px-6 py-2 text-sm font-medium transition hover:bg-white/10"
-      >
-        Abmelden
-      </button>
+      <div className="mt-6 flex gap-3">
+        <Link
+          to="/dashboard"
+          className="rounded-lg bg-white px-6 py-2 text-sm font-semibold text-purple-700 transition hover:bg-white/90"
+        >
+          Dashboard
+        </Link>
+        <button
+          onClick={signOut}
+          className="rounded-lg border border-white/30 px-6 py-2 text-sm font-medium transition hover:bg-white/10"
+        >
+          Abmelden
+        </button>
+      </div>
     </div>
   )
 }
