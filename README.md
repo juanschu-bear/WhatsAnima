@@ -1,73 +1,119 @@
-# React + TypeScript + Vite
+<p align="center">
+  <img src="public/icon.png" alt="WhatsAnima" width="120" />
+</p>
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+<h1 align="center">WhatsAnima</h1>
 
-Currently, two official plugins are available:
+<p align="center"><strong>Observational Perception Messaging — the only AI twin that reads the room while it runs the conversation.</strong></p>
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+WhatsAnima lets you deploy a personalized AI avatar, powered by your voice and likeness, that your contacts can message 24/7. Every conversation is silently analyzed through the OPM (Observational Perception Models) pipeline, giving you a real-time read on who you're dealing with — without ever being in the room.
 
-## React Compiler
+---
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## What It Does
 
-## Expanding the ESLint configuration
+- **Your AI, your voice, your face.** Built on ElevenLabs voice cloning and Tavus video rendering.
+- **Invite-only access.** You control who gets to interact with your avatar via unique invitation links.
+- **Perception on every message.** Every voice note, video, and message your contacts send is processed through CYGNUS and ORACLE — giving you behavioral patterns, emotional arcs, and moment-level evidence.
+- **You observe. They never know.**
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+---
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+## Tech Stack
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+| Layer | Technology |
+|---|---|
+| Frontend | Vite + React 19 + TypeScript strict |
+| Styling | Tailwind CSS v4 |
+| Routing | react-router-dom |
+| Backend/DB | Supabase (PostgreSQL + Auth + Storage) |
+| Voice | ElevenLabs |
+| Video Avatar | Tavus |
+| Perception | OPM Pipeline (CYGNUS, ORACLE, LUCID, TRACE) |
+| Deployment | Vercel |
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+---
+
+## Project Structure
+
+```
+src/
+├── components/       # Reusable UI components
+├── lib/
+│   └── supabase.ts   # Supabase client
+├── pages/            # Route-level pages
+├── App.tsx           # Router setup
+├── main.tsx          # Entry point
+└── index.css         # Tailwind import
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+---
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Getting Started
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+### 1. Clone the repo
+
+```bash
+git clone https://github.com/juanschu-bear/WhatsAnima.git
+cd WhatsAnima
 ```
+
+### 2. Install dependencies
+
+```bash
+npm install
+```
+
+### 3. Set up environment variables
+
+```bash
+cp .env.example .env
+```
+
+Fill in your credentials in `.env`:
+
+```
+VITE_SUPABASE_URL=https://wofklmwbokdjoqlstjmy.supabase.co
+VITE_SUPABASE_ANON_KEY=your_anon_key_here
+```
+
+### 4. Run locally
+
+```bash
+npm run dev
+```
+
+---
+
+## Environment Variables
+
+| Variable | Description |
+|---|---|
+| `VITE_SUPABASE_URL` | WhatsAnima Supabase project URL |
+| `VITE_SUPABASE_ANON_KEY` | Supabase anon/public key |
+
+---
+
+## Architecture
+
+WhatsAnima sits on top of the DITTO Architecture — the same OPM engine that powers ANIMA Connect, configured for a different vertical: **inbound contact perception** instead of outbound CEO coaching.
+
+```
+Contact sends voice/video message
+        ↓
+OPM Pipeline (CYGNUS → ORACLE → LUCID → TRACE)
+        ↓
+Owner sees perception report: patterns, emotional arc, moment-level evidence
+        ↓
+Owner's AI avatar responds via ElevenLabs + Tavus
+```
+
+---
+
+## Part of the ONIOKO Ecosystem
+
+Built by [ONIOKO](https://onioko.com) — hybrid human-AI product studio.
+
+- ANIMA Connect: CEO avatar coaching platform
+- WhatsAnima: Observational Perception Messaging
+- OPM: Observational Perception Models pipeline
