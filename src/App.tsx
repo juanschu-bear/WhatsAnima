@@ -6,6 +6,7 @@ import Login from './pages/Login'
 import Signup from './pages/Signup'
 import Dashboard from './pages/Dashboard'
 import Invite from './pages/Invite'
+import Chat from './pages/Chat'
 
 export default function App() {
   return (
@@ -15,6 +16,7 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
           <Route path="/invite/:token" element={<Invite />} />
+          <Route path="/chat/:conversationId" element={<Chat />} />
           <Route
             path="/"
             element={

@@ -1,19 +1,21 @@
 import { useEffect, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
-import { validateInvitationToken } from '../lib/api'
+import { useParams, Link, useNavigate } from 'react-router-dom'
+import { validateInvitationToken, createContactAndConversation } from '../lib/api'
 
 interface InviteData {
   id: string
   token: string
   active: boolean
-  wa_owners: { display_name: string; avatar_url: string | null }
+  wa_owners: { id: string; display_name: string; avatar_url: string | null }
 }
 
 export default function Invite() {
   const { token } = useParams<{ token: string }>()
+  const navigate = useNavigate()
   const [invite, setInvite] = useState<InviteData | null>(null)
   const [loading, setLoading] = useState(true)
   const [invalid, setInvalid] = useState(false)
+  const [starting, setStarting] = useState(false)
 
   useEffect(() => {
     if (!token) {
@@ -31,6 +33,21 @@ export default function Invite() {
     })
   }, [token])
 
+  async function handleStart() {
+    if (!invite) return
+    setStarting(true)
+    try {
+      const { conversation } = await createContactAndConversation(
+        invite.wa_owners.id,
+        invite.id,
+        'Guest'
+      )
+      navigate(`/chat/${conversation.id}`)
+    } catch {
+      setStarting(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-purple-600 to-blue-500">
@@ -43,15 +60,15 @@ export default function Invite() {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-purple-600 to-blue-500 px-4 text-center">
         <div className="rounded-2xl bg-white/10 p-8 backdrop-blur-md">
-          <h1 className="text-2xl font-bold text-white">Ungültiger Link</h1>
+          <h1 className="text-2xl font-bold text-white">Invalid Link</h1>
           <p className="mt-3 text-white/60">
-            Dieser Einladungslink ist ungültig oder nicht mehr aktiv.
+            This invitation link is invalid or no longer active.
           </p>
           <Link
             to="/"
             className="mt-6 inline-block rounded-lg border border-white/30 px-6 py-2 text-sm text-white transition hover:bg-white/10"
           >
-            Zur Startseite
+            Go to Home
           </Link>
         </div>
       </div>
@@ -72,12 +89,14 @@ export default function Invite() {
         )}
 
         <h1 className="text-2xl font-bold text-white">{owner.display_name}</h1>
-        <p className="mt-2 text-white/60">hat dich eingeladen eine Konversation zu starten</p>
+        <p className="mt-2 text-white/60">has invited you to start a conversation</p>
 
         <button
-          className="mt-8 w-full rounded-lg bg-white py-3 font-semibold text-purple-700 transition hover:bg-white/90"
+          onClick={handleStart}
+          disabled={starting}
+          className="mt-8 w-full rounded-lg bg-white py-3 font-semibold text-purple-700 transition hover:bg-white/90 disabled:opacity-50"
         >
-          Gespräch starten
+          {starting ? 'Starting...' : 'Start Conversation'}
         </button>
       </div>
     </div>
