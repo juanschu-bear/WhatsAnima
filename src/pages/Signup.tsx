@@ -28,36 +28,31 @@ export default function Signup() {
   return (
     <div className="brand-scene min-h-screen">
       <div className="relative z-10 flex min-h-screen items-center justify-center px-6 py-12">
-        <div className="pointer-events-none absolute inset-0 hidden items-center justify-center md:flex">
-          <div className="flex flex-col items-center text-center">
-            <img
-              src="/Icon.PNG"
-              alt=""
-              className="w-[340px] object-contain opacity-[0.13] blur-[1px] drop-shadow-[0_0_60px_rgba(93,236,214,0.22)] lg:w-[420px]"
-            />
-            <div className="brand-wordmark -mt-2 text-[6.5rem] font-extrabold leading-none opacity-[0.09] lg:text-[8.5rem]">
+        <div className="pointer-events-none absolute inset-x-0 bottom-[6vh] hidden justify-center px-6 md:flex">
+          <div className="text-center">
+            <div className="brand-wordmark text-[8rem] font-extrabold leading-none opacity-[0.08] lg:text-[11rem]">
               WhatsAnima
             </div>
-            <div className="brand-kicker mt-2 text-base text-white/10 lg:text-lg">
+            <div className="brand-kicker mt-2 text-lg text-white/10">
               Observational Perception Messaging
             </div>
           </div>
         </div>
 
-        <div className="brand-panel w-full max-w-2xl rounded-[36px] p-10 sm:p-12 lg:px-16 lg:py-14">
+        <div className="brand-panel w-full max-w-md rounded-[32px] p-8 sm:p-10">
           <img
             src="/Icon.PNG"
             alt="WhatsAnima"
-            className="mx-auto mb-7 h-32 w-auto object-contain drop-shadow-[0_0_34px_rgba(93,236,214,0.48)]"
+            className="mx-auto mb-5 h-24 w-auto object-contain drop-shadow-[0_0_28px_rgba(93,236,214,0.42)]"
           />
-          <h1 className="mb-3 text-center text-5xl font-bold tracking-tight text-white sm:text-6xl">Sign Up</h1>
-          <p className="mb-10 text-center text-base text-white/65">
+          <h1 className="mb-2 text-center text-4xl font-bold tracking-tight text-white">Sign Up</h1>
+          <p className="mb-8 text-center text-sm text-white/65">
             Create your WhatsAnima account.
           </p>
 
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <label htmlFor="email" className="mb-2 block text-base font-medium text-white/82">
+              <label htmlFor="email" className="mb-2 block text-sm font-medium text-white/82">
                 Email
               </label>
               <input
@@ -66,13 +61,13 @@ export default function Signup() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="brand-inset w-full rounded-2xl px-5 py-4 text-xl text-white placeholder-white/28 outline-none transition focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20"
+                className="brand-inset w-full rounded-2xl px-4 py-3.5 text-white placeholder-white/28 outline-none transition focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20"
                 placeholder="you@example.com"
               />
             </div>
 
             <div>
-              <label htmlFor="password" className="mb-2 block text-base font-medium text-white/82">
+              <label htmlFor="password" className="mb-2 block text-sm font-medium text-white/82">
                 Password
               </label>
               <input
@@ -82,7 +77,7 @@ export default function Signup() {
                 minLength={6}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="brand-inset w-full rounded-2xl px-5 py-4 text-xl text-white placeholder-white/28 outline-none transition focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20"
+                className="brand-inset w-full rounded-2xl px-4 py-3.5 text-white placeholder-white/28 outline-none transition focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20"
                 placeholder="At least 6 characters"
               />
             </div>
@@ -96,13 +91,13 @@ export default function Signup() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full rounded-2xl bg-[#00a884] py-4 text-2xl font-semibold text-[#07141a] transition hover:brightness-110 disabled:opacity-50"
+              className="w-full rounded-2xl bg-[#00a884] py-3.5 text-lg font-semibold text-[#07141a] transition hover:brightness-110 disabled:opacity-50"
             >
               {loading ? 'Signing Up...' : 'Sign Up'}
             </button>
           </form>
 
-          <p className="mt-8 text-center text-lg text-white/60">
+          <p className="mt-7 text-center text-base text-white/60">
             Already have an account?{' '}
             <Link to="/login" className="font-medium text-[#00a884] hover:text-[#58e3c7]">
               Sign In
