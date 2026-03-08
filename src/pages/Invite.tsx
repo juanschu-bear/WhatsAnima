@@ -50,7 +50,7 @@ export default function Invite() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-purple-600 to-blue-500">
+      <div className="flex min-h-screen items-center justify-center bg-[#0b141a]">
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-white border-t-transparent" />
       </div>
     )
@@ -58,8 +58,8 @@ export default function Invite() {
 
   if (invalid || !invite) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-purple-600 to-blue-500 px-4 text-center">
-        <div className="rounded-2xl bg-white/10 p-8 backdrop-blur-md">
+      <div className="flex min-h-screen flex-col items-center justify-center bg-[#0b141a] px-4 text-center">
+        <div className="rounded-2xl bg-white/5 p-8 backdrop-blur-md">
           <h1 className="text-2xl font-bold text-white">Invalid Link</h1>
           <p className="mt-3 text-white/60">
             This invitation link is invalid or no longer active.
@@ -78,8 +78,8 @@ export default function Invite() {
   const owner = invite.wa_owners
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-purple-600 to-blue-500 px-4 text-center">
-      <div className="w-full max-w-md rounded-2xl bg-white/10 p-8 backdrop-blur-md">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-[#0b141a] px-4 text-center">
+      <div className="w-full max-w-md rounded-2xl bg-white/5 p-8 backdrop-blur-md">
         {owner.avatar_url && (
           <img
             src={owner.avatar_url}
@@ -94,7 +94,7 @@ export default function Invite() {
         <button
           onClick={handleStart}
           disabled={starting}
-          className="mt-8 w-full rounded-lg bg-white py-3 font-semibold text-purple-700 transition hover:bg-white/90 disabled:opacity-50"
+          className="mt-8 w-full rounded-lg bg-white py-3 font-semibold text-[#0b141a] transition hover:bg-white/90 disabled:opacity-50"
         >
           {starting ? 'Starting...' : 'Start Conversation'}
         </button>

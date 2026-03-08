@@ -26,12 +26,20 @@ export default function Login() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#0b141a] px-4">
-      <div className="w-full max-w-md">
+    <div className="relative flex min-h-screen items-center justify-center bg-[#0b141a] px-4">
+      {/* Background image */}
+      <img
+        src="/mobil.png"
+        alt=""
+        className="absolute inset-0 h-full w-full object-cover opacity-30"
+      />
+
+      {/* Form overlay */}
+      <div className="relative z-10 w-full max-w-md rounded-2xl bg-[#0b141a]/80 p-8 backdrop-blur-md">
         <img
-          src="/hero.png"
+          src="/icon.png"
           alt="WhatsAnima"
-          className="mx-auto mb-6 max-w-[400px] w-full"
+          className="mx-auto mb-4 h-16 w-16 rounded-full"
         />
         <h1 className="mb-6 text-center text-3xl font-bold text-white">Anmelden</h1>
 
