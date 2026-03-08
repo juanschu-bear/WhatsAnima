@@ -5,14 +5,19 @@ export default function Home() {
   const { user, signOut } = useAuth()
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-purple-600 to-blue-500 text-white">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-[#0b141a] text-white">
+      <img
+        src="/hero.png"
+        alt="WhatsAnima"
+        className="mb-6 max-w-[400px] w-full"
+      />
       <h1 className="text-6xl font-extrabold tracking-tight">WhatsAnima</h1>
       <p className="mt-4 text-xl opacity-80">Dein Anime-Universum wartet auf dich</p>
       <p className="mt-2 text-sm opacity-60">Angemeldet als {user?.email}</p>
       <div className="mt-6 flex gap-3">
         <Link
           to="/dashboard"
-          className="rounded-lg bg-white px-6 py-2 text-sm font-semibold text-purple-700 transition hover:bg-white/90"
+          className="rounded-lg bg-white px-6 py-2 text-sm font-semibold text-[#0b141a] transition hover:bg-white/90"
         >
           Dashboard
         </Link>

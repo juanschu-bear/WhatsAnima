@@ -26,8 +26,13 @@ export default function Signup() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-purple-600 to-blue-500 px-4">
-      <div className="w-full max-w-md rounded-2xl bg-white/10 p-8 shadow-xl backdrop-blur-md">
+    <div className="flex min-h-screen items-center justify-center bg-[#0b141a] px-4">
+      <div className="w-full max-w-md">
+        <img
+          src="/hero.png"
+          alt="WhatsAnima"
+          className="mx-auto mb-6 max-w-[400px] w-full"
+        />
         <h1 className="mb-6 text-center text-3xl font-bold text-white">Registrieren</h1>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -69,7 +74,7 @@ export default function Signup() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-lg bg-white py-2.5 font-semibold text-purple-700 transition hover:bg-white/90 disabled:opacity-50"
+            className="w-full rounded-lg bg-white py-2.5 font-semibold text-[#0b141a] transition hover:bg-white/90 disabled:opacity-50"
           >
             {loading ? 'Wird erstellt...' : 'Account erstellen'}
           </button>
