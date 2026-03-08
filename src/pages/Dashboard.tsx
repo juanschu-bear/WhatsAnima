@@ -23,6 +23,7 @@ export default function Dashboard() {
   const [label, setLabel] = useState('')
   const [loading, setLoading] = useState(true)
   const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!user) return
@@ -31,6 +32,10 @@ export default function Dashboard() {
       return listInvitationLinks(owner.id)
     }).then((data) => {
       setLinks(data as InvitationLink[])
+    }).catch((err) => {
+      console.error('Dashboard load error:', err)
+      setError('Daten konnten nicht geladen werden. Bitte prüfe deine Verbindung.')
+    }).finally(() => {
       setLoading(false)
     })
   }, [user])
@@ -80,6 +85,12 @@ export default function Dashboard() {
             Abmelden
           </button>
         </div>
+
+        {error && (
+          <div className="mb-8 rounded-2xl bg-red-500/10 p-6 text-center">
+            <p className="text-red-300">{error}</p>
+          </div>
+        )}
 
         {/* Hero image */}
         <div className="mb-8 flex justify-center">
