@@ -26,66 +26,72 @@ export default function Login() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#0b141a] px-6 py-12">
-      <div className="w-full max-w-md rounded-[28px] border border-white/10 bg-[#1f2c34] p-8 shadow-2xl shadow-black/30">
-        <img
-          src="/Icon.PNG"
-          alt="WhatsAnima"
-          className="mx-auto mb-4 h-14 w-14 object-contain"
-        />
-        <h1 className="mb-2 text-center text-3xl font-bold text-white">Sign In</h1>
-        <p className="mb-8 text-center text-sm text-white/65">Access your WhatsAnima workspace.</p>
+    <div className="brand-scene min-h-screen">
+      <div className="relative z-10 flex min-h-screen items-center justify-center px-6 py-12">
+        <div className="brand-panel w-full max-w-md rounded-[32px] p-8 sm:p-10">
+          <img
+            src="/Icon.PNG"
+            alt="WhatsAnima"
+            className="mx-auto mb-5 h-16 w-auto object-contain drop-shadow-[0_0_22px_rgba(93,236,214,0.34)]"
+          />
+          <h1 className="mb-2 text-center text-4xl font-bold tracking-tight text-white">Sign In</h1>
+          <p className="mb-8 text-center text-sm text-white/65">
+            Access your WhatsAnima workspace.
+          </p>
 
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <div>
-            <label htmlFor="email" className="mb-1 block text-sm font-medium text-white/80">
-              Email
-            </label>
-            <input
-              id="email"
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-2xl border border-white/10 bg-[#0f1b22] px-4 py-3 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20"
-              placeholder="you@example.com"
-            />
-          </div>
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <div>
+              <label htmlFor="email" className="mb-2 block text-sm font-medium text-white/82">
+                Email
+              </label>
+              <input
+                id="email"
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="brand-inset w-full rounded-2xl px-4 py-3.5 text-white placeholder-white/28 outline-none transition focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20"
+                placeholder="you@example.com"
+              />
+            </div>
 
-          <div>
-            <label htmlFor="password" className="mb-1 block text-sm font-medium text-white/80">
-              Password
-            </label>
-            <input
-              id="password"
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-2xl border border-white/10 bg-[#0f1b22] px-4 py-3 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20"
-              placeholder="Enter your password"
-            />
-          </div>
+            <div>
+              <label htmlFor="password" className="mb-2 block text-sm font-medium text-white/82">
+                Password
+              </label>
+              <input
+                id="password"
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="brand-inset w-full rounded-2xl px-4 py-3.5 text-white placeholder-white/28 outline-none transition focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20"
+                placeholder="Enter your password"
+              />
+            </div>
 
-          {error && (
-            <p className="rounded-lg bg-red-500/20 px-4 py-2 text-sm text-red-200">{error}</p>
-          )}
+            {error && (
+              <p className="rounded-2xl border border-red-400/15 bg-red-500/15 px-4 py-3 text-sm text-red-200">
+                {error}
+              </p>
+            )}
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-2xl bg-[#00a884] py-3 font-semibold text-[#0b141a] transition hover:brightness-110 disabled:opacity-50"
-          >
-            {loading ? 'Signing In...' : 'Sign In'}
-          </button>
-        </form>
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full rounded-2xl bg-[#00a884] py-3.5 text-lg font-semibold text-[#07141a] transition hover:brightness-110 disabled:opacity-50"
+            >
+              {loading ? 'Signing In...' : 'Sign In'}
+            </button>
+          </form>
 
-        <p className="mt-6 text-center text-sm text-white/60">
-          No account?{' '}
-          <Link to="/signup" className="text-[#00a884] hover:text-[#33c3a4]">
-            Sign Up
-          </Link>
-        </p>
+          <p className="mt-7 text-center text-base text-white/60">
+            No account?{' '}
+            <Link to="/signup" className="font-medium text-[#00a884] hover:text-[#58e3c7]">
+              Sign Up
+            </Link>
+          </p>
+        </div>
       </div>
     </div>
   )

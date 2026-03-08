@@ -50,23 +50,23 @@ export default function Invite() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#0b141a]">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-white border-t-transparent" />
+      <div className="brand-scene flex min-h-screen items-center justify-center">
+        <div className="h-10 w-10 animate-spin rounded-full border-4 border-[#1f2c34] border-t-[#00a884]" />
       </div>
     )
   }
 
   if (invalid || !invite) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-[#0b141a] px-4 text-center">
-        <div className="rounded-2xl bg-white/5 p-8 backdrop-blur-md">
+      <div className="brand-scene flex min-h-screen flex-col items-center justify-center px-4 text-center">
+        <div className="brand-panel relative z-10 rounded-[30px] p-8">
           <h1 className="text-2xl font-bold text-white">Invalid Link</h1>
           <p className="mt-3 text-white/60">
             This invitation link is invalid or no longer active.
           </p>
           <Link
             to="/"
-            className="mt-6 inline-block rounded-lg border border-white/30 px-6 py-2 text-sm text-white transition hover:bg-white/10"
+            className="brand-inset mt-6 inline-block rounded-2xl px-6 py-3 text-sm text-white transition hover:border-[#00a884]/60 hover:text-[#00a884]"
           >
             Go to Home
           </Link>
@@ -78,8 +78,8 @@ export default function Invite() {
   const owner = invite.wa_owners
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-[#0b141a] px-4 text-center">
-      <div className="w-full max-w-md rounded-2xl bg-white/5 p-8 backdrop-blur-md">
+    <div className="brand-scene flex min-h-screen flex-col items-center justify-center px-4 text-center">
+      <div className="brand-panel relative z-10 w-full max-w-md rounded-[30px] p-8">
         {owner.avatar_url && (
           <img
             src={owner.avatar_url}
@@ -94,7 +94,7 @@ export default function Invite() {
         <button
           onClick={handleStart}
           disabled={starting}
-          className="mt-8 w-full rounded-lg bg-white py-3 font-semibold text-[#0b141a] transition hover:bg-white/90 disabled:opacity-50"
+          className="mt-8 w-full rounded-2xl bg-[#00a884] py-3 font-semibold text-[#0b141a] transition hover:brightness-110 disabled:opacity-50"
         >
           {starting ? 'Starting...' : 'Start Conversation'}
         </button>

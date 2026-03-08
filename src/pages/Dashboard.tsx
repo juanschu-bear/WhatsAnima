@@ -74,20 +74,24 @@ export default function Dashboard() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#0b141a]">
+      <div className="brand-scene flex min-h-screen items-center justify-center">
         <div className="h-10 w-10 animate-spin rounded-full border-4 border-[#1f2c34] border-t-[#00a884]" />
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-[#0b141a] px-6 py-8 text-white">
-      <div className="mx-auto max-w-5xl">
-        <div className="mb-8 flex flex-col gap-4 rounded-[28px] border border-white/10 bg-[#1f2c34] p-6 shadow-xl shadow-black/20 sm:flex-row sm:items-center sm:justify-between">
+    <div className="brand-scene min-h-screen px-6 py-8 text-white">
+      <div className="relative z-10 mx-auto max-w-5xl">
+        <div className="brand-panel mb-8 flex flex-col gap-4 rounded-[30px] p-6 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-4">
-            <img src="/Icon.PNG" alt="WhatsAnima" className="h-10 w-10 shrink-0 object-contain" />
+            <img
+              src="/Icon.PNG"
+              alt="WhatsAnima"
+              className="h-10 w-auto shrink-0 object-contain drop-shadow-[0_0_18px_rgba(93,236,214,0.28)]"
+            />
             <div>
-              <p className="text-xs uppercase tracking-[0.24em] text-white/45">WhatsAnima</p>
+              <p className="brand-kicker text-[11px] text-white/45">WhatsAnima</p>
               <h1 className="text-3xl font-bold text-white">Dashboard</h1>
               <p className="mt-1 text-sm text-white/60">{user?.email}</p>
             </div>
@@ -95,7 +99,7 @@ export default function Dashboard() {
           <div className="flex gap-3">
             <Link
               to="/"
-              className="rounded-2xl border border-white/10 bg-[#0f1b22] px-5 py-3 text-sm font-medium transition hover:border-[#00a884]/60 hover:text-[#00a884]"
+              className="brand-inset rounded-2xl px-5 py-3 text-sm font-medium transition hover:border-[#00a884]/60 hover:text-[#00a884]"
             >
               Home
             </Link>
@@ -109,16 +113,16 @@ export default function Dashboard() {
         </div>
 
         {error && (
-          <div className="mb-8 rounded-[28px] border border-red-400/20 bg-red-500/10 p-6 text-center">
+          <div className="mb-8 rounded-[28px] border border-red-400/20 bg-red-500/10 p-6 text-center backdrop-blur-xl">
             <p className="text-red-300">{error}</p>
           </div>
         )}
 
         <div className="grid gap-8 lg:grid-cols-[1.1fr_0.9fr]">
-          <section className="rounded-[28px] border border-white/10 bg-[#1f2c34] p-6 shadow-xl shadow-black/20">
+          <section className="brand-panel rounded-[30px] p-6">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
-                <p className="text-xs uppercase tracking-[0.24em] text-white/45">Invitations</p>
+                <p className="brand-kicker text-[11px] text-white/45">Invitations</p>
                 <h2 className="mt-2 text-2xl font-semibold text-white">Generate a New Link</h2>
                 <p className="mt-2 text-sm text-white/60">
                   Create invitation links and share them with new contacts.
@@ -142,35 +146,35 @@ export default function Dashboard() {
                 value={label}
                 onChange={(e) => setLabel(e.target.value)}
                 placeholder="Optional team or campaign name"
-                className="w-full rounded-2xl border border-white/10 bg-[#0f1b22] px-4 py-3 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20"
+                className="brand-inset w-full rounded-2xl px-4 py-3.5 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20"
               />
             </div>
           </section>
 
-          <section className="rounded-[28px] border border-white/10 bg-[#1f2c34] p-6 shadow-xl shadow-black/20">
-            <p className="text-xs uppercase tracking-[0.24em] text-white/45">Overview</p>
+          <section className="brand-panel rounded-[30px] p-6">
+            <p className="brand-kicker text-[11px] text-white/45">Overview</p>
             <h2 className="mt-2 text-2xl font-semibold text-white">Invitation Links</h2>
             <p className="mt-2 text-sm text-white/60">
               Active links stay available until you disable them.
             </p>
-            <div className="mt-6 rounded-3xl border border-white/10 bg-[#0f1b22] px-5 py-6">
+            <div className="brand-inset mt-6 rounded-3xl px-5 py-6">
               <p className="text-4xl font-bold text-white">{links.length}</p>
               <p className="mt-2 text-sm text-white/60">total links created</p>
             </div>
           </section>
         </div>
 
-        <div className="mt-8 rounded-[28px] border border-white/10 bg-[#1f2c34] p-6 shadow-xl shadow-black/20">
+        <div className="brand-panel mt-8 rounded-[30px] p-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-xs uppercase tracking-[0.24em] text-white/45">List</p>
+              <p className="brand-kicker text-[11px] text-white/45">List</p>
               <h2 className="mt-2 text-2xl font-semibold text-white">Invitation Links</h2>
             </div>
             <p className="text-sm text-white/55">{links.length} link{links.length === 1 ? '' : 's'}</p>
           </div>
 
           {links.length === 0 ? (
-            <div className="mt-6 rounded-2xl border border-dashed border-white/10 bg-[#0f1b22] px-4 py-8 text-center text-white/60">
+            <div className="brand-inset mt-6 rounded-2xl border-dashed px-4 py-8 text-center text-white/60">
               No invitation links yet.
             </div>
           ) : (
@@ -178,7 +182,7 @@ export default function Dashboard() {
               {links.map((link) => (
                 <div
                   key={link.id}
-                  className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-[#0f1b22] p-4 lg:flex-row lg:items-center lg:justify-between"
+                  className="brand-inset flex flex-col gap-4 rounded-2xl p-4 lg:flex-row lg:items-center lg:justify-between"
                 >
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-white">

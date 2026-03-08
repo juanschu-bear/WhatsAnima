@@ -20,3 +20,69 @@ body {
   background: #0b141a;
   color: #ffffff;
 }
+
+.brand-scene {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 18% 18%, rgba(0, 168, 132, 0.18), transparent 34%),
+    radial-gradient(circle at 82% 80%, rgba(76, 193, 255, 0.16), transparent 32%),
+    linear-gradient(180deg, #07141a 0%, #061018 100%);
+}
+
+.brand-scene::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url("/mobil.png");
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  opacity: 0.28;
+  transform: scale(1.02);
+}
+
+@media (min-width: 768px) {
+  .brand-scene::before {
+    background-image: url("/hero.png");
+    opacity: 0.22;
+  }
+}
+
+.brand-scene::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(4, 15, 22, 0.56) 0%, rgba(4, 15, 22, 0.76) 100%),
+    radial-gradient(circle at center, rgba(0, 168, 132, 0.12), transparent 52%);
+}
+
+.brand-panel {
+  position: relative;
+  border: 1px solid rgba(195, 246, 236, 0.1);
+  background: linear-gradient(180deg, rgba(31, 44, 52, 0.9) 0%, rgba(18, 29, 36, 0.94) 100%);
+  box-shadow:
+    0 24px 80px rgba(0, 0, 0, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+}
+
+.brand-inset {
+  border: 1px solid rgba(195, 246, 236, 0.08);
+  background: rgba(5, 24, 33, 0.78);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.brand-wordmark {
+  background: linear-gradient(90deg, #ffffff 0%, #ffffff 34%, #c9fff2 58%, #9fe8d8 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.brand-kicker {
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+}
