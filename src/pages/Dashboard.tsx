@@ -58,18 +58,21 @@ export default function Dashboard() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-purple-600 to-blue-500">
+      <div className="flex min-h-screen items-center justify-center bg-[#0b141a]">
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-white border-t-transparent" />
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-600 to-blue-500 px-4 py-8">
+    <div className="min-h-screen bg-[#0b141a] px-4 py-8">
       <div className="mx-auto max-w-3xl">
         {/* Header */}
         <div className="mb-8 flex items-center justify-between">
-          <h1 className="text-3xl font-bold text-white">Dashboard</h1>
+          <div className="flex items-center gap-3">
+            <img src="/icon.png" alt="WhatsAnima" className="h-10 w-10 rounded-full" />
+            <h1 className="text-3xl font-bold text-white">Dashboard</h1>
+          </div>
           <button
             onClick={signOut}
             className="rounded-lg border border-white/30 px-4 py-2 text-sm text-white transition hover:bg-white/10"
@@ -78,8 +81,13 @@ export default function Dashboard() {
           </button>
         </div>
 
+        {/* Hero image */}
+        <div className="mb-8 flex justify-center">
+          <img src="/hero.png" alt="WhatsAnima" className="w-full max-w-[400px] rounded-2xl" />
+        </div>
+
         {/* Generate new link */}
-        <div className="mb-8 rounded-2xl bg-white/10 p-6 backdrop-blur-md">
+        <div className="mb-8 rounded-2xl bg-white/5 p-6 backdrop-blur-md">
           <h2 className="mb-4 text-lg font-semibold text-white">Neuen Einladungslink erstellen</h2>
           <div className="flex gap-3">
             <input
@@ -91,7 +99,7 @@ export default function Dashboard() {
             />
             <button
               onClick={handleGenerate}
-              className="rounded-lg bg-white px-6 py-2 font-semibold text-purple-700 transition hover:bg-white/90"
+              className="rounded-lg bg-white px-6 py-2 font-semibold text-[#0b141a] transition hover:bg-white/90"
             >
               Erstellen
             </button>
@@ -99,7 +107,7 @@ export default function Dashboard() {
         </div>
 
         {/* Links list */}
-        <div className="rounded-2xl bg-white/10 p-6 backdrop-blur-md">
+        <div className="rounded-2xl bg-white/5 p-6 backdrop-blur-md">
           <h2 className="mb-4 text-lg font-semibold text-white">Einladungslinks</h2>
 
           {links.length === 0 ? (
