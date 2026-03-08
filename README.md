@@ -1,8 +1,8 @@
 # WhatsAnima
 
-**Observational Perception Messaging — the only AI twin that reads the room while it runs the conversation.**
+**Observational Perception Messaging - the only AI twin that reads the room while it runs the conversation.**
 
-WhatsAnima lets you deploy a personalized AI avatar, powered by your voice and likeness, that your contacts can message 24/7. Every conversation is silently analyzed through the OPM (Observational Perception Models) pipeline, giving you a real-time read on who you're dealing with — without ever being in the room.
+WhatsAnima lets you deploy a personalized AI avatar, powered by your voice and likeness, that your contacts can message 24/7. Every conversation is silently analyzed through the OPM (Observational Perception Models) pipeline, giving you a real-time read on who you're dealing with - without ever being in the room.
 
 ---
 
@@ -92,7 +92,7 @@ npm run dev
 
 ## Architecture
 
-WhatsAnima sits on top of the DITTO Architecture — the same OPM engine that powers ANIMA Connect, configured for a different vertical: **inbound contact perception** instead of outbound CEO coaching.
+WhatsAnima sits on top of the DITTO Architecture - the same OPM engine that powers ANIMA Connect, configured for a different vertical: **inbound contact perception** instead of outbound CEO coaching.
 
 ```
 Contact sends voice/video message
@@ -108,7 +108,7 @@ Owner's AI avatar responds via ElevenLabs + Tavus
 
 ## Part of the ONIOKO Ecosystem
 
-Built by [ONIOKO](https://onioko.com) — hybrid human-AI product studio.
+Built by [ONIOKO](https://onioko.com) - hybrid human-AI product studio.
 
 - ANIMA Connect: CEO avatar coaching platform
 - WhatsAnima: Observational Perception Messaging
