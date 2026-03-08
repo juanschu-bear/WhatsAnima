@@ -85,7 +85,7 @@ export default function Dashboard() {
       <div className="mx-auto max-w-5xl">
         <div className="mb-8 flex flex-col gap-4 rounded-[28px] border border-white/10 bg-[#1f2c34] p-6 shadow-xl shadow-black/20 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-4">
-            <img src="/Icon.PNG" alt="WhatsAnima" className="h-12 w-12 object-contain" />
+            <img src="/Icon.PNG" alt="WhatsAnima" className="h-10 w-10 shrink-0 object-contain" />
             <div>
               <p className="text-xs uppercase tracking-[0.24em] text-white/45">WhatsAnima</p>
               <h1 className="text-3xl font-bold text-white">Dashboard</h1>
