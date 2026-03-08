@@ -28,22 +28,11 @@ export default function Signup() {
   return (
     <div className="brand-scene min-h-screen">
       <div className="relative z-10 flex min-h-screen items-center justify-center px-6 py-12">
-        <div className="pointer-events-none absolute inset-x-0 bottom-[6vh] hidden justify-center px-6 md:flex">
-          <div className="text-center">
-            <div className="brand-wordmark text-[8rem] font-extrabold leading-none opacity-[0.08] lg:text-[11rem]">
-              WhatsAnima
-            </div>
-            <div className="brand-kicker mt-2 text-lg text-white/10">
-              Observational Perception Messaging
-            </div>
-          </div>
-        </div>
-
         <div className="brand-panel w-full max-w-md rounded-[32px] p-8 sm:p-10">
           <img
             src="/Icon.PNG"
             alt="WhatsAnima"
-            className="mx-auto mb-5 h-24 w-auto object-contain drop-shadow-[0_0_28px_rgba(93,236,214,0.42)]"
+            className="mx-auto mb-5 h-16 w-auto object-contain drop-shadow-[0_0_22px_rgba(93,236,214,0.34)]"
           />
           <h1 className="mb-2 text-center text-4xl font-bold tracking-tight text-white">Sign Up</h1>
           <p className="mb-8 text-center text-sm text-white/65">
