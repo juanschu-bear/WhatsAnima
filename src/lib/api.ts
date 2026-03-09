@@ -60,7 +60,7 @@ export async function toggleInvitationLink(linkId: string, active: boolean) {
 export async function validateInvitationToken(token: string) {
   const { data, error } = await supabase
     .from('wa_invitation_links')
-    .select('*, wa_owners(id, display_name, avatar_url, voice_id, tavus_replica_id)')
+    .select('*, wa_owners(id, display_name, avatar_url, voice_id, tavus_replica_id, system_prompt)')
     .eq('token', token)
     .eq('active', true)
     .single()
@@ -129,7 +129,7 @@ export async function createContactAndConversation(
 export async function getConversation(conversationId: string) {
   const { data, error } = await supabase
     .from('wa_conversations')
-    .select('*, wa_owners(display_name, avatar_url, voice_id, tavus_replica_id), wa_contacts(display_name)')
+    .select('*, wa_owners(display_name, avatar_url, voice_id, tavus_replica_id, system_prompt), wa_contacts(display_name)')
     .eq('id', conversationId)
     .single()
   if (error) throw error

@@ -31,6 +31,7 @@ interface ConversationData {
     display_name: string
     avatar_url: string | null
     voice_id: string | null
+    system_prompt?: string | null
     tavus_replica_id: string | null
   }
   wa_contacts: { display_name: string }
@@ -482,15 +483,36 @@ export default function Chat() {
     userMessage: string,
     voiceId: string | null | undefined
   ): Promise<{ content: string; mediaUrl: string | null }> {
-    if (!voiceId) {
-      return {
-        content: 'Voice service is not configured for this owner.',
-        mediaUrl: null,
-      }
-    }
-
     try {
-      const replyText = `You said: "${userMessage}". Thank you for your message! I'm here to chat with you.`
+      const history = messages
+        .slice(-10)
+        .map((message) => ({
+          role: message.sender === 'contact' ? 'user' : 'assistant',
+          content: (message.content || '').trim(),
+        }))
+        .filter((message) => message.content.length > 0)
+
+      const chatResponse = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: userMessage,
+          systemPrompt: conversation?.wa_owners.system_prompt || 'You are a helpful assistant.',
+          history,
+        }),
+      })
+
+      let replyText = ''
+      if (chatResponse.ok) {
+        const chatData = await chatResponse.json()
+        replyText = typeof chatData?.content === 'string' ? chatData.content.trim() : ''
+      }
+      if (!replyText) {
+        replyText = 'Honestly? Give me the interesting part first.'
+      }
+
       const response = await fetch('/api/tts', {
         method: 'POST',
         headers: {
@@ -499,12 +521,13 @@ export default function Chat() {
         body: JSON.stringify({
           text: replyText,
           voiceId,
+          voice_id: voiceId,
         }),
       })
 
       if (!response.ok) {
         return {
-          content: 'Sorry, I could not generate a voice response right now.',
+          content: replyText,
           mediaUrl: null,
         }
       }

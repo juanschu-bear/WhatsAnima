@@ -12,6 +12,7 @@ interface InviteData {
     avatar_url: string | null
     voice_id: string | null
     tavus_replica_id: string | null
+    system_prompt?: string | null
   }
 }
 

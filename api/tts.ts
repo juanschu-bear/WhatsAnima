@@ -1,3 +1,5 @@
+const JUAN_VOICE_ID = 'lx8LAX2EUAKftVz0Dk5z'
+
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST')
@@ -9,19 +11,20 @@ export default async function handler(req: any, res: any) {
     return res.status(500).json({ error: 'Missing ELEVENLABS_API_KEY' })
   }
 
-  const { text, voiceId } = req.body ?? {}
+  const { text, voiceId, voice_id } = req.body ?? {}
 
   if (!text || typeof text !== 'string') {
     return res.status(400).json({ error: 'Missing text' })
   }
 
-  if (!voiceId || typeof voiceId !== 'string') {
-    return res.status(400).json({ error: 'Missing voiceId' })
-  }
+  const resolvedVoiceId =
+    (typeof voiceId === 'string' && voiceId.trim()) ||
+    (typeof voice_id === 'string' && voice_id.trim()) ||
+    JUAN_VOICE_ID
 
   try {
     const response = await fetch(
-      `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
+      `https://api.elevenlabs.io/v1/text-to-speech/${resolvedVoiceId}`,
       {
         method: 'POST',
         headers: {
@@ -35,6 +38,7 @@ export default async function handler(req: any, res: any) {
             stability: 0.5,
             similarity_boost: 0.75,
           },
+          output_format: 'mp3_44100_128',
         }),
       }
     )

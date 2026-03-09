@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS public.wa_owners (
   display_name TEXT NOT NULL,
   avatar_url TEXT,
   voice_id TEXT,
+  system_prompt TEXT,
   tavus_replica_id TEXT,
   opm_api_url TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -123,6 +124,9 @@ CREATE POLICY "conversations_public_read" ON public.wa_conversations
   FOR SELECT USING (TRUE);
 CREATE POLICY "conversations_insert" ON public.wa_conversations
   FOR INSERT WITH CHECK (TRUE);
+
+ALTER TABLE public.wa_owners
+  ADD COLUMN IF NOT EXISTS system_prompt TEXT;
 
 -- wa_messages: anyone in the conversation can read/write messages
 CREATE POLICY "messages_select" ON public.wa_messages
