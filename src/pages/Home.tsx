@@ -3,6 +3,10 @@ import { useAuth } from '../contexts/AuthContext'
 
 export default function Home() {
   const { user, signOut } = useAuth()
+  const ownerDisplay =
+    [user?.user_metadata?.first_name, user?.user_metadata?.last_name].filter(Boolean).join(' ') ||
+    user?.phone ||
+    'WhatsAnima'
 
   return (
     <div className="brand-scene min-h-screen text-white">
@@ -23,7 +27,7 @@ export default function Home() {
             Your AI twin is ready.
           </p>
           <div className="mt-5 rounded-full border border-white/10 bg-white/5 px-5 py-2 text-sm text-white/70 backdrop-blur-xl">
-            {user?.email}
+            {ownerDisplay}
           </div>
           <div className="mt-8 flex w-full max-w-sm flex-col gap-3 sm:flex-row">
             <Link

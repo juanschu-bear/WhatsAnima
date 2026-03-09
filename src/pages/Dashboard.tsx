@@ -26,6 +26,11 @@ export default function Dashboard() {
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  const firstName = String(user?.user_metadata?.first_name ?? '').trim()
+  const lastName = String(user?.user_metadata?.last_name ?? '').trim()
+  const phoneNumber = String(user?.phone ?? user?.user_metadata?.phone_number ?? '').trim()
+  const ownerDisplay = [firstName, lastName].filter(Boolean).join(' ') || phoneNumber || 'Owner'
+
   useEffect(() => {
     if (!user) {
       setLoading(false)
@@ -33,7 +38,12 @@ export default function Dashboard() {
     }
 
     setLoading(true)
-    createOwnerIfNeeded(user.id, user.email ?? 'Owner')
+    createOwnerIfNeeded({
+      userId: user.id,
+      firstName: firstName || 'Owner',
+      lastName,
+      phoneNumber,
+    })
       .then((owner) => {
         setOwnerId(owner.id)
         return listInvitationLinks(owner.id)
@@ -49,7 +59,7 @@ export default function Dashboard() {
       .finally(() => {
         setLoading(false)
       })
-  }, [user])
+  }, [firstName, lastName, phoneNumber, user])
 
   const handleGenerate = async () => {
     if (!ownerId) return
@@ -93,7 +103,7 @@ export default function Dashboard() {
             <div>
               <p className="brand-kicker text-[11px] text-white/45">WhatsAnima</p>
               <h1 className="text-3xl font-bold text-white">Dashboard</h1>
-              <p className="mt-1 text-sm text-white/60">{user?.email}</p>
+              <p className="mt-1 text-sm text-white/60">{ownerDisplay}</p>
             </div>
           </div>
           <div className="flex gap-3">

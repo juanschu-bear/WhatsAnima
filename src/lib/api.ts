@@ -12,17 +12,45 @@ export async function getOwnerByUserId(userId: string) {
   return data
 }
 
-export async function createOwnerIfNeeded(userId: string, displayName: string) {
+export async function createOwnerIfNeeded(payload: {
+  userId: string
+  firstName: string
+  lastName: string
+  phoneNumber: string
+}) {
+  const displayName = `${payload.firstName} ${payload.lastName}`.trim()
   const { data: existing } = await supabase
     .from('wa_owners')
     .select('*')
-    .eq('user_id', userId)
+    .eq('user_id', payload.userId)
     .single()
-  if (existing) return existing
+
+  if (existing) {
+    const { data, error } = await supabase
+      .from('wa_owners')
+      .update({
+        display_name: displayName || existing.display_name,
+        first_name: payload.firstName || existing.first_name,
+        last_name: payload.lastName || existing.last_name,
+        phone_number: payload.phoneNumber || existing.phone_number,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', existing.id)
+      .select()
+      .single()
+    if (error) throw error
+    return data
+  }
 
   const { data, error } = await supabase
     .from('wa_owners')
-    .insert({ user_id: userId, display_name: displayName })
+    .insert({
+      user_id: payload.userId,
+      display_name: displayName || payload.phoneNumber,
+      first_name: payload.firstName,
+      last_name: payload.lastName,
+      phone_number: payload.phoneNumber,
+    })
     .select()
     .single()
   if (error) throw error
@@ -32,7 +60,7 @@ export async function createOwnerIfNeeded(userId: string, displayName: string) {
 export async function generateInvitationLink(ownerId: string, label?: string) {
   const { data, error } = await supabase
     .from('wa_invitation_links')
-    .insert({ owner_id: ownerId, label: label || null })
+    .insert({ owner_id: ownerId, label: label || null, active: true })
     .select()
     .single()
   if (error) throw error
@@ -60,12 +88,29 @@ export async function toggleInvitationLink(linkId: string, active: boolean) {
 export async function validateInvitationToken(token: string) {
   const { data, error } = await supabase
     .from('wa_invitation_links')
-    .select('*, wa_owners(id, display_name, avatar_url, voice_id, tavus_replica_id, system_prompt)')
+    .select('*')
     .eq('token', token)
     .eq('active', true)
     .single()
   if (error) return null
-  return data
+
+  const { data: owner } = await supabase
+    .from('wa_owners')
+    .select('id, display_name, avatar_url, voice_id, tavus_replica_id, system_prompt')
+    .eq('id', data.owner_id)
+    .maybeSingle()
+
+  return {
+    ...data,
+    wa_owners: owner ?? {
+      id: data.owner_id,
+      display_name: 'WhatsAnima',
+      avatar_url: null,
+      voice_id: null,
+      tavus_replica_id: null,
+      system_prompt: null,
+    },
+  }
 }
 
 export async function createContactAndConversation(

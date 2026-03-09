@@ -6,6 +6,9 @@ CREATE TABLE IF NOT EXISTS public.wa_owners (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
   display_name TEXT NOT NULL,
+  first_name TEXT,
+  last_name TEXT,
+  phone_number TEXT,
   avatar_url TEXT,
   voice_id TEXT,
   system_prompt TEXT,
@@ -98,6 +101,15 @@ CREATE POLICY "owners_insert_own" ON public.wa_owners
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 CREATE POLICY "owners_update_own" ON public.wa_owners
   FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "owners_public_for_active_links" ON public.wa_owners
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1
+      FROM public.wa_invitation_links links
+      WHERE links.owner_id = public.wa_owners.id
+        AND links.active = TRUE
+    )
+  );
 
 -- wa_invitation_links: owners manage their own links, anyone can read active links (for /invite/:token)
 CREATE POLICY "links_owner_all" ON public.wa_invitation_links
@@ -127,6 +139,23 @@ CREATE POLICY "conversations_insert" ON public.wa_conversations
 
 ALTER TABLE public.wa_owners
   ADD COLUMN IF NOT EXISTS system_prompt TEXT;
+ALTER TABLE public.wa_owners
+  ADD COLUMN IF NOT EXISTS first_name TEXT;
+ALTER TABLE public.wa_owners
+  ADD COLUMN IF NOT EXISTS last_name TEXT;
+ALTER TABLE public.wa_owners
+  ADD COLUMN IF NOT EXISTS phone_number TEXT;
+
+DROP POLICY IF EXISTS "owners_public_for_active_links" ON public.wa_owners;
+CREATE POLICY "owners_public_for_active_links" ON public.wa_owners
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1
+      FROM public.wa_invitation_links links
+      WHERE links.owner_id = public.wa_owners.id
+        AND links.active = TRUE
+    )
+  );
 
 -- wa_messages: anyone in the conversation can read/write messages
 CREATE POLICY "messages_select" ON public.wa_messages
