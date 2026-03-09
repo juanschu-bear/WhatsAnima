@@ -30,6 +30,7 @@ export default async function handler(req: any, res: any) {
         headers: {
           'Content-Type': 'application/json',
           'xi-api-key': apiKey,
+          Accept: 'audio/mpeg',
         },
         body: JSON.stringify({
           text,
@@ -46,12 +47,31 @@ export default async function handler(req: any, res: any) {
       const errorText = await response.text()
       return res.status(response.status).json({
         error: 'ElevenLabs request failed',
+        status: response.status,
         details: errorText,
+      })
+    }
+
+    const contentType = response.headers.get('content-type') || ''
+    if (!contentType.includes('audio')) {
+      const bodyText = await response.text()
+      return res.status(502).json({
+        error: 'ElevenLabs returned non-audio response',
+        contentType,
+        details: bodyText.slice(0, 500),
       })
     }
 
     const arrayBuffer = await response.arrayBuffer()
     const buffer = Buffer.from(arrayBuffer)
+
+    if (buffer.length < 100) {
+      return res.status(502).json({
+        error: 'ElevenLabs returned empty or too-small audio',
+        size: buffer.length,
+      })
+    }
+
     res.setHeader('Content-Type', 'audio/mpeg')
     res.setHeader('Content-Length', buffer.length.toString())
     res.setHeader('Cache-Control', 'no-store')
