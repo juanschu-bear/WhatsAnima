@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import {
   createOwnerIfNeeded,
+  deleteInvitationLink,
   generateInvitationLink,
   getOwnerDashboardStats,
   listConversations,
@@ -305,6 +306,16 @@ export default function Dashboard() {
     }
   }
 
+  const handleDelete = async (linkId: string) => {
+    try {
+      await deleteInvitationLink(linkId)
+      setLinks((current) => current.filter((link) => link.id !== linkId))
+    } catch (deleteError) {
+      console.error('Invite delete error:', deleteError)
+      setError('Unable to delete this invite link.')
+    }
+  }
+
   const copyLink = (token: string, id: string) => {
     navigator.clipboard.writeText(`${window.location.origin}/invite/${token}`)
     setCopiedId(id)
@@ -396,9 +407,9 @@ export default function Dashboard() {
           </div>
         ) : null}
 
-        <div className="grid flex-1 gap-4 xl:grid-cols-[360px_minmax(0,1fr)_320px]">
+        <div className="grid flex-1 gap-4 xl:grid-cols-[360px_minmax(0,1fr)_320px] xl:max-h-[calc(100vh-280px)]">
           <aside
-            className={`brand-panel flex min-h-[760px] flex-col overflow-hidden rounded-[32px] transition duration-300 ${
+            className={`brand-panel flex min-h-0 flex-col overflow-hidden rounded-[32px] transition duration-300 ${
               isMobileConversationOpen ? 'hidden xl:flex' : 'flex'
             }`}
           >
@@ -526,6 +537,13 @@ export default function Dashboard() {
                           >
                             {copiedId === link.id ? 'Copied' : 'Copy Link'}
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(link.id)}
+                            className="rounded-xl border border-red-400/20 px-3 py-2 text-xs text-red-300/70 transition hover:border-red-400/50 hover:text-red-300"
+                          >
+                            Delete
+                          </button>
                         </div>
                       </div>
                     ))}
@@ -536,7 +554,7 @@ export default function Dashboard() {
           </aside>
 
           <section
-            className={`brand-panel min-h-[760px] overflow-hidden rounded-[32px] ${
+            className={`brand-panel min-h-0 overflow-hidden rounded-[32px] ${
               isMobileConversationOpen ? 'flex' : 'hidden xl:flex'
             } flex-col`}
           >
@@ -638,7 +656,7 @@ export default function Dashboard() {
             )}
           </section>
 
-          <aside className="brand-panel flex min-h-[760px] flex-col overflow-hidden rounded-[32px]">
+          <aside className="brand-panel flex min-h-0 flex-col overflow-hidden rounded-[32px]">
             <div className="border-b border-white/8 px-5 pb-4 pt-5">
               <p className="brand-kicker text-[10px] text-white/40">Insights</p>
               <h2 className="mt-2 text-2xl font-semibold text-white">Conversation intelligence</h2>
