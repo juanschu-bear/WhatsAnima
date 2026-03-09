@@ -2,6 +2,52 @@ import { supabase } from './supabase'
 
 export type MessageType = 'text' | 'voice' | 'video' | 'image'
 
+export interface ContactConversationPayload {
+  ownerId: string
+  invitationId: string
+  firstName: string
+  lastName: string
+  phoneNumber: string
+}
+
+export interface ConversationListItem {
+  id: string
+  owner_id: string
+  contact_id: string
+  created_at: string
+  updated_at: string
+  wa_contacts: {
+    id: string
+    display_name: string | null
+    first_name: string | null
+    last_name: string | null
+    phone_number: string | null
+  } | null
+  last_message: {
+    id: string
+    content: string | null
+    type: MessageType
+    created_at: string
+  } | null
+}
+
+interface ConversationRow {
+  id: string
+  owner_id: string
+  contact_id: string
+  created_at: string
+  updated_at: string
+  wa_contacts:
+    | Array<{
+        id: string
+        display_name: string | null
+        first_name: string | null
+        last_name: string | null
+        phone_number: string | null
+      }>
+    | null
+}
+
 export async function getOwnerByUserId(userId: string) {
   const { data, error } = await supabase
     .from('wa_owners')
@@ -113,18 +159,21 @@ export async function validateInvitationToken(token: string) {
   }
 }
 
-export async function createContactAndConversation(
-  ownerId: string,
-  invitationId: string,
-  displayName: string
-) {
+export async function createContactAndConversation(payload: ContactConversationPayload) {
   const contactId = crypto.randomUUID()
   const conversationId = crypto.randomUUID()
+  const firstName = payload.firstName.trim()
+  const lastName = payload.lastName.trim()
+  const phoneNumber = payload.phoneNumber.trim()
+  const displayName = [firstName, lastName].filter(Boolean).join(' ').trim() || phoneNumber
   const contactPayload = {
     id: contactId,
-    owner_id: ownerId,
-    invitation_id: invitationId,
+    owner_id: payload.ownerId,
+    invitation_id: payload.invitationId,
     display_name: displayName,
+    first_name: firstName,
+    last_name: lastName,
+    phone_number: phoneNumber,
   }
 
   console.log('[createContactAndConversation] inserting contact', contactPayload)
@@ -145,7 +194,7 @@ export async function createContactAndConversation(
 
   const conversationPayload = {
     id: conversationId,
-    owner_id: ownerId,
+    owner_id: payload.ownerId,
     contact_id: contactId,
   }
 
@@ -165,10 +214,94 @@ export async function createContactAndConversation(
     throw convErr
   }
 
+  const { data: inviteLink, error: inviteReadErr } = await supabase
+    .from('wa_invitation_links')
+    .select('id, use_count')
+    .eq('id', payload.invitationId)
+    .maybeSingle()
+  if (inviteReadErr) {
+    console.log('[createContactAndConversation] invite read error', {
+      message: inviteReadErr.message,
+      details: inviteReadErr.details,
+      hint: inviteReadErr.hint,
+      code: inviteReadErr.code,
+      invitationId: payload.invitationId,
+    })
+  } else if (inviteLink) {
+    const nextUseCount = Number(inviteLink.use_count ?? 0) + 1
+    const { error: inviteUpdateErr } = await supabase
+      .from('wa_invitation_links')
+      .update({ use_count: nextUseCount })
+      .eq('id', payload.invitationId)
+    if (inviteUpdateErr) {
+      console.log('[createContactAndConversation] invite usage update error', {
+        message: inviteUpdateErr.message,
+        details: inviteUpdateErr.details,
+        hint: inviteUpdateErr.hint,
+        code: inviteUpdateErr.code,
+        invitationId: payload.invitationId,
+        nextUseCount,
+      })
+    }
+  }
+
   return {
     contact: contactPayload,
     conversation: conversationPayload,
   }
+}
+
+export async function listConversations(ownerId: string): Promise<ConversationListItem[]> {
+  const { data: conversations, error: conversationsError } = await supabase
+    .from('wa_conversations')
+    .select(`
+      id,
+      owner_id,
+      contact_id,
+      created_at,
+      updated_at,
+      wa_contacts (
+        id,
+        display_name,
+        first_name,
+        last_name,
+        phone_number
+      )
+    `)
+    .eq('owner_id', ownerId)
+    .order('updated_at', { ascending: false })
+
+  if (conversationsError) throw conversationsError
+
+  const rows = (conversations ?? []) as ConversationRow[]
+  if (rows.length === 0) return []
+
+  const conversationIds = rows.map((row) => row.id)
+  const { data: messages, error: messagesError } = await supabase
+    .from('wa_messages')
+    .select('id, conversation_id, content, type, created_at')
+    .in('conversation_id', conversationIds)
+    .order('created_at', { ascending: false })
+
+  if (messagesError) throw messagesError
+
+  const lastMessageByConversation = new Map<string, ConversationListItem['last_message']>()
+  for (const message of messages ?? []) {
+    if (!lastMessageByConversation.has(message.conversation_id)) {
+      lastMessageByConversation.set(message.conversation_id, {
+        id: message.id,
+        content: message.content,
+        type: message.type as MessageType,
+        created_at: message.created_at,
+      })
+    }
+  }
+
+  return rows.map((row) => ({
+    ...row,
+    wa_contacts: Array.isArray(row.wa_contacts) ? row.wa_contacts[0] ?? null : row.wa_contacts,
+    last_message: lastMessageByConversation.get(row.id) ?? null,
+  }))
 }
 
 export async function getConversation(conversationId: string) {
@@ -187,7 +320,7 @@ export async function getConversation(conversationId: string) {
       .maybeSingle(),
     supabase
       .from('wa_contacts')
-      .select('id, display_name')
+      .select('id, display_name, first_name, last_name, phone_number')
       .eq('id', conversation.contact_id)
       .maybeSingle(),
   ])
@@ -205,6 +338,9 @@ export async function getConversation(conversationId: string) {
     wa_contacts: contact ?? {
       id: conversation.contact_id,
       display_name: 'Guest',
+      first_name: null,
+      last_name: null,
+      phone_number: null,
     },
   }
 }
@@ -274,5 +410,12 @@ export async function sendMessage(
     .select()
     .single()
   if (error) throw error
+
+  const { error: conversationError } = await supabase
+    .from('wa_conversations')
+    .update({ updated_at: new Date().toISOString() })
+    .eq('id', conversationId)
+  if (conversationError) throw conversationError
+
   return data
 }

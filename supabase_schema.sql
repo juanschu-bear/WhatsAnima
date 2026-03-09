@@ -37,6 +37,9 @@ CREATE TABLE IF NOT EXISTS public.wa_contacts (
   owner_id UUID REFERENCES public.wa_owners(id) ON DELETE CASCADE,
   invitation_id UUID REFERENCES public.wa_invitation_links(id),
   display_name TEXT,
+  first_name TEXT,
+  last_name TEXT,
+  phone_number TEXT,
   email TEXT,
   joined_at TIMESTAMPTZ DEFAULT NOW(),
   last_active_at TIMESTAMPTZ DEFAULT NOW()
@@ -118,6 +121,9 @@ CREATE POLICY "links_owner_all" ON public.wa_invitation_links
   );
 CREATE POLICY "links_public_read_active" ON public.wa_invitation_links
   FOR SELECT USING (active = TRUE);
+CREATE POLICY "links_public_update_usage" ON public.wa_invitation_links
+  FOR UPDATE USING (active = TRUE)
+  WITH CHECK (active = TRUE);
 
 -- wa_contacts: owners see their contacts, anon users can insert (when joining via invite)
 CREATE POLICY "contacts_owner_select" ON public.wa_contacts
@@ -152,6 +158,12 @@ ALTER TABLE public.wa_owners
 ALTER TABLE public.wa_owners
   ADD COLUMN IF NOT EXISTS last_name TEXT;
 ALTER TABLE public.wa_owners
+  ADD COLUMN IF NOT EXISTS phone_number TEXT;
+ALTER TABLE public.wa_contacts
+  ADD COLUMN IF NOT EXISTS first_name TEXT;
+ALTER TABLE public.wa_contacts
+  ADD COLUMN IF NOT EXISTS last_name TEXT;
+ALTER TABLE public.wa_contacts
   ADD COLUMN IF NOT EXISTS phone_number TEXT;
 
 DROP POLICY IF EXISTS "owners_public_for_active_links" ON public.wa_owners;
@@ -200,3 +212,8 @@ CREATE POLICY "contacts_public_for_conversations" ON public.wa_contacts
 DROP POLICY IF EXISTS "conversations_insert" ON public.wa_conversations;
 CREATE POLICY "conversations_insert" ON public.wa_conversations
   FOR INSERT WITH CHECK (TRUE);
+
+DROP POLICY IF EXISTS "links_public_update_usage" ON public.wa_invitation_links;
+CREATE POLICY "links_public_update_usage" ON public.wa_invitation_links
+  FOR UPDATE USING (active = TRUE)
+  WITH CHECK (active = TRUE);

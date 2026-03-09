@@ -4,8 +4,10 @@ import { useAuth } from '../contexts/AuthContext'
 import {
   createOwnerIfNeeded,
   generateInvitationLink,
+  listConversations,
   listInvitationLinks,
   toggleInvitationLink,
+  type ConversationListItem,
 } from '../lib/api'
 
 interface InvitationLink {
@@ -25,6 +27,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [conversations, setConversations] = useState<ConversationListItem[]>([])
 
   const firstName = String(user?.user_metadata?.first_name ?? '').trim()
   const lastName = String(user?.user_metadata?.last_name ?? '').trim()
@@ -46,10 +49,11 @@ export default function Dashboard() {
     })
       .then((owner) => {
         setOwnerId(owner.id)
-        return listInvitationLinks(owner.id)
+        return Promise.all([listInvitationLinks(owner.id), listConversations(owner.id)])
       })
-      .then((data) => {
-        setLinks(data as InvitationLink[])
+      .then(([linkData, conversationData]) => {
+        setLinks(linkData as InvitationLink[])
+        setConversations(conversationData)
         setError(null)
       })
       .catch((err) => {
@@ -66,6 +70,24 @@ export default function Dashboard() {
     const link = await generateInvitationLink(ownerId, label || undefined)
     setLinks((prev) => [link as InvitationLink, ...prev])
     setLabel('')
+  }
+
+  const formatConversationName = (conversation: ConversationListItem) => {
+    const contact = conversation.wa_contacts
+    const fullName = [contact?.first_name, contact?.last_name].filter(Boolean).join(' ').trim()
+    return fullName || contact?.display_name || contact?.phone_number || 'Guest'
+  }
+
+  const formatConversationPreview = (conversation: ConversationListItem) => {
+    const message = conversation.last_message
+    if (!message) return 'No messages yet.'
+    if (message.content?.trim()) return message.content
+    return {
+      voice: 'Voice message',
+      video: 'Video message',
+      image: 'Image',
+      text: 'Message',
+    }[message.type]
   }
 
   const handleToggle = async (linkId: string, currentActive: boolean) => {
@@ -174,7 +196,8 @@ export default function Dashboard() {
           </section>
         </div>
 
-        <div className="brand-panel mt-8 rounded-[30px] p-6">
+        <div className="grid gap-8 lg:grid-cols-[1.05fr_0.95fr]">
+          <div className="brand-panel rounded-[30px] p-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="brand-kicker text-[11px] text-white/45">List</p>
@@ -230,6 +253,52 @@ export default function Dashboard() {
               ))}
             </div>
           )}
+          </div>
+
+          <div className="brand-panel rounded-[30px] p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="brand-kicker text-[11px] text-white/45">Inbox</p>
+                <h2 className="mt-2 text-2xl font-semibold text-white">Conversations</h2>
+              </div>
+              <p className="text-sm text-white/55">
+                {conversations.length} conversation{conversations.length === 1 ? '' : 's'}
+              </p>
+            </div>
+
+            {conversations.length === 0 ? (
+              <div className="brand-inset mt-6 rounded-2xl border-dashed px-4 py-8 text-center text-white/60">
+                No conversations yet.
+              </div>
+            ) : (
+              <div className="mt-6 space-y-3">
+                {conversations.map((conversation) => (
+                  <Link
+                    key={conversation.id}
+                    to={`/chat/${conversation.id}`}
+                    className="brand-inset flex items-start justify-between gap-4 rounded-2xl p-4 transition hover:border-[#00a884]/45"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-white">
+                        {formatConversationName(conversation)}
+                      </p>
+                      <p className="mt-1 text-xs text-white/55">
+                        {conversation.wa_contacts?.phone_number || 'No phone number'}
+                      </p>
+                      <p className="mt-3 truncate text-sm text-white/70">
+                        {formatConversationPreview(conversation)}
+                      </p>
+                    </div>
+                    <div className="shrink-0 text-xs text-white/45">
+                      {conversation.last_message
+                        ? new Date(conversation.last_message.created_at).toLocaleDateString()
+                        : new Date(conversation.created_at).toLocaleDateString()}
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
