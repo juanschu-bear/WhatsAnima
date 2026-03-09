@@ -1,5 +1,3 @@
-import Anthropic from '@anthropic-ai/sdk'
-
 const DEFAULT_SYSTEM_PROMPT = 'You are a helpful assistant.'
 
 const LANGUAGE_INSTRUCTION =
@@ -56,19 +54,32 @@ export default async function handler(req: any, res: any) {
   ]
 
   try {
-    const client = new Anthropic({ apiKey })
-
-    const response = await client.messages.create({
-      model: 'claude-opus-4-5-20251101',
-      max_tokens: 300,
-      temperature: 0.5,
-      system: `${safeSystemPrompt}\n\n${LANGUAGE_INSTRUCTION}`,
-      messages,
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-opus-4-5-20251101',
+        max_tokens: 300,
+        temperature: 0.5,
+        system: `${safeSystemPrompt}\n\n${LANGUAGE_INSTRUCTION}`,
+        messages,
+      }),
     })
 
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('Anthropic API error:', response.status, errorText)
+      return res.status(200).json({ content: 'Sorry, something went wrong. Try again.' })
+    }
+
+    const data = await response.json()
     const content =
-      response.content[0]?.type === 'text'
-        ? response.content[0].text.trim()
+      data?.content?.[0]?.type === 'text'
+        ? data.content[0].text.trim()
         : ''
 
     if (!content) {
