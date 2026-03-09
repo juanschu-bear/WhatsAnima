@@ -218,10 +218,10 @@ const VoiceMessageBubble = memo(function VoiceMessageBubble({
 
   return (
     <div
-      className={`relative max-w-[80%] rounded-2xl px-3 py-2 text-sm shadow ${
+      className={`relative max-w-[84%] rounded-[24px] border px-3 py-2.5 text-sm shadow-[0_18px_50px_rgba(0,0,0,0.18)] backdrop-blur-xl ${
         isContact
-          ? 'rounded-tr-md bg-[#005c4b] text-white'
-          : 'rounded-tl-md bg-[#1f2c34] text-white'
+          ? 'rounded-tr-md border-[#47dfc2]/20 bg-[linear-gradient(180deg,rgba(8,118,100,0.9),rgba(5,86,79,0.92))] text-white'
+          : 'rounded-tl-md border-white/8 bg-[linear-gradient(180deg,rgba(22,34,51,0.86),rgba(12,24,39,0.92))] text-white'
       }`}
     >
       <div className="flex items-center gap-3">
@@ -229,7 +229,7 @@ const VoiceMessageBubble = memo(function VoiceMessageBubble({
           type="button"
           onClick={togglePlay}
           disabled={!hasPlayableAudio}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/12 text-white disabled:opacity-40"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/8 bg-white/8 text-white disabled:opacity-40"
         >
           {isPlaying ? (
             <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
@@ -258,13 +258,13 @@ const VoiceMessageBubble = memo(function VoiceMessageBubble({
         <button
           type="button"
           onClick={() => setIsTranscriptOpen((current) => !current)}
-          className="mt-2 rounded-full border border-white/10 px-3 py-1 text-[11px] font-medium text-white/80 transition hover:border-white/25"
+          className="mt-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-medium text-white/80 transition hover:border-white/25"
         >
           {isTranscriptOpen ? 'Hide transcript' : 'Transcribe'}
         </button>
       ) : null}
       {hasTranscript && isTranscriptOpen ? (
-        <div className="mt-2 rounded-2xl bg-black/15 px-3 py-2 text-sm text-white/80">{transcript}</div>
+        <div className="mt-2 rounded-2xl bg-black/15 px-3 py-2 text-sm text-white/84">{transcript}</div>
       ) : null}
       <span className="mt-1 block text-right text-[10px] text-white/45">{formatMessageTime(message.created_at)}</span>
     </div>
@@ -287,10 +287,10 @@ const MediaMessageBubble = memo(function MediaMessageBubble({
   if (message.type === 'image') {
     return (
       <div
-        className={`relative max-w-[80%] rounded-2xl p-1.5 shadow ${
+        className={`relative max-w-[84%] rounded-[26px] border p-1.5 shadow-[0_18px_50px_rgba(0,0,0,0.18)] backdrop-blur-xl ${
           isContact
-            ? 'rounded-tr-md bg-[#005c4b] text-white'
-            : 'rounded-tl-md bg-[#1f2c34] text-white'
+            ? 'rounded-tr-md border-[#47dfc2]/20 bg-[linear-gradient(180deg,rgba(8,118,100,0.9),rgba(5,86,79,0.92))] text-white'
+            : 'rounded-tl-md border-white/8 bg-[linear-gradient(180deg,rgba(22,34,51,0.86),rgba(12,24,39,0.92))] text-white'
         }`}
       >
         <img src={message.media_url} alt="Shared image" className="max-h-80 rounded-[18px] object-cover" />
@@ -305,9 +305,11 @@ const MediaMessageBubble = memo(function MediaMessageBubble({
   const recorded = isRecordedVideoMessage(message)
   return (
     <div
-      className={`relative max-w-[80%] overflow-hidden shadow ${
+      className={`relative max-w-[84%] overflow-hidden border shadow-[0_18px_50px_rgba(0,0,0,0.18)] backdrop-blur-xl ${
         recorded ? 'rounded-full' : 'rounded-2xl'
-      } ${isContact ? 'bg-[#005c4b] text-white' : 'bg-[#1f2c34] text-white'}`}
+      } ${isContact
+        ? 'border-[#47dfc2]/20 bg-[linear-gradient(180deg,rgba(8,118,100,0.9),rgba(5,86,79,0.92))] text-white'
+        : 'border-white/8 bg-[linear-gradient(180deg,rgba(22,34,51,0.86),rgba(12,24,39,0.92))] text-white'}`}
     >
       <video
         src={message.media_url}
@@ -342,6 +344,7 @@ export default function Chat() {
   const [captionText, setCaptionText] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [transcriptMap, setTranscriptMap] = useState<Record<string, string>>({})
+  const [mediaMenuOpen, setMediaMenuOpen] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const audioRecorderRef = useRef<MediaRecorder | null>(null)
   const audioStreamRef = useRef<MediaStream | null>(null)
@@ -390,6 +393,12 @@ export default function Chat() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, avatarTyping])
+
+  useEffect(() => {
+    const closeMenu = () => setMediaMenuOpen(false)
+    window.addEventListener('resize', closeMenu)
+    return () => window.removeEventListener('resize', closeMenu)
+  }, [])
 
   useEffect(() => {
     return () => {
@@ -863,6 +872,7 @@ export default function Chat() {
 
   function openCaptionDraft(file: File, kind: 'image' | 'video') {
     const previewUrl = URL.createObjectURL(file)
+    setMediaMenuOpen(false)
     setCaptionText('')
     setCaptionDraft((current) => {
       if (current) URL.revokeObjectURL(current.previewUrl)
@@ -981,34 +991,33 @@ export default function Chat() {
   const owner = conversation.wa_owners
 
   return (
-    <div className="flex h-dvh flex-col bg-[#0b141a]">
-      <header className="flex items-center gap-3 bg-[#1f2c34] px-4 py-3 shadow-lg">
+    <div className="relative flex h-[100svh] min-h-[100svh] flex-col overflow-hidden bg-[radial-gradient(circle_at_top,_rgba(72,216,255,0.2),_transparent_28%),radial-gradient(circle_at_80%_20%,_rgba(0,255,170,0.16),_transparent_22%),linear-gradient(180deg,_#061018_0%,_#07111f_48%,_#050b15_100%)] text-white">
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(126,255,234,0.04)_1px,transparent_1px),linear-gradient(90deg,rgba(126,255,234,0.04)_1px,transparent_1px)] bg-[size:34px_34px] opacity-[0.16]" />
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-44 bg-[radial-gradient(circle_at_top,_rgba(83,208,255,0.32),_transparent_58%)] blur-3xl" />
+
+      <header className="relative z-10 flex items-center gap-3 border-b border-white/8 bg-[#0d1826]/72 px-4 py-3 shadow-[0_12px_40px_rgba(0,0,0,0.24)] backdrop-blur-2xl">
         {owner.avatar_url ? (
           <img src={owner.avatar_url} alt={owner.display_name} className="h-10 w-10 rounded-full object-cover" />
         ) : (
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-700 text-sm font-bold text-white">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-[#4bd8ff] via-[#17c8a4] to-[#067b72] text-sm font-bold text-white shadow-[0_0_24px_rgba(38,218,200,0.35)]">
             {owner.display_name.charAt(0).toUpperCase()}
           </div>
         )}
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-base font-semibold text-white">{owner.display_name}</h1>
-          <p className="text-xs text-emerald-400">{avatarTyping ? 'typing...' : 'online'}</p>
+          <p className="text-xs text-[#84f5e1]">{avatarTyping ? 'typing...' : 'online'}</p>
         </div>
       </header>
 
       <main
-        className="flex-1 overflow-y-auto px-3 py-4"
-        style={{
-          backgroundImage:
-            'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23ffffff\' fill-opacity=\'0.02\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")',
-        }}
+        className="relative z-0 min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 pb-6"
       >
-        <div className="mx-auto flex max-w-2xl flex-col gap-2">
+        <div className="mx-auto flex max-w-2xl flex-col gap-3">
           {groupedTimeline.map((item) => {
             if (item.kind === 'date') {
               return (
                 <div key={item.key} className="my-2 flex justify-center">
-                  <span className="rounded-full bg-[#1f2c34]/90 px-3 py-1 text-xs text-white/65 shadow">
+                  <span className="rounded-full border border-white/10 bg-[#0f1d2d]/84 px-3 py-1 text-xs text-white/70 shadow-[0_8px_32px_rgba(0,0,0,0.22)] backdrop-blur-xl">
                     {item.label}
                   </span>
                 </div>
@@ -1030,10 +1039,10 @@ export default function Chat() {
                   <MediaMessageBubble isContact={isContact} message={message} />
                 ) : (
                   <div
-                    className={`relative max-w-[80%] rounded-2xl px-3 py-2 text-sm shadow ${
+                    className={`relative max-w-[84%] rounded-[24px] border px-3 py-2.5 text-sm shadow-[0_18px_50px_rgba(0,0,0,0.18)] backdrop-blur-xl ${
                       isContact
-                        ? 'rounded-tr-md bg-[#005c4b] text-white'
-                        : 'rounded-tl-md bg-[#1f2c34] text-white'
+                        ? 'rounded-tr-md border-[#47dfc2]/20 bg-[linear-gradient(180deg,rgba(8,118,100,0.9),rgba(5,86,79,0.92))] text-white'
+                        : 'rounded-tl-md border-white/8 bg-[linear-gradient(180deg,rgba(22,34,51,0.86),rgba(12,24,39,0.92))] text-white'
                     }`}
                   >
                     <span>{message.content}</span>
@@ -1048,7 +1057,7 @@ export default function Chat() {
 
           {avatarTyping ? (
             <div className="flex justify-start">
-              <div className="rounded-2xl rounded-tl-md bg-[#1f2c34] px-4 py-3 shadow">
+              <div className="rounded-[24px] rounded-tl-md border border-white/8 bg-[linear-gradient(180deg,rgba(22,34,51,0.86),rgba(12,24,39,0.92))] px-4 py-3 shadow-[0_18px_50px_rgba(0,0,0,0.18)] backdrop-blur-xl">
                 <div className="flex gap-1">
                   <span className="h-2 w-2 animate-bounce rounded-full bg-white/40" style={{ animationDelay: '0ms' }} />
                   <span className="h-2 w-2 animate-bounce rounded-full bg-white/40" style={{ animationDelay: '150ms' }} />
@@ -1063,16 +1072,16 @@ export default function Chat() {
       </main>
 
       {error ? (
-        <div className="border-t border-white/5 bg-[#122028] px-4 py-2 text-center text-sm text-red-300">{error}</div>
+        <div className="relative z-10 border-t border-white/8 bg-[#101b28]/88 px-4 py-2 text-center text-sm text-red-300 backdrop-blur-xl">{error}</div>
       ) : null}
 
       {recordingMode !== 'idle' && captureKind === 'voice' ? (
-        <div className="border-t border-white/5 bg-[#1f2c34] px-4 py-3">
-          <div className="mx-auto flex max-w-2xl items-center gap-3 rounded-full bg-[#2a3942] px-4 py-3 text-white">
+        <div className="relative z-20 border-t border-white/8 bg-[#101b28]/88 px-4 py-3 backdrop-blur-2xl">
+          <div className="mx-auto flex max-w-2xl items-center gap-3 rounded-[28px] border border-white/8 bg-[linear-gradient(180deg,rgba(17,29,44,0.9),rgba(10,20,33,0.95))] px-4 py-3 text-white shadow-[0_20px_60px_rgba(0,0,0,0.28)]">
             <button
               type="button"
               onClick={() => finishVoiceRecording(false)}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-red-500 text-white"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#ff7a7a] to-[#e23e63] text-white shadow-[0_0_24px_rgba(255,91,118,0.36)]"
             >
               <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
                 <rect x="6" y="6" width="12" height="12" rx="2" />
@@ -1095,53 +1104,67 @@ export default function Chat() {
         </div>
       ) : null}
 
-      <footer className="bg-[#1f2c34] px-3 py-2">
-        <div className="mx-auto flex max-w-2xl items-end gap-2">
-          <button
-            type="button"
-            onClick={() => imageInputRef.current?.click()}
-            disabled={sending}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#2a3942] text-white transition hover:bg-[#334751] disabled:opacity-40"
-            title="Upload image"
-          >
-            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-              <path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2 1.586-1.586a2 2 0 012.828 0L20 14" />
-              <path d="M14 8h.01" />
-              <rect x="3" y="4" width="18" height="16" rx="2" />
-            </svg>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => videoInputRef.current?.click()}
-            disabled={sending}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#2a3942] text-white transition hover:bg-[#334751] disabled:opacity-40"
-            title="Upload video"
-          >
-            <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M17 10.5V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-3.5l4 4v-11l-4 4z" />
-            </svg>
-          </button>
-
-          <button
-            type="button"
-            onClick={videoRecorderRef.current ? stopLiveVideoRecording : startLiveVideoRecording}
-            disabled={sending}
-            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition ${
-              videoRecorderRef.current ? 'bg-red-500 text-white' : 'bg-[#2a3942] text-white hover:bg-[#334751]'
-            } disabled:opacity-40`}
-            title={videoRecorderRef.current ? 'Stop video recording' : 'Record video'}
-          >
-            {videoRecorderRef.current ? (
-              <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
-                <rect x="6" y="6" width="12" height="12" rx="2" />
+      <footer className="relative z-20 border-t border-white/8 bg-[#101b28]/82 px-3 pt-2 backdrop-blur-2xl">
+        <div className="mx-auto flex max-w-2xl items-end gap-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)]">
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              onClick={() => setMediaMenuOpen((current) => !current)}
+              disabled={sending || recordingMode !== 'idle'}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/10 bg-[linear-gradient(180deg,rgba(27,43,63,0.94),rgba(16,27,40,0.94))] text-[#9af8ea] shadow-[0_0_28px_rgba(92,221,212,0.18)] transition hover:border-[#74f0df]/40 hover:text-white disabled:opacity-40"
+              title="Media options"
+            >
+              <svg className={`h-5 w-5 transition ${mediaMenuOpen ? 'rotate-45' : ''}`} fill="currentColor" viewBox="0 0 24 24">
+                <path d="M19 11H13V5h-2v6H5v2h6v6h2v-6h6z" />
               </svg>
-            ) : (
-              <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M17 10.5V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-3.5l4 4v-11l-4 4z" />
-              </svg>
-            )}
-          </button>
+            </button>
+
+            {mediaMenuOpen ? (
+              <div className="absolute bottom-14 left-0 w-48 rounded-3xl border border-white/10 bg-[linear-gradient(180deg,rgba(17,29,44,0.96),rgba(10,20,33,0.98))] p-2 shadow-[0_24px_80px_rgba(0,0,0,0.36)] backdrop-blur-2xl">
+                <button
+                  type="button"
+                  onClick={() => imageInputRef.current?.click()}
+                  className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm text-white/88 transition hover:bg-white/6"
+                >
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#173447] text-[#88ffe4]">
+                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                      <path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2 1.586-1.586a2 2 0 012.828 0L20 14" />
+                      <path d="M14 8h.01" />
+                      <rect x="3" y="4" width="18" height="16" rx="2" />
+                    </svg>
+                  </span>
+                  <span>Share image</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => videoInputRef.current?.click()}
+                  className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm text-white/88 transition hover:bg-white/6"
+                >
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#173447] text-[#88ffe4]">
+                    <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M17 10.5V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-3.5l4 4v-11l-4 4z" />
+                    </svg>
+                  </span>
+                  <span>Share video</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMediaMenuOpen(false)
+                    void (videoRecorderRef.current ? stopLiveVideoRecording() : startLiveVideoRecording())
+                  }}
+                  className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm text-white/88 transition hover:bg-white/6"
+                >
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#173447] text-[#88ffe4]">
+                    <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M17 10.5V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-3.5l4 4v-11l-4 4z" />
+                    </svg>
+                  </span>
+                  <span>{videoRecorderRef.current ? 'Stop recording' : 'Record video'}</span>
+                </button>
+              </div>
+            ) : null}
+          </div>
 
           <div className="min-w-0 flex-1">
             <input
@@ -1156,7 +1179,8 @@ export default function Chat() {
               }}
               placeholder="Type a message"
               disabled={sending || recordingMode !== 'idle'}
-              className="w-full rounded-full bg-[#2a3942] px-4 py-2.5 text-sm text-white placeholder-white/30 outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-40"
+              className="w-full rounded-full border border-white/10 bg-[linear-gradient(180deg,rgba(26,42,61,0.92),rgba(18,31,47,0.96))] px-4 py-3 text-base text-white placeholder-white/30 outline-none focus:border-[#79f5df]/45 focus:ring-2 focus:ring-[#79f5df]/18 disabled:opacity-40"
+              style={{ fontSize: '16px' }}
             />
           </div>
 
@@ -1172,8 +1196,8 @@ export default function Chat() {
             }}
             onPointerCancel={() => void handleVoicePointerCancel()}
             onPointerLeave={() => void handleVoicePointerCancel()}
-            disabled={sending || text.trim().length > 0 || videoRecorderRef.current !== null}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white transition hover:bg-emerald-700 disabled:opacity-40"
+            disabled={sending || text.trim().length > 0 || videoRecorderRef.current !== null || mediaMenuOpen}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#10c8a6] to-[#0f9f88] text-white shadow-[0_0_32px_rgba(16,200,166,0.28)] transition hover:brightness-110 disabled:opacity-40"
             title="Hold to record voice note"
           >
             <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
@@ -1185,7 +1209,7 @@ export default function Chat() {
             type="button"
             onClick={() => void handleSendText()}
             disabled={!text.trim() || sending || recordingMode !== 'idle'}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white transition hover:bg-emerald-700 disabled:opacity-40"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#0c886d] to-[#0d6d72] text-white shadow-[0_0_32px_rgba(32,201,177,0.18)] transition hover:brightness-110 disabled:opacity-40"
             title="Send message"
           >
             <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
@@ -1205,8 +1229,8 @@ export default function Chat() {
       </footer>
 
       {captionDraft ? (
-        <div className="absolute inset-0 z-20 flex items-end bg-black/70 p-4 sm:items-center sm:justify-center">
-          <div className="w-full max-w-md rounded-[28px] bg-[#1f2c34] p-4 shadow-2xl">
+        <div className="absolute inset-0 z-30 flex items-end bg-[#02060dcc] p-4 sm:items-center sm:justify-center">
+          <div className="w-full max-w-md rounded-[32px] border border-white/10 bg-[linear-gradient(180deg,rgba(17,29,44,0.96),rgba(10,20,33,0.98))] p-4 shadow-[0_28px_100px_rgba(0,0,0,0.45)] backdrop-blur-2xl">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-base font-semibold text-white">
                 {captionDraft.kind === 'image' ? 'Send image' : 'Send video'}
@@ -1230,12 +1254,13 @@ export default function Chat() {
               value={captionText}
               onChange={(event) => setCaptionText(event.target.value)}
               placeholder="Add a caption..."
-              className="mt-4 w-full rounded-full bg-[#2a3942] px-4 py-3 text-sm text-white placeholder-white/35 outline-none focus:ring-1 focus:ring-emerald-500"
+              className="mt-4 w-full rounded-full border border-white/10 bg-[linear-gradient(180deg,rgba(26,42,61,0.92),rgba(18,31,47,0.96))] px-4 py-3 text-base text-white placeholder-white/35 outline-none focus:border-[#79f5df]/45 focus:ring-2 focus:ring-[#79f5df]/18"
+              style={{ fontSize: '16px' }}
             />
             <button
               type="button"
               onClick={() => void sendImageOrVideoDraft()}
-              className="mt-4 w-full rounded-full bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
+              className="mt-4 w-full rounded-full bg-gradient-to-r from-[#11c2a0] to-[#38a9ff] px-4 py-3 text-sm font-semibold text-white shadow-[0_0_36px_rgba(42,196,231,0.22)] transition hover:brightness-110"
             >
               Send
             </button>
