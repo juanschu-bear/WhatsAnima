@@ -27,19 +27,19 @@ export default function Login() {
 
   return (
     <div className="brand-scene min-h-screen">
-      <div className="relative z-10 flex min-h-screen items-center justify-center px-6 py-12">
-        <div className="brand-panel w-full max-w-md rounded-[32px] p-8 sm:p-10">
+      <div className="relative z-10 flex min-h-screen items-start justify-center px-6 pb-24 pt-12 sm:pt-16 md:pt-20">
+        <div className="brand-panel w-full max-w-md rounded-[32px] p-7 sm:p-8">
           <img
             src="/Icon.PNG"
             alt="WhatsAnima"
-            className="mx-auto mb-5 h-16 w-auto object-contain drop-shadow-[0_0_22px_rgba(93,236,214,0.34)]"
+            className="mx-auto mb-4 h-16 w-auto object-contain drop-shadow-[0_0_22px_rgba(93,236,214,0.34)]"
           />
           <h1 className="mb-2 text-center text-4xl font-bold tracking-tight text-white">Sign In</h1>
-          <p className="mb-8 text-center text-sm text-white/65">
+          <p className="mb-6 text-center text-sm text-white/65">
             Access your WhatsAnima workspace.
           </p>
 
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label htmlFor="email" className="mb-2 block text-sm font-medium text-white/82">
                 Email
@@ -85,7 +85,7 @@ export default function Login() {
             </button>
           </form>
 
-          <p className="mt-7 text-center text-base text-white/60">
+          <p className="mt-6 text-center text-base text-white/60">
             No account?{' '}
             <Link to="/signup" className="font-medium text-[#00a884] hover:text-[#58e3c7]">
               Sign Up
