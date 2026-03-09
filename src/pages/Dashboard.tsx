@@ -75,7 +75,7 @@ export default function Dashboard() {
   const formatConversationName = (conversation: ConversationListItem) => {
     const contact = conversation.wa_contacts
     const fullName = [contact?.first_name, contact?.last_name].filter(Boolean).join(' ').trim()
-    return fullName || contact?.display_name || contact?.phone_number || 'Guest'
+    return fullName || contact?.display_name || contact?.email || contact?.phone_number || 'Guest'
   }
 
   const formatConversationPreview = (conversation: ConversationListItem) => {
@@ -283,7 +283,7 @@ export default function Dashboard() {
                         {formatConversationName(conversation)}
                       </p>
                       <p className="mt-1 text-xs text-white/55">
-                        {conversation.wa_contacts?.phone_number || 'No phone number'}
+                        {conversation.wa_contacts?.email || conversation.wa_contacts?.phone_number || 'No contact info'}
                       </p>
                       <p className="mt-3 truncate text-sm text-white/70">
                         {formatConversationPreview(conversation)}
