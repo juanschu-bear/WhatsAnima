@@ -130,7 +130,8 @@ export default function Dashboard() {
   const firstName = String(user?.user_metadata?.first_name ?? 'Juan').trim()
   const lastName = String(user?.user_metadata?.last_name ?? 'Schubert').trim()
   const phoneNumber = String(user?.phone ?? user?.user_metadata?.phone_number ?? '').trim()
-  const ownerName = owner?.display_name || [owner?.first_name || firstName, owner?.last_name || lastName].filter(Boolean).join(' ') || 'Juan Schubert'
+  const userEmail = String(user?.email ?? '').trim()
+  const ownerName = owner?.display_name || [owner?.first_name || firstName, owner?.last_name || lastName].filter(Boolean).join(' ') || userEmail || 'Juan Schubert'
 
   useEffect(() => {
     if (!user) {
@@ -145,6 +146,7 @@ export default function Dashboard() {
       firstName,
       lastName,
       phoneNumber,
+      email: userEmail,
     })
       .then(async (ownerRow) => {
         setOwnerId(ownerRow.id)
@@ -195,7 +197,7 @@ export default function Dashboard() {
         setError('Unable to load the owner dashboard.')
       })
       .finally(() => setLoading(false))
-  }, [firstName, lastName, phoneNumber, user])
+  }, [firstName, lastName, phoneNumber, userEmail, user])
 
   useEffect(() => {
     if (!selectedConversationId) {

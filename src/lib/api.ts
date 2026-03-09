@@ -73,8 +73,11 @@ export async function createOwnerIfNeeded(payload: {
   firstName: string
   lastName: string
   phoneNumber: string
+  email: string
 }) {
   const displayName = `${payload.firstName} ${payload.lastName}`.trim() || 'Juan Schubert'
+
+  // 1. Try matching by auth user_id (primary key link)
   const { data: existing, error: existingError } = await supabase
     .from('wa_owners')
     .select('*')
@@ -91,6 +94,7 @@ export async function createOwnerIfNeeded(payload: {
         first_name: payload.firstName || existing.first_name,
         last_name: payload.lastName || existing.last_name,
         phone_number: payload.phoneNumber || existing.phone_number,
+        email: payload.email || existing.email,
         updated_at: new Date().toISOString(),
       })
       .eq('id', existing.id)
@@ -100,14 +104,73 @@ export async function createOwnerIfNeeded(payload: {
     return data
   }
 
+  // 2. Fallback: try matching by email (handles auth method migration,
+  //    e.g. owner was created with phone auth, now logging in with email)
+  if (payload.email) {
+    const { data: byEmail } = await supabase
+      .from('wa_owners')
+      .select('*')
+      .eq('email', payload.email)
+      .single()
+
+    if (byEmail) {
+      console.log('[createOwnerIfNeeded] claiming owner by email', payload.email)
+      const { data, error } = await supabase
+        .from('wa_owners')
+        .update({
+          user_id: payload.userId,
+          display_name: displayName || byEmail.display_name,
+          first_name: payload.firstName || byEmail.first_name,
+          last_name: payload.lastName || byEmail.last_name,
+          phone_number: payload.phoneNumber || byEmail.phone_number,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', byEmail.id)
+        .select()
+        .single()
+      if (error) throw error
+      return data
+    }
+  }
+
+  // 3. Fallback: claim an orphaned owner whose user_id no longer matches
+  //    the current auth user (e.g. phone-auth owner, now logging in with email).
+  //    Only safe when exactly one unclaimed owner row exists.
+  const { data: allOwners } = await supabase
+    .from('wa_owners')
+    .select('*')
+
+  if (allOwners && allOwners.length === 1) {
+    const orphan = allOwners[0]
+    console.log('[createOwnerIfNeeded] claiming orphaned owner', orphan.id)
+    const { data, error } = await supabase
+      .from('wa_owners')
+      .update({
+        user_id: payload.userId,
+        display_name: displayName || orphan.display_name,
+        first_name: payload.firstName || orphan.first_name,
+        last_name: payload.lastName || orphan.last_name,
+        phone_number: payload.phoneNumber || orphan.phone_number,
+        email: payload.email || orphan.email,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', orphan.id)
+      .select()
+      .single()
+    if (error) throw error
+    return data
+  }
+
+  // 4. No existing owner at all — create a new one
   const { data, error } = await supabase
     .from('wa_owners')
     .insert({
       user_id: payload.userId,
-      display_name: displayName || payload.phoneNumber,
+      display_name: displayName || payload.email || payload.phoneNumber,
       first_name: payload.firstName,
       last_name: payload.lastName,
       phone_number: payload.phoneNumber,
+      email: payload.email,
     })
     .select()
     .single()

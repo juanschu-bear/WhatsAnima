@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS public.wa_owners (
   first_name TEXT,
   last_name TEXT,
   phone_number TEXT,
+  email TEXT,
   avatar_url TEXT,
   voice_id TEXT,
   system_prompt TEXT,
@@ -221,3 +222,36 @@ CREATE POLICY "links_public_update_usage" ON public.wa_invitation_links
 -- Ensure email column exists on contacts for email-verified invites
 ALTER TABLE public.wa_contacts
   ADD COLUMN IF NOT EXISTS email TEXT;
+
+-- Ensure email column exists on owners for email-based auth matching
+ALTER TABLE public.wa_owners
+  ADD COLUMN IF NOT EXISTS email TEXT;
+
+-- Allow authenticated users to claim an owner record that matches their email
+-- (handles auth method migration, e.g. phone → email)
+DROP POLICY IF EXISTS "owners_claim_by_email" ON public.wa_owners;
+CREATE POLICY "owners_claim_by_email" ON public.wa_owners
+  FOR UPDATE USING (
+    email IS NOT NULL
+    AND email = (SELECT au.email FROM auth.users au WHERE au.id = auth.uid())
+  );
+
+-- Also allow selecting owner by email so the fallback query works
+DROP POLICY IF EXISTS "owners_select_by_email" ON public.wa_owners;
+CREATE POLICY "owners_select_by_email" ON public.wa_owners
+  FOR SELECT USING (
+    email IS NOT NULL
+    AND email = (SELECT au.email FROM auth.users au WHERE au.id = auth.uid())
+  );
+
+-- Allow any authenticated user to read all owners (needed for orphan-claim fallback)
+DROP POLICY IF EXISTS "owners_select_authenticated" ON public.wa_owners;
+CREATE POLICY "owners_select_authenticated" ON public.wa_owners
+  FOR SELECT USING (auth.uid() IS NOT NULL);
+
+-- Allow any authenticated user to claim an orphaned owner record
+-- (owner whose user_id doesn't match any active session)
+DROP POLICY IF EXISTS "owners_claim_orphan" ON public.wa_owners;
+CREATE POLICY "owners_claim_orphan" ON public.wa_owners
+  FOR UPDATE USING (auth.uid() IS NOT NULL)
+  WITH CHECK (auth.uid() = user_id);
