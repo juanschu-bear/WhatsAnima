@@ -75,8 +75,6 @@ export async function createOwnerIfNeeded(payload: {
   phoneNumber: string
   email: string
 }) {
-  const displayName = `${payload.firstName} ${payload.lastName}`.trim() || 'Juan Schubert'
-
   // 1. Try matching by auth user_id (primary key link)
   const { data: existing, error: existingError } = await supabase
     .from('wa_owners')
@@ -85,83 +83,30 @@ export async function createOwnerIfNeeded(payload: {
     .maybeSingle()
 
   if (existingError) throw existingError
+  if (existing) return existing
 
-  if (existing) {
-    const { data, error } = await supabase
-      .from('wa_owners')
-      .update({
-        display_name: displayName || existing.display_name,
-        first_name: payload.firstName || existing.first_name,
-        last_name: payload.lastName || existing.last_name,
-        phone_number: payload.phoneNumber || existing.phone_number,
-        email: payload.email || existing.email,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', existing.id)
-      .select()
-      .single()
-    if (error) throw error
-    return data
-  }
-
-  // 2. Fallback: try matching by email (handles auth method migration,
-  //    e.g. owner was created with phone auth, now logging in with email)
+  // 2. Fallback: try matching by email
   if (payload.email) {
     const { data: byEmail } = await supabase
       .from('wa_owners')
       .select('*')
       .eq('email', payload.email)
-      .single()
+      .maybeSingle()
 
-    if (byEmail) {
-      console.log('[createOwnerIfNeeded] claiming owner by email', payload.email)
-      const { data, error } = await supabase
-        .from('wa_owners')
-        .update({
-          user_id: payload.userId,
-          display_name: displayName || byEmail.display_name,
-          first_name: payload.firstName || byEmail.first_name,
-          last_name: payload.lastName || byEmail.last_name,
-          phone_number: payload.phoneNumber || byEmail.phone_number,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', byEmail.id)
-        .select()
-        .single()
-      if (error) throw error
-      return data
-    }
+    if (byEmail) return byEmail
   }
 
-  // 3. Fallback: claim an orphaned owner whose user_id no longer matches
-  //    the current auth user (e.g. phone-auth owner, now logging in with email).
-  //    Only safe when exactly one unclaimed owner row exists.
+  // 3. Fallback: if exactly one owner exists, use it (single-owner setup)
   const { data: allOwners } = await supabase
     .from('wa_owners')
     .select('*')
 
   if (allOwners && allOwners.length === 1) {
-    const orphan = allOwners[0]
-    console.log('[createOwnerIfNeeded] claiming orphaned owner', orphan.id)
-    const { data, error } = await supabase
-      .from('wa_owners')
-      .update({
-        user_id: payload.userId,
-        display_name: displayName || orphan.display_name,
-        first_name: payload.firstName || orphan.first_name,
-        last_name: payload.lastName || orphan.last_name,
-        phone_number: payload.phoneNumber || orphan.phone_number,
-        email: payload.email || orphan.email,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', orphan.id)
-      .select()
-      .single()
-    if (error) throw error
-    return data
+    return allOwners[0]
   }
 
-  // 4. No existing owner at all — create a new one
+  // 4. No existing owner — create a new one
+  const displayName = `${payload.firstName} ${payload.lastName}`.trim() || 'Juan Schubert'
   const { data, error } = await supabase
     .from('wa_owners')
     .insert({
