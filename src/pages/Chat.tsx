@@ -8,7 +8,6 @@ import {
 } from 'react'
 import { useParams } from 'react-router-dom'
 import { createPerceptionLog, getConversation, listMessages, listPerceptionLogs, sendMessage } from '../lib/api'
-import { supabase } from '../lib/supabase'
 
 type MessageType = 'text' | 'voice' | 'video' | 'image'
 
@@ -78,9 +77,6 @@ declare global {
   }
 }
 
-const AUDIO_BUCKETS = ['voice-messages']
-const IMAGE_BUCKETS = ['image-uploads', 'voice-messages']
-const VIDEO_BUCKETS = ['video-uploads', 'voice-messages']
 const WAVEFORM_BARS = Array.from({ length: 15 }, (_, index) => index)
 
 function formatClock(totalSeconds: number) {
@@ -136,6 +132,22 @@ function getFileExtension(file: Blob & { name?: string; type: string }, fallback
   if (fromMime) return fromMime
   const fromName = file.name?.split('.').pop()?.toLowerCase()
   return fromName || fallback
+}
+
+function blobToBase64(blob: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      const result = reader.result
+      if (typeof result !== 'string') {
+        reject(new Error('Unable to read file'))
+        return
+      }
+      resolve(result.split(',')[1] || '')
+    }
+    reader.onerror = () => reject(new Error('Unable to read file'))
+    reader.readAsDataURL(blob)
+  })
 }
 
 function isRecordedVideoMessage(message: Message) {
@@ -457,33 +469,67 @@ export default function Chat() {
     return items
   }, [messages])
 
-  async function uploadToStorage(file: File | Blob, kind: 'audio' | 'image' | 'video') {
+  async function uploadAudioToStorage(audioBase64: string, mimeType: string) {
     if (!conversation) return null
 
-    const buckets = kind === 'audio' ? AUDIO_BUCKETS : kind === 'image' ? IMAGE_BUCKETS : VIDEO_BUCKETS
-    const extension = getFileExtension(file, kind === 'image' ? 'jpg' : kind === 'video' ? 'mp4' : 'webm')
-    const path = `${conversation.owner_id}/${conversation.id}/${Date.now()}-${crypto.randomUUID()}.${extension}`
+    const response = await fetch('/api/upload-audio', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        audio_base64: audioBase64,
+        owner_id: conversation.owner_id,
+        conversation_id: conversation.id,
+        mime_type: mimeType,
+      }),
+    })
 
-    for (const bucket of buckets) {
-      const uploadPath = bucket === 'voice-messages' && kind === 'image' ? `images/${path}` : path
-      const { error: uploadError } = await supabase.storage
-        .from(bucket)
-        .upload(uploadPath, file, { contentType: file.type || undefined, upsert: false })
+    const data = await response.json().catch(() => ({}))
+    return typeof data.audio_url === 'string' ? data.audio_url : null
+  }
 
-      if (uploadError) continue
+  async function uploadMediaToStorage(file: File, mediaType: 'image' | 'video') {
+    if (!conversation) return null
 
-      const { data } = supabase.storage.from(bucket).getPublicUrl(uploadPath)
-      return data.publicUrl
-    }
+    const mediaBase64 = await blobToBase64(file)
+    const response = await fetch('/api/upload-media', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        media_base64: mediaBase64,
+        owner_id: conversation.owner_id,
+        conversation_id: conversation.id,
+        mime_type: file.type,
+        media_type: mediaType,
+      }),
+    })
 
-    return null
+    const data = await response.json().catch(() => ({}))
+    return typeof data.url === 'string' ? data.url : null
   }
 
   async function getAvatarReply(
     userMessage: string,
-    voiceId: string | null | undefined
+    options?: {
+      useVoice?: boolean
+      imageUrl?: string
+      isImage?: boolean
+      isVideo?: boolean
+      isVoice?: boolean
+    }
   ): Promise<{ content: string; mediaUrl: string | null }> {
     try {
+      const {
+        useVoice = true,
+        imageUrl,
+        isImage = false,
+        isVideo = false,
+        isVoice = false,
+      } = options ?? {}
+
       const history = messages
         .slice(-10)
         .map((message) => ({
@@ -499,8 +545,12 @@ export default function Chat() {
         },
         body: JSON.stringify({
           message: userMessage,
-          systemPrompt: conversation?.wa_owners.system_prompt || 'You are a helpful assistant.',
+          conversationId,
           history,
+          image_url: imageUrl,
+          isImage,
+          isVideo,
+          isVoice,
         }),
       })
 
@@ -513,7 +563,7 @@ export default function Chat() {
         replyText = 'Honestly? Give me the interesting part first.'
       }
 
-      if (!voiceId) {
+      if (!useVoice) {
         return { content: replyText, mediaUrl: null }
       }
 
@@ -524,8 +574,6 @@ export default function Chat() {
         },
         body: JSON.stringify({
           text: replyText,
-          voiceId,
-          voice_id: voiceId,
         }),
       })
 
@@ -536,11 +584,12 @@ export default function Chat() {
         }
       }
 
-      const audioBlob = await response.blob()
-      const uploadedUrl = await uploadToStorage(
-        new File([audioBlob], `avatar-reply.${getFileExtension(audioBlob, 'mp3')}`, { type: audioBlob.type || 'audio/mpeg' }),
-        'audio'
-      )
+      const data = await response.json().catch(() => ({}))
+      const audioBase64 = typeof data.audio === 'string' ? data.audio : ''
+      if (!audioBase64) {
+        return { content: replyText, mediaUrl: null }
+      }
+      const uploadedUrl = await uploadAudioToStorage(audioBase64, data.content_type || 'audio/mpeg')
 
       return {
         content: replyText,
@@ -554,13 +603,21 @@ export default function Chat() {
     }
   }
 
-  async function sendAvatarReply(seedText: string, useVoice = true) {
+  async function sendAvatarReply(
+    seedText: string,
+    options?: {
+      useVoice?: boolean
+      imageUrl?: string
+      isImage?: boolean
+      isVideo?: boolean
+      isVoice?: boolean
+    }
+  ) {
     if (!conversationId) return
     setAvatarTyping(true)
     try {
-      const replyPayload = useVoice
-        ? await getAvatarReply(seedText, conversation?.wa_owners.voice_id)
-        : await getAvatarReply(seedText, null)
+      const useVoice = options?.useVoice ?? true
+      const replyPayload = await getAvatarReply(seedText, options)
       const hasAudio = useVoice && !!replyPayload.mediaUrl
       const msgType = hasAudio ? 'voice' : 'text'
       const reply = await sendMessage(
@@ -594,7 +651,7 @@ export default function Chat() {
     try {
       const message = await sendMessage(conversationId, 'contact', 'text', content)
       setMessages((current) => [...current, message as Message])
-      await sendAvatarReply(content, false)
+      await sendAvatarReply(content, { useVoice: false })
     } catch (sendError) {
       console.error(sendError)
       setError('Unable to send your message.')
@@ -613,7 +670,8 @@ export default function Chat() {
     setSending(true)
     setError(null)
     try {
-      const mediaUrl = await uploadToStorage(file, 'audio')
+      const audioBase64 = await blobToBase64(file)
+      const mediaUrl = await uploadAudioToStorage(audioBase64, file.type || 'audio/webm')
       if (!mediaUrl) throw new Error('upload failed')
 
       const message = (await sendMessage(
@@ -639,7 +697,7 @@ export default function Chat() {
         setTranscriptMap((current) => ({ ...current, [message.id]: transcript }))
       }
 
-      await sendAvatarReply(transcript || 'a voice message')
+      await sendAvatarReply(transcript || 'a voice message', { isVoice: true })
     } catch (recordingError) {
       console.error(recordingError)
       setError('Unable to send this voice note.')
@@ -870,7 +928,7 @@ export default function Chat() {
         : new File([videoDraftBlobRef.current], `recorded-video.${getFileExtension(videoDraftBlobRef.current, 'webm')}`, {
             type: videoDraftBlobRef.current.type || 'video/webm',
           })
-      const mediaUrl = await uploadToStorage(file, 'video')
+      const mediaUrl = await uploadMediaToStorage(file, 'video')
       if (!mediaUrl) throw new Error('upload failed')
 
       const message = (await sendMessage(
@@ -883,7 +941,7 @@ export default function Chat() {
       )) as Message
       setMessages((current) => [...current, message])
       closeVideoOverlay()
-      await sendAvatarReply('a recorded video')
+      await sendAvatarReply('a recorded video', { isVideo: true })
     } catch (videoSendError) {
       console.error(videoSendError)
       setError('Unable to send this recorded video.')
@@ -1236,17 +1294,36 @@ export default function Chat() {
 
     try {
       if (kind === 'image') {
-        const mediaUrl = await uploadToStorage(file, 'image')
+        const mediaUrl = await uploadMediaToStorage(file, 'image')
         if (!mediaUrl) throw new Error('upload failed')
         const message = await sendMessage(conversationId, 'contact', 'image', caption || '[Image]', mediaUrl)
         setMessages((current) => [...current, message as Message])
-        await sendAvatarReply(caption || 'an image')
+        const replyPayload = await getAvatarReply(caption || 'The user shared this image.', {
+          useVoice: true,
+          imageUrl: mediaUrl,
+          isImage: true,
+        })
+        const hasAudio = !!replyPayload.mediaUrl
+        const reply = await sendMessage(
+          conversationId,
+          'avatar',
+          hasAudio ? 'voice' : 'text',
+          replyPayload.content,
+          hasAudio ? replyPayload.mediaUrl ?? undefined : undefined
+        )
+        setMessages((current) => [...current, reply as Message])
+        if (hasAudio) {
+          setTranscriptMap((current) => ({
+            ...current,
+            [String((reply as Message).id)]: String(replyPayload.content),
+          }))
+        }
         return
       }
 
       const rotatedFile = await correctVideoOrientation(file)
       const metadata = await readVideoMetadata(rotatedFile)
-      const mediaUrl = await uploadToStorage(rotatedFile, 'video')
+      const mediaUrl = await uploadMediaToStorage(rotatedFile, 'video')
       if (!mediaUrl) throw new Error('upload failed')
       const message = await sendMessage(
         conversationId,
@@ -1257,7 +1334,7 @@ export default function Chat() {
         metadata.duration || null || undefined
       )
       setMessages((current) => [...current, message as Message])
-      await sendAvatarReply(caption || 'an uploaded video')
+      await sendAvatarReply(caption || 'an uploaded video', { isVideo: true })
     } catch (draftError) {
       console.error(draftError)
       setError(`Unable to send this ${kind}.`)

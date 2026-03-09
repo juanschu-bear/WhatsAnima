@@ -1,4 +1,4 @@
-const JUAN_VOICE_ID = 'lx8LAX2EUAKftVz0Dk5z'
+const VOICE_ID = 'lx8LAX2EUAKftVz0Dk5z'
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
@@ -11,75 +11,43 @@ export default async function handler(req: any, res: any) {
     return res.status(500).json({ error: 'Missing ELEVENLABS_API_KEY' })
   }
 
-  const { text, voiceId, voice_id } = req.body ?? {}
-
+  const { text } = req.body ?? {}
   if (!text || typeof text !== 'string') {
-    return res.status(400).json({ error: 'Missing text' })
+    return res.status(400).json({ error: 'Text required' })
   }
 
-  const resolvedVoiceId =
-    (typeof voiceId === 'string' && voiceId.trim()) ||
-    (typeof voice_id === 'string' && voice_id.trim()) ||
-    JUAN_VOICE_ID
-
   try {
-    const response = await fetch(
-      `https://api.elevenlabs.io/v1/text-to-speech/${resolvedVoiceId}?output_format=mp3_44100_128`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'xi-api-key': apiKey,
-          Accept: 'audio/mpeg',
+    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'xi-api-key': apiKey,
+      },
+      body: JSON.stringify({
+        text,
+        model_id: 'eleven_multilingual_v2',
+        voice_settings: {
+          stability: 0.5,
+          similarity_boost: 0.75,
+          style: 0.3,
+          use_speaker_boost: true,
         },
-        body: JSON.stringify({
-          text,
-          model_id: 'eleven_multilingual_v2',
-          voice_settings: {
-            stability: 0.5,
-            similarity_boost: 0.75,
-          },
-        }),
-      }
-    )
+      }),
+    })
 
     if (!response.ok) {
-      const errorText = await response.text()
+      const errorData = await response.json().catch(() => ({}))
       return res.status(response.status).json({
-        error: 'ElevenLabs request failed',
-        status: response.status,
-        details: errorText,
+        error: `ElevenLabs error: ${errorData.detail?.message || response.statusText}`,
       })
     }
 
-    const contentType = response.headers.get('content-type') || ''
-    if (!contentType.includes('audio')) {
-      const bodyText = await response.text()
-      return res.status(502).json({
-        error: 'ElevenLabs returned non-audio response',
-        contentType,
-        details: bodyText.slice(0, 500),
-      })
-    }
-
-    const arrayBuffer = await response.arrayBuffer()
-    const buffer = Buffer.from(arrayBuffer)
-
-    if (buffer.length < 100) {
-      return res.status(502).json({
-        error: 'ElevenLabs returned empty or too-small audio',
-        size: buffer.length,
-      })
-    }
-
-    res.setHeader('Content-Type', 'audio/mpeg')
-    res.setHeader('Content-Length', buffer.length.toString())
-    res.setHeader('Cache-Control', 'no-store')
-    return res.status(200).send(buffer)
+    const audioBuffer = await response.arrayBuffer()
+    const base64 = Buffer.from(audioBuffer).toString('base64')
+    return res.status(200).json({ audio: base64, content_type: 'audio/mpeg' })
   } catch (error) {
     return res.status(500).json({
-      error: 'TTS request failed',
-      details: error instanceof Error ? error.message : 'Unknown error',
+      error: `TTS error: ${error instanceof Error ? error.message : 'Unknown error'}`,
     })
   }
 }
