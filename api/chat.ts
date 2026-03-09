@@ -152,7 +152,11 @@ export default async function handler(req: any, res: any) {
 
     return res.status(200).json({ content })
   } catch (error) {
-    console.error('Chat API error:', error instanceof Error ? error.message : error)
-    return res.status(200).json({ content: 'Sorry, something went wrong. Try again.' })
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    console.error('Chat API error:', errorMessage, error)
+    return res.status(500).json({
+      error: errorMessage,
+      content: `Sorry, something went wrong: ${errorMessage}`,
+    })
   }
 }
