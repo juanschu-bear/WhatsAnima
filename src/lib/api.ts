@@ -154,6 +154,14 @@ export async function toggleInvitationLink(linkId: string, active: boolean) {
   if (error) throw error
 }
 
+export async function deleteInvitationLink(linkId: string) {
+  const { error } = await supabase
+    .from('wa_invitation_links')
+    .delete()
+    .eq('id', linkId)
+  if (error) throw error
+}
+
 export async function validateInvitationToken(token: string) {
   const { data, error } = await supabase
     .from('wa_invitation_links')
