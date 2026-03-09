@@ -24,7 +24,7 @@ export default async function handler(req: any, res: any) {
 
   try {
     const response = await fetch(
-      `https://api.elevenlabs.io/v1/text-to-speech/${resolvedVoiceId}`,
+      `https://api.elevenlabs.io/v1/text-to-speech/${resolvedVoiceId}?output_format=mp3_44100_128`,
       {
         method: 'POST',
         headers: {
@@ -38,7 +38,6 @@ export default async function handler(req: any, res: any) {
             stability: 0.5,
             similarity_boost: 0.75,
           },
-          output_format: 'mp3_44100_128',
         }),
       }
     )
