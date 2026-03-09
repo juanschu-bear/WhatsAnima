@@ -20,9 +20,6 @@ export interface ConversationListItem {
   wa_contacts: {
     id: string
     display_name: string | null
-    first_name: string | null
-    last_name: string | null
-    phone_number: string | null
     email: string | null
   } | null
   last_message: {
@@ -50,9 +47,6 @@ interface ConversationRow {
     | Array<{
         id: string
         display_name: string | null
-        first_name: string | null
-        last_name: string | null
-        phone_number: string | null
         email: string | null
       }>
     | null
@@ -200,8 +194,6 @@ export async function createContactAndConversation(payload: ContactConversationP
     owner_id: payload.ownerId,
     invitation_id: payload.invitationId,
     display_name: displayName,
-    first_name: firstName,
-    last_name: lastName,
     email,
   }
 
@@ -292,9 +284,6 @@ export async function listConversations(ownerId: string): Promise<ConversationLi
       wa_contacts (
         id,
         display_name,
-        first_name,
-        last_name,
-        phone_number,
         email
       )
     `)
@@ -403,7 +392,7 @@ export async function getConversation(conversationId: string) {
       .maybeSingle(),
     supabase
       .from('wa_contacts')
-      .select('id, display_name, first_name, last_name, phone_number, email')
+      .select('id, display_name, email')
       .eq('id', conversation.contact_id)
       .maybeSingle(),
   ])
@@ -421,9 +410,6 @@ export async function getConversation(conversationId: string) {
     wa_contacts: contact ?? {
       id: conversation.contact_id,
       display_name: 'Guest',
-      first_name: null,
-      last_name: null,
-      phone_number: null,
       email: null,
     },
   }
