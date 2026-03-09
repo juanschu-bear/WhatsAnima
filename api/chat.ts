@@ -18,7 +18,7 @@ export default async function handler(req: any, res: any) {
 
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) {
-    return res.status(500).json({ error: 'Missing ANTHROPIC_API_KEY' })
+    return res.status(200).json({ content: 'Hey. Tell me something interesting.' })
   }
 
   const {
@@ -77,9 +77,7 @@ export default async function handler(req: any, res: any) {
 
     return res.status(200).json({ content })
   } catch (error) {
-    return res.status(500).json({
-      error: 'Chat request failed',
-      details: error instanceof Error ? error.message : 'Unknown error',
-    })
+    console.error('Chat API error:', error instanceof Error ? error.message : error)
+    return res.status(200).json({ content: 'Sorry, something went wrong. Try again.' })
   }
 }

@@ -577,6 +577,8 @@ export default function Chat() {
           [String((reply as Message).id)]: String(replyPayload.content),
         }))
       }
+    } catch (err) {
+      console.error('Avatar reply failed:', err)
     } finally {
       setAvatarTyping(false)
     }
