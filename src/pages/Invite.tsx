@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { createContactAndConversation, validateInvitationToken } from '../lib/api'
@@ -17,12 +17,6 @@ interface InviteData {
   }
 }
 
-/** Ensure the phone string starts with '+' for E.164 format */
-function normalizePhone(raw: string): string {
-  const digits = raw.replace(/[\s\-()]/g, '')
-  return digits.startsWith('+') ? digits : `+${digits}`
-}
-
 export default function Invite() {
   const { token } = useParams<{ token: string }>()
   const navigate = useNavigate()
@@ -35,14 +29,12 @@ export default function Invite() {
   // Contact info
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
-  const [phoneNumber, setPhoneNumber] = useState('')
+  const [email, setEmail] = useState('')
 
   // OTP flow state
   const [otpCode, setOtpCode] = useState('')
   const [otpSent, setOtpSent] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-
-  const normalizedPhone = useMemo(() => normalizePhone(phoneNumber), [phoneNumber])
 
   useEffect(() => {
     if (!token) {
@@ -62,17 +54,17 @@ export default function Invite() {
 
   async function handleRequestOtp(event: FormEvent) {
     event.preventDefault()
-    if (!firstName.trim() || !lastName.trim() || !phoneNumber.trim()) {
-      setError('Enter your first name, last name, and phone number.')
+    if (!firstName.trim() || !lastName.trim() || !email.trim()) {
+      setError('Enter your first name, last name, and email.')
       return
     }
     setError(null)
     setSubmitting(true)
 
-    console.log('[Invite] requesting OTP for', normalizedPhone)
+    console.log('[Invite] requesting email OTP for', email)
 
     const { data, error: otpError } = await supabase.auth.signInWithOtp({
-      phone: normalizedPhone,
+      email: email.trim(),
       options: { shouldCreateUser: true },
     })
 
@@ -95,12 +87,12 @@ export default function Invite() {
     setError(null)
     setSubmitting(true)
 
-    console.log('[Invite] verifying OTP for', normalizedPhone)
+    console.log('[Invite] verifying email OTP for', email)
 
     const { data: verifyData, error: verifyError } = await supabase.auth.verifyOtp({
-      phone: normalizedPhone,
+      email: email.trim(),
       token: otpCode,
-      type: 'sms',
+      type: 'email',
     })
 
     console.log('[Invite] verifyOtp response', { data: verifyData, error: verifyError })
@@ -119,7 +111,7 @@ export default function Invite() {
         invitationId: invite.id,
         firstName: firstName.trim(),
         lastName: lastName.trim(),
-        phoneNumber: normalizedPhone,
+        email: email.trim(),
       })
       navigate(`/chat/${conversation.id}`)
     } catch (err) {
@@ -212,37 +204,42 @@ export default function Invite() {
           </div>
 
           <div>
-            <label htmlFor="invite-phone" className="mb-2 block text-sm font-medium text-white/80">
-              Phone Number
+            <label htmlFor="invite-email" className="mb-2 block text-sm font-medium text-white/80">
+              Email
             </label>
             <input
-              id="invite-phone"
-              type="tel"
+              id="invite-email"
+              type="email"
               required
               disabled={otpSent}
-              value={phoneNumber}
-              onChange={(e) => setPhoneNumber(e.target.value)}
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               className="brand-inset w-full rounded-2xl px-4 py-3 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20 disabled:opacity-50"
-              placeholder="+49 1512 3456789"
+              placeholder="you@example.com"
             />
           </div>
 
           {otpSent && (
-            <div>
-              <label htmlFor="invite-otp" className="mb-2 block text-sm font-medium text-white/80">
-                SMS Code
-              </label>
-              <input
-                id="invite-otp"
-                type="text"
-                inputMode="numeric"
-                required
-                value={otpCode}
-                onChange={(e) => setOtpCode(e.target.value)}
-                className="brand-inset w-full rounded-2xl px-4 py-3 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20"
-                placeholder="123456"
-              />
-            </div>
+            <>
+              <p className="rounded-2xl border border-[#00a884]/20 bg-[#00a884]/10 px-4 py-3 text-sm text-[#00a884]">
+                Check your email for the verification code.
+              </p>
+              <div>
+                <label htmlFor="invite-otp" className="mb-2 block text-sm font-medium text-white/80">
+                  Verification Code
+                </label>
+                <input
+                  id="invite-otp"
+                  type="text"
+                  inputMode="numeric"
+                  required
+                  value={otpCode}
+                  onChange={(e) => setOtpCode(e.target.value)}
+                  className="brand-inset w-full rounded-2xl px-4 py-3 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20"
+                  placeholder="123456"
+                />
+              </div>
+            </>
           )}
 
           {error && (

@@ -217,3 +217,7 @@ DROP POLICY IF EXISTS "links_public_update_usage" ON public.wa_invitation_links;
 CREATE POLICY "links_public_update_usage" ON public.wa_invitation_links
   FOR UPDATE USING (active = TRUE)
   WITH CHECK (active = TRUE);
+
+-- Ensure email column exists on contacts for email-verified invites
+ALTER TABLE public.wa_contacts
+  ADD COLUMN IF NOT EXISTS email TEXT;

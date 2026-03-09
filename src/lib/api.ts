@@ -7,7 +7,7 @@ export interface ContactConversationPayload {
   invitationId: string
   firstName: string
   lastName: string
-  phoneNumber: string
+  email: string
 }
 
 export interface ConversationListItem {
@@ -22,6 +22,7 @@ export interface ConversationListItem {
     first_name: string | null
     last_name: string | null
     phone_number: string | null
+    email: string | null
   } | null
   last_message: {
     id: string
@@ -44,6 +45,7 @@ interface ConversationRow {
         first_name: string | null
         last_name: string | null
         phone_number: string | null
+        email: string | null
       }>
     | null
 }
@@ -164,8 +166,8 @@ export async function createContactAndConversation(payload: ContactConversationP
   const conversationId = crypto.randomUUID()
   const firstName = payload.firstName.trim()
   const lastName = payload.lastName.trim()
-  const phoneNumber = payload.phoneNumber.trim()
-  const displayName = [firstName, lastName].filter(Boolean).join(' ').trim() || phoneNumber
+  const email = payload.email.trim()
+  const displayName = [firstName, lastName].filter(Boolean).join(' ').trim() || email
   const contactPayload = {
     id: contactId,
     owner_id: payload.ownerId,
@@ -173,7 +175,7 @@ export async function createContactAndConversation(payload: ContactConversationP
     display_name: displayName,
     first_name: firstName,
     last_name: lastName,
-    phone_number: phoneNumber,
+    email,
   }
 
   console.log('[createContactAndConversation] inserting contact', contactPayload)
@@ -265,7 +267,8 @@ export async function listConversations(ownerId: string): Promise<ConversationLi
         display_name,
         first_name,
         last_name,
-        phone_number
+        phone_number,
+        email
       )
     `)
     .eq('owner_id', ownerId)
@@ -320,7 +323,7 @@ export async function getConversation(conversationId: string) {
       .maybeSingle(),
     supabase
       .from('wa_contacts')
-      .select('id, display_name, first_name, last_name, phone_number')
+      .select('id, display_name, first_name, last_name, phone_number, email')
       .eq('id', conversation.contact_id)
       .maybeSingle(),
   ])
@@ -341,6 +344,7 @@ export async function getConversation(conversationId: string) {
       first_name: null,
       last_name: null,
       phone_number: null,
+      email: null,
     },
   }
 }
