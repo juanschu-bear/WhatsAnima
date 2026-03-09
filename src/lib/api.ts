@@ -16,6 +16,7 @@ export interface ConversationListItem {
   contact_id: string
   created_at: string
   updated_at: string
+  message_count: number
   wa_contacts: {
     id: string
     display_name: string | null
@@ -74,11 +75,13 @@ export async function createOwnerIfNeeded(payload: {
   phoneNumber: string
 }) {
   const displayName = `${payload.firstName} ${payload.lastName}`.trim()
-  const { data: existing } = await supabase
+  const { data: existing, error: existingError } = await supabase
     .from('wa_owners')
     .select('*')
     .eq('user_id', payload.userId)
-    .single()
+    .maybeSingle()
+
+  if (existingError) throw existingError
 
   if (existing) {
     const { data, error } = await supabase
@@ -113,13 +116,22 @@ export async function createOwnerIfNeeded(payload: {
 }
 
 export async function generateInvitationLink(ownerId: string, label?: string) {
-  const { data, error } = await supabase
+  const { error } = await supabase
     .from('wa_invitation_links')
     .insert({ owner_id: ownerId, label: label || null, active: true })
-    .select()
-    .single()
+
   if (error) throw error
-  return data
+
+  const { data: created, error: readError } = await supabase
+    .from('wa_invitation_links')
+    .select('*')
+    .eq('owner_id', ownerId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (readError) throw readError
+  return created
 }
 
 export async function listInvitationLinks(ownerId: string) {
@@ -296,7 +308,12 @@ export async function listConversations(ownerId: string): Promise<ConversationLi
   if (messagesError) throw messagesError
 
   const lastMessageByConversation = new Map<string, ConversationListItem['last_message']>()
+  const messageCountByConversation = new Map<string, number>()
   for (const message of messages ?? []) {
+    messageCountByConversation.set(
+      message.conversation_id,
+      (messageCountByConversation.get(message.conversation_id) ?? 0) + 1
+    )
     if (!lastMessageByConversation.has(message.conversation_id)) {
       lastMessageByConversation.set(message.conversation_id, {
         id: message.id,
@@ -310,6 +327,7 @@ export async function listConversations(ownerId: string): Promise<ConversationLi
 
   return rows.map((row) => ({
     ...row,
+    message_count: messageCountByConversation.get(row.id) ?? 0,
     wa_contacts: Array.isArray(row.wa_contacts) ? row.wa_contacts[0] ?? null : row.wa_contacts,
     last_message: lastMessageByConversation.get(row.id) ?? null,
   }))
