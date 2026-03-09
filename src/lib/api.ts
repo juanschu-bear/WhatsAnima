@@ -1,5 +1,7 @@
 import { supabase } from './supabase'
 
+export type MessageType = 'text' | 'voice' | 'video' | 'image'
+
 export async function getOwnerByUserId(userId: string) {
   const { data, error } = await supabase
     .from('wa_owners')
@@ -144,10 +146,44 @@ export async function listMessages(conversationId: string) {
   return data ?? []
 }
 
+export async function listPerceptionLogs(conversationId: string) {
+  const { data, error } = await supabase
+    .from('wa_perception_logs')
+    .select('message_id, transcript, created_at')
+    .eq('conversation_id', conversationId)
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return data ?? []
+}
+
+export async function createPerceptionLog(payload: {
+  messageId: string
+  conversationId: string
+  contactId: string
+  ownerId: string
+  transcript?: string | null
+  audioDurationSec?: number | null
+}) {
+  const { data, error } = await supabase
+    .from('wa_perception_logs')
+    .insert({
+      message_id: payload.messageId,
+      conversation_id: payload.conversationId,
+      contact_id: payload.contactId,
+      owner_id: payload.ownerId,
+      transcript: payload.transcript ?? null,
+      audio_duration_sec: payload.audioDurationSec ?? null,
+    })
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
 export async function sendMessage(
   conversationId: string,
   sender: 'contact' | 'avatar',
-  type: 'text' | 'voice',
+  type: MessageType,
   content: string,
   mediaUrl?: string,
   durationSec?: number
