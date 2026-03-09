@@ -6,6 +6,7 @@ import {
   useState,
   type ChangeEvent,
 } from 'react'
+import DailyIframe from '@daily-co/daily-js'
 import { useParams } from 'react-router-dom'
 import { createPerceptionLog, getConversation, listMessages, listPerceptionLogs, sendMessage } from '../lib/api'
 
@@ -46,6 +47,21 @@ type RecordingMode = 'idle' | 'recording' | 'stopping'
 type CaptureKind = 'none' | 'voice' | 'video'
 type VideoOverlayMode = 'live' | 'preview'
 type ValidationTone = '' | 'warning' | 'success' | 'error'
+type LiveCallState = 'idle' | 'starting' | 'joining' | 'connected' | 'error'
+
+interface DailyParticipantTrack {
+  persistentTrack?: MediaStreamTrack | null
+}
+
+interface DailyParticipant {
+  local?: boolean
+  session_id?: string
+  user_name?: string
+  userName?: string
+  tracks?: {
+    video?: DailyParticipantTrack
+  }
+}
 
 interface BrowserSpeechRecognitionResult {
   isFinal: boolean
@@ -78,6 +94,11 @@ declare global {
 }
 
 const WAVEFORM_BARS = Array.from({ length: 15 }, (_, index) => index)
+const BOARDROOM_API_BASE =
+  (import.meta.env.VITE_BOARDROOM_API_BASE as string | undefined)?.replace(/\/$/, '') || 'https://boardroom-api.onioko.com'
+const LIVE_CALL_REPLICA_ID = 'rf5414018e80'
+const LIVE_CALL_PERSONA_ID = 'pipecat-stream'
+const DEFAULT_LIVE_CALL_PROMPT = 'You are the avatar in a live WhatsAnima video call. Stay conversational and present.'
 
 function formatClock(totalSeconds: number) {
   const safeSeconds = Number.isFinite(totalSeconds) ? Math.max(0, totalSeconds) : 0
@@ -158,6 +179,38 @@ function isPlaceholderContent(message: Message) {
   return ['[Image]', '[Video]', '[Recorded video]', '[Voice message]', 'Voice note'].includes(
     message.content || ''
   )
+}
+
+function getParticipantName(participant: DailyParticipant | null | undefined, fallback: string) {
+  return participant?.user_name || participant?.userName || fallback
+}
+
+function pickRemoteParticipant(participants: Record<string, DailyParticipant>) {
+  const remotes = Object.values(participants).filter((participant) => participant.local !== true)
+  return remotes.find((participant) => participant.tracks?.video?.persistentTrack) || remotes[0] || null
+}
+
+function syncVideoTrack(element: HTMLVideoElement | null, participant: DailyParticipant | null, muted: boolean) {
+  if (!element) return
+
+  const track = participant?.tracks?.video?.persistentTrack
+  element.muted = muted
+  element.playsInline = true
+  element.autoplay = true
+
+  if (!track) {
+    element.pause()
+    element.srcObject = null
+    return
+  }
+
+  const currentStream = element.srcObject instanceof MediaStream ? element.srcObject : null
+  const currentTrack = currentStream?.getVideoTracks()[0] || null
+  if (currentTrack?.id === track.id) return
+
+  const stream = new MediaStream([track])
+  element.srcObject = stream
+  void element.play().catch(() => undefined)
 }
 
 const VoiceMessageBubble = memo(function VoiceMessageBubble({
@@ -373,6 +426,12 @@ export default function Chat() {
   const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null)
   const [videoDraftSeconds, setVideoDraftSeconds] = useState(0)
   const [isDesktopLayout, setIsDesktopLayout] = useState(false)
+  const [liveCallOpen, setLiveCallOpen] = useState(false)
+  const [liveCallState, setLiveCallState] = useState<LiveCallState>('idle')
+  const [liveCallError, setLiveCallError] = useState<string | null>(null)
+  const [liveCallRoomUrl, setLiveCallRoomUrl] = useState('')
+  const [liveLocalParticipant, setLiveLocalParticipant] = useState<DailyParticipant | null>(null)
+  const [liveRemoteParticipant, setLiveRemoteParticipant] = useState<DailyParticipant | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const audioRecorderRef = useRef<MediaRecorder | null>(null)
   const audioStreamRef = useRef<MediaStream | null>(null)
@@ -394,6 +453,9 @@ export default function Chat() {
   const faceValidationIntervalRef = useRef<number | null>(null)
   const videoInputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
+  const liveCallRef = useRef<ReturnType<typeof DailyIframe.createCallObject> | null>(null)
+  const liveLocalVideoRef = useRef<HTMLVideoElement | null>(null)
+  const liveRemoteVideoRef = useRef<HTMLVideoElement | null>(null)
 
   useEffect(() => {
     if (!conversationId) return
@@ -455,6 +517,14 @@ export default function Chat() {
     }
   }, [videoPreviewUrl, voiceDraftUrl])
 
+  useEffect(() => {
+    syncVideoTrack(liveRemoteVideoRef.current, liveRemoteParticipant, false)
+  }, [liveRemoteParticipant])
+
+  useEffect(() => {
+    syncVideoTrack(liveLocalVideoRef.current, liveLocalParticipant, true)
+  }, [liveLocalParticipant])
+
   const groupedTimeline = useMemo(() => {
     const items: Array<{ kind: 'date'; key: string; label: string } | { kind: 'message'; message: Message }> = []
     let lastDate = ''
@@ -468,6 +538,178 @@ export default function Chat() {
     }
     return items
   }, [messages])
+
+  function updateLiveParticipants(participants: Record<string, DailyParticipant>) {
+    const local = Object.values(participants).find((participant) => participant.local === true) || null
+    const remote = pickRemoteParticipant(participants)
+    setLiveLocalParticipant(local)
+    setLiveRemoteParticipant(remote)
+  }
+
+  async function teardownLiveCall() {
+    const call = liveCallRef.current
+    liveCallRef.current = null
+
+    setLiveLocalParticipant(null)
+    setLiveRemoteParticipant(null)
+    setLiveCallRoomUrl('')
+
+    if (!call) return
+
+    try {
+      await call.leave()
+    } catch {
+      // Ignore leave errors while tearing down the room UI.
+    }
+
+    try {
+      await call.destroy()
+    } catch {
+      // Ignore destroy errors after the call has ended.
+    }
+  }
+
+  async function closeLiveCall() {
+    await teardownLiveCall()
+    setLiveCallOpen(false)
+    setLiveCallState('idle')
+    setLiveCallError(null)
+  }
+
+  async function syncLivePersona() {
+    const response = await fetch(`${BOARDROOM_API_BASE}/api/tavus/personas/sync`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        persona_id: LIVE_CALL_PERSONA_ID,
+        persona_name: `${conversation?.wa_owners.display_name || 'WhatsAnima'} Live`,
+        default_replica_id: LIVE_CALL_REPLICA_ID,
+        system_prompt: conversation?.wa_owners.system_prompt?.trim() || DEFAULT_LIVE_CALL_PROMPT,
+        pipeline_mode: 'full',
+      }),
+    })
+
+    if (response.ok) return
+
+    let detail = 'Unable to prepare the live avatar.'
+    try {
+      const payload = await response.json()
+      if (typeof payload?.detail === 'string' && payload.detail.trim()) detail = payload.detail
+    } catch {
+      const text = await response.text().catch(() => '')
+      if (text.trim()) detail = text.trim()
+    }
+    throw new Error(detail)
+  }
+
+  async function createLiveConversationRoom() {
+    const response = await fetch(`${BOARDROOM_API_BASE}/api/tavus/conversations`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        persona_id: LIVE_CALL_PERSONA_ID,
+        replica_id: LIVE_CALL_REPLICA_ID,
+        conversation_name: `${conversation?.wa_owners.display_name || 'WhatsAnima'} Live Call`,
+      }),
+    })
+
+    if (!response.ok) {
+      let detail = 'Unable to create the live room.'
+      try {
+        const payload = await response.json()
+        if (typeof payload?.detail === 'string' && payload.detail.trim()) detail = payload.detail
+      } catch {
+        const text = await response.text().catch(() => '')
+        if (text.trim()) detail = text.trim()
+      }
+      throw new Error(detail)
+    }
+
+    const payload = (await response.json()) as {
+      conversation_url?: string
+      url?: string
+    }
+    const roomUrl = payload.conversation_url || payload.url || ''
+    if (!roomUrl) throw new Error('Live room URL missing from Tavus response.')
+    return roomUrl
+  }
+
+  async function openLiveCall() {
+    if (!conversation) return
+
+    setLiveCallOpen(true)
+    setLiveCallState('starting')
+    setLiveCallError(null)
+
+    try {
+      await teardownLiveCall()
+      await syncLivePersona()
+
+      const roomUrl = await createLiveConversationRoom()
+      setLiveCallRoomUrl(roomUrl)
+      setLiveCallState('joining')
+
+      const call = DailyIframe.createCallObject()
+      liveCallRef.current = call
+
+      const refreshParticipants = () => {
+        updateLiveParticipants(call.participants() as Record<string, DailyParticipant>)
+      }
+
+      call.on('joined-meeting', refreshParticipants)
+      call.on('participant-joined', refreshParticipants)
+      call.on('participant-updated', refreshParticipants)
+      call.on('participant-left', refreshParticipants)
+      call.on('left-meeting', () => {
+        setLiveCallState('idle')
+        setLiveCallOpen(false)
+        setLiveCallError(null)
+        setLiveLocalParticipant(null)
+        setLiveRemoteParticipant(null)
+        setLiveCallRoomUrl('')
+      })
+      call.on('error', (event: { errorMsg?: string }) => {
+        setLiveCallState('error')
+        setLiveCallError(event.errorMsg || 'Live call connection failed.')
+      })
+      call.on('camera-error', (event: { errorMsg?: { errorMsg?: string } | string }) => {
+        const errorMsg =
+          typeof event.errorMsg === 'string'
+            ? event.errorMsg
+            : event.errorMsg?.errorMsg || 'Camera or microphone access failed.'
+        setLiveCallState('error')
+        setLiveCallError(errorMsg)
+      })
+
+      await call.join({
+        url: roomUrl,
+        userName: conversation.wa_contacts.display_name || 'Guest',
+        startVideoOff: false,
+        startAudioOff: false,
+      })
+
+      await call.setLocalVideo(true)
+      await call.setLocalAudio(true)
+      refreshParticipants()
+      setLiveCallState('connected')
+    } catch (liveCallOpenError) {
+      await teardownLiveCall()
+      setLiveCallState('error')
+      setLiveCallError(
+        liveCallOpenError instanceof Error ? liveCallOpenError.message : 'Unable to start the live call.'
+      )
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      void teardownLiveCall()
+    }
+  }, [])
 
   async function uploadAudioToStorage(audioBase64: string, mimeType: string) {
     if (!conversation) return null
@@ -1432,6 +1674,17 @@ export default function Chat() {
           <h1 className="truncate text-base font-semibold text-white">{owner.display_name}</h1>
           <p className="text-xs text-[#84f5e1]">{avatarTyping ? 'typing...' : 'online'}</p>
         </div>
+        <button
+          type="button"
+          onClick={() => void openLiveCall()}
+          disabled={liveCallState === 'starting' || liveCallState === 'joining'}
+          className="flex h-11 w-11 items-center justify-center rounded-full border border-[#74f0df]/25 bg-[linear-gradient(180deg,rgba(12,136,109,0.34),rgba(7,76,79,0.42))] text-[#9af8ea] shadow-[0_0_30px_rgba(48,214,193,0.18)] transition hover:border-[#74f0df]/50 hover:text-white disabled:opacity-50"
+          title="Start live video call"
+        >
+          <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M17 10.5V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-3.5l4 4v-11l-4 4z" />
+          </svg>
+        </button>
       </header>
 
       <main
@@ -1644,6 +1897,88 @@ export default function Chat() {
         />
       </footer>
       </div>
+
+      {liveCallOpen ? (
+        <div className="absolute inset-0 z-30 bg-[radial-gradient(circle_at_top,rgba(57,188,255,0.16),transparent_30%),linear-gradient(180deg,rgba(2,8,16,0.96),rgba(2,6,12,0.98))]">
+          <div className="flex h-full flex-col px-4 pb-[calc(env(safe-area-inset-bottom)+20px)] pt-[calc(env(safe-area-inset-top)+20px)]">
+            <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4">
+              <div>
+                <div className="text-xs uppercase tracking-[0.32em] text-[#86f7e4]/70">Live Call</div>
+                <h2 className="mt-2 text-xl font-semibold text-white">{owner.display_name}</h2>
+                <p className="mt-1 text-sm text-white/60">
+                  {liveCallState === 'starting'
+                    ? 'Preparing avatar'
+                    : liveCallState === 'joining'
+                      ? 'Joining room'
+                      : liveCallState === 'connected'
+                        ? 'Connected'
+                        : 'Waiting'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void closeLiveCall()}
+                className="rounded-full bg-[linear-gradient(180deg,rgba(255,103,131,0.94),rgba(216,54,92,0.94))] px-5 py-3 text-sm font-semibold text-white shadow-[0_0_36px_rgba(255,88,116,0.22)]"
+              >
+                Hang up
+              </button>
+            </div>
+
+            {liveCallError ? (
+              <div className="mx-auto mt-4 w-full max-w-6xl rounded-3xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+                {liveCallError}
+              </div>
+            ) : null}
+
+            <div
+              className={`mx-auto mt-6 grid w-full max-w-6xl flex-1 gap-4 ${
+                isDesktopLayout ? 'grid-cols-[minmax(0,1.5fr)_minmax(300px,0.72fr)]' : 'grid-rows-[minmax(0,1fr)_minmax(180px,0.55fr)]'
+              }`}
+            >
+              <section className="relative overflow-hidden rounded-[32px] border border-white/10 bg-[linear-gradient(180deg,rgba(10,20,33,0.96),rgba(5,10,18,0.98))] shadow-[0_28px_110px_rgba(0,0,0,0.4)]">
+                <video ref={liveRemoteVideoRef} className="h-full w-full object-cover" autoPlay playsInline />
+                <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(90,214,255,0.12),transparent_34%)]" />
+                {!liveRemoteParticipant ? (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[linear-gradient(180deg,rgba(4,9,17,0.72),rgba(4,9,17,0.82))] text-center text-white/70">
+                    <div className="flex h-20 w-20 items-center justify-center rounded-full border border-white/10 bg-white/5">
+                      <svg className="h-8 w-8" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M17 10.5V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-3.5l4 4v-11l-4 4z" />
+                      </svg>
+                    </div>
+                    <div className="text-base font-medium text-white">{owner.display_name}</div>
+                    <div className="text-sm text-white/55">Waiting for avatar video…</div>
+                  </div>
+                ) : null}
+                <div className="absolute bottom-4 left-4 rounded-full bg-black/35 px-4 py-2 text-sm text-white/88 backdrop-blur-xl">
+                  {getParticipantName(liveRemoteParticipant, owner.display_name)}
+                </div>
+              </section>
+
+              <section className="relative overflow-hidden rounded-[32px] border border-white/10 bg-[linear-gradient(180deg,rgba(14,28,44,0.96),rgba(8,16,27,0.98))] shadow-[0_28px_110px_rgba(0,0,0,0.34)]">
+                <video ref={liveLocalVideoRef} className="h-full w-full object-cover [-webkit-transform:scaleX(-1)] [transform:scaleX(-1)]" autoPlay playsInline muted />
+                {!liveLocalParticipant?.tracks?.video?.persistentTrack ? (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[linear-gradient(180deg,rgba(7,14,23,0.76),rgba(7,14,23,0.9))] text-center text-white/68">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-full border border-white/10 bg-white/5">
+                      <svg className="h-7 w-7" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M17 10.5V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-3.5l4 4v-11l-4 4z" />
+                      </svg>
+                    </div>
+                    <div className="text-sm text-white/55">Camera preview will appear here.</div>
+                  </div>
+                ) : null}
+                <div className="absolute bottom-4 left-4 rounded-full bg-black/35 px-4 py-2 text-sm text-white/88 backdrop-blur-xl">
+                  {getParticipantName(liveLocalParticipant, conversation.wa_contacts.display_name || 'You')}
+                </div>
+                {liveCallRoomUrl ? (
+                  <div className="absolute right-4 top-4 rounded-full border border-white/10 bg-black/28 px-3 py-1.5 text-[11px] uppercase tracking-[0.22em] text-white/55 backdrop-blur-xl">
+                    Daily WebRTC
+                  </div>
+                ) : null}
+              </section>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {voiceOverlayOpen ? (
         <div className="absolute inset-0 z-30 flex items-end bg-[#02060dd9] p-4 sm:items-center sm:justify-center">
