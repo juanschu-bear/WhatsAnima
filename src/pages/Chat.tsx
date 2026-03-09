@@ -513,6 +513,10 @@ export default function Chat() {
         replyText = 'Honestly? Give me the interesting part first.'
       }
 
+      if (!voiceId) {
+        return { content: replyText, mediaUrl: null }
+      }
+
       const response = await fetch('/api/tts', {
         method: 'POST',
         headers: {
@@ -550,23 +554,29 @@ export default function Chat() {
     }
   }
 
-  async function sendAvatarReply(seedText: string) {
+  async function sendAvatarReply(seedText: string, useVoice = true) {
     if (!conversationId) return
     setAvatarTyping(true)
     try {
-      const replyPayload = await getAvatarReply(seedText, conversation?.wa_owners.voice_id)
+      const replyPayload = useVoice
+        ? await getAvatarReply(seedText, conversation?.wa_owners.voice_id)
+        : await getAvatarReply(seedText, null)
+      const hasAudio = useVoice && !!replyPayload.mediaUrl
+      const msgType = hasAudio ? 'voice' : 'text'
       const reply = await sendMessage(
         conversationId,
         'avatar',
-        'voice',
+        msgType,
         replyPayload.content,
-        replyPayload.mediaUrl ?? undefined
+        hasAudio ? replyPayload.mediaUrl ?? undefined : undefined
       )
       setMessages((current) => [...current, reply as Message])
-      setTranscriptMap((current) => ({
-        ...current,
-        [String((reply as Message).id)]: String(replyPayload.content),
-      }))
+      if (hasAudio) {
+        setTranscriptMap((current) => ({
+          ...current,
+          [String((reply as Message).id)]: String(replyPayload.content),
+        }))
+      }
     } finally {
       setAvatarTyping(false)
     }
@@ -582,7 +592,7 @@ export default function Chat() {
     try {
       const message = await sendMessage(conversationId, 'contact', 'text', content)
       setMessages((current) => [...current, message as Message])
-      await sendAvatarReply(content)
+      await sendAvatarReply(content, false)
     } catch (sendError) {
       console.error(sendError)
       setError('Unable to send your message.')
