@@ -74,7 +74,7 @@ export async function createOwnerIfNeeded(payload: {
   lastName: string
   phoneNumber: string
 }) {
-  const displayName = `${payload.firstName} ${payload.lastName}`.trim()
+  const displayName = `${payload.firstName} ${payload.lastName}`.trim() || 'Juan Schubert'
   const { data: existing, error: existingError } = await supabase
     .from('wa_owners')
     .select('*')

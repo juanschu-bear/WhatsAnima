@@ -156,11 +156,34 @@ export default function Dashboard() {
           avatar_url: ownerRow.avatar_url ?? null,
         })
 
-        const [conversationData, linkData, statsData] = await Promise.all([
+        const [conversationResult, linkResult, statsResult] = await Promise.allSettled([
           listConversations(ownerRow.id),
           listInvitationLinks(ownerRow.id),
           getOwnerDashboardStats(ownerRow.id),
         ])
+        const conversationData = conversationResult.status === 'fulfilled' ? conversationResult.value : []
+        const linkData = linkResult.status === 'fulfilled' ? linkResult.value : []
+        const statsData =
+          statsResult.status === 'fulfilled'
+            ? statsResult.value
+            : {
+                totalContacts: conversationData.length,
+                totalConversations: conversationData.length,
+                totalMessages: conversationData.reduce(
+                  (total, conversation) => total + conversation.message_count,
+                  0
+                ),
+              }
+
+        if (conversationResult.status === 'rejected') {
+          console.error('Conversation list error:', conversationResult.reason)
+        }
+        if (linkResult.status === 'rejected') {
+          console.error('Invitation list error:', linkResult.reason)
+        }
+        if (statsResult.status === 'rejected') {
+          console.error('Dashboard stats error:', statsResult.reason)
+        }
 
         setConversations(conversationData)
         setLinks((linkData as InvitationLink[]) ?? [])
@@ -439,6 +462,77 @@ export default function Dashboard() {
                 </div>
               )}
             </div>
+
+            <div className="border-t border-white/8 px-4 py-4">
+              <button
+                type="button"
+                onClick={() => setInvitePanelOpen((current) => !current)}
+                className="brand-inset flex w-full items-center justify-between rounded-[24px] px-4 py-4 text-left transition hover:border-[#00a884]/45"
+              >
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.24em] text-white/40">Invites</p>
+                  <p className="mt-2 text-lg font-semibold text-white">Invite management</p>
+                </div>
+                <span className="text-sm text-white/54">{invitePanelOpen ? 'Hide' : 'Show'}</span>
+              </button>
+
+              {invitePanelOpen ? (
+                <div className="brand-inset mt-3 rounded-[24px] p-4">
+                  <div className="flex gap-3">
+                    <input
+                      type="text"
+                      value={label}
+                      onChange={(event) => setLabel(event.target.value)}
+                      placeholder="Optional invite label"
+                      className="brand-inset min-w-0 flex-1 rounded-2xl px-4 py-3 text-sm text-white placeholder-white/28 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleGenerate}
+                      disabled={inviteBusy}
+                      className="rounded-2xl bg-[#00a884] px-4 py-3 text-sm font-semibold text-[#07141a] transition hover:brightness-110 disabled:opacity-60"
+                    >
+                      {inviteBusy ? 'Generating...' : 'Generate'}
+                    </button>
+                  </div>
+                  <div className="mt-4 space-y-2">
+                    {links.length === 0 ? (
+                      <div className="rounded-[20px] border border-white/6 bg-black/14 px-3 py-4 text-sm text-white/56">
+                        No invite links yet.
+                      </div>
+                    ) : null}
+                    {links.map((link) => (
+                      <div key={link.id} className="rounded-[20px] border border-white/6 bg-black/14 p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-white">{link.label || 'Untitled invite'}</p>
+                            <p className="mt-1 text-xs text-white/46">{link.use_count} uses</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleToggle(link.id, link.active)}
+                            className={`rounded-full px-3 py-1 text-xs font-medium ${
+                              link.active ? 'bg-[#00a884]/18 text-[#7be3ce]' : 'bg-white/8 text-white/60'
+                            }`}
+                          >
+                            {link.active ? 'Active' : 'Inactive'}
+                          </button>
+                        </div>
+                        <div className="mt-3 flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => copyLink(link.token, link.id)}
+                            className="rounded-xl border border-white/10 px-3 py-2 text-xs text-white/78 transition hover:border-[#00a884]/55 hover:text-[#00a884]"
+                          >
+                            {copiedId === link.id ? 'Copied' : 'Copy Link'}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
           </aside>
 
           <section
@@ -598,69 +692,6 @@ export default function Dashboard() {
                     </div>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => setInvitePanelOpen((current) => !current)}
-                    className="brand-inset flex w-full items-center justify-between rounded-[24px] px-4 py-4 text-left transition hover:border-[#00a884]/45"
-                  >
-                    <div>
-                      <p className="text-[11px] uppercase tracking-[0.24em] text-white/40">Invites</p>
-                      <p className="mt-2 text-lg font-semibold text-white">Invite management</p>
-                    </div>
-                    <span className="text-sm text-white/54">{invitePanelOpen ? 'Hide' : 'Show'}</span>
-                  </button>
-
-                  {invitePanelOpen ? (
-                    <div className="brand-inset rounded-[24px] p-4">
-                      <div className="flex gap-3">
-                        <input
-                          type="text"
-                          value={label}
-                          onChange={(event) => setLabel(event.target.value)}
-                          placeholder="Optional invite label"
-                          className="brand-inset min-w-0 flex-1 rounded-2xl px-4 py-3 text-sm text-white placeholder-white/28 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20"
-                        />
-                        <button
-                          type="button"
-                          onClick={handleGenerate}
-                          disabled={inviteBusy}
-                          className="rounded-2xl bg-[#00a884] px-4 py-3 text-sm font-semibold text-[#07141a] transition hover:brightness-110 disabled:opacity-60"
-                        >
-                          {inviteBusy ? 'Generating...' : 'Generate'}
-                        </button>
-                      </div>
-                      <div className="mt-4 space-y-2">
-                        {links.map((link) => (
-                          <div key={link.id} className="rounded-[20px] border border-white/6 bg-black/14 p-3">
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <p className="truncate text-sm font-medium text-white">{link.label || 'Untitled invite'}</p>
-                                <p className="mt-1 text-xs text-white/46">{link.use_count} uses</p>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => handleToggle(link.id, link.active)}
-                                className={`rounded-full px-3 py-1 text-xs font-medium ${
-                                  link.active ? 'bg-[#00a884]/18 text-[#7be3ce]' : 'bg-white/8 text-white/60'
-                                }`}
-                              >
-                                {link.active ? 'Active' : 'Inactive'}
-                              </button>
-                            </div>
-                            <div className="mt-3 flex gap-2">
-                              <button
-                                type="button"
-                                onClick={() => copyLink(link.token, link.id)}
-                                className="rounded-xl border border-white/10 px-3 py-2 text-xs text-white/78 transition hover:border-[#00a884]/55 hover:text-[#00a884]"
-                              >
-                                {copiedId === link.id ? 'Copied' : 'Copy Link'}
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
                 </div>
               ) : (
                 <div className="flex h-full items-center justify-center text-center text-sm text-white/56">

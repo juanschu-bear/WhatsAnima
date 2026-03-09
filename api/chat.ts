@@ -52,7 +52,7 @@ async function loadOwnerPrompt(conversationId: string | undefined) {
 
 async function callAnthropic(apiKey: string, systemPrompt: string, messages: ChatMessage[]) {
   const payload = {
-    model: 'claude-opus-4-5-20251101',
+    model: 'claude-sonnet-4-20250514',
     max_tokens: 300,
     system: systemPrompt,
     messages: messages.map((message) => {
