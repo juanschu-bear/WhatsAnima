@@ -5,7 +5,6 @@ import {
   useRef,
   useState,
   type ChangeEvent,
-  type PointerEvent as ReactPointerEvent,
 } from 'react'
 import { useParams } from 'react-router-dom'
 import { createPerceptionLog, getConversation, listMessages, listPerceptionLogs, sendMessage } from '../lib/api'
@@ -45,6 +44,8 @@ interface CaptionDraft {
 
 type RecordingMode = 'idle' | 'recording' | 'stopping'
 type CaptureKind = 'none' | 'voice' | 'video'
+type VideoOverlayMode = 'live' | 'preview'
+type ValidationTone = '' | 'warning' | 'success' | 'error'
 
 interface BrowserSpeechRecognitionResult {
   isFinal: boolean
@@ -345,6 +346,20 @@ export default function Chat() {
   const [error, setError] = useState<string | null>(null)
   const [transcriptMap, setTranscriptMap] = useState<Record<string, string>>({})
   const [mediaMenuOpen, setMediaMenuOpen] = useState(false)
+  const [voiceOverlayOpen, setVoiceOverlayOpen] = useState(false)
+  const [voiceDraftUrl, setVoiceDraftUrl] = useState<string | null>(null)
+  const [voiceDraftReady, setVoiceDraftReady] = useState(false)
+  const [voiceDraftSeconds, setVoiceDraftSeconds] = useState(0)
+  const [voiceDraftTranscript, setVoiceDraftTranscript] = useState('')
+  const [videoOverlayOpen, setVideoOverlayOpen] = useState(false)
+  const [videoOverlayMode, setVideoOverlayMode] = useState<VideoOverlayMode>('live')
+  const [videoPermissionPending, setVideoPermissionPending] = useState(false)
+  const [videoValidationText, setVideoValidationText] = useState('Position your face in the circle')
+  const [videoValidationTone, setVideoValidationTone] = useState<ValidationTone>('')
+  const [videoCanRecord, setVideoCanRecord] = useState(false)
+  const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null)
+  const [videoDraftSeconds, setVideoDraftSeconds] = useState(0)
+  const [isDesktopLayout, setIsDesktopLayout] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const audioRecorderRef = useRef<MediaRecorder | null>(null)
   const audioStreamRef = useRef<MediaStream | null>(null)
@@ -357,6 +372,13 @@ export default function Chat() {
   const videoRecorderRef = useRef<MediaRecorder | null>(null)
   const videoStreamRef = useRef<MediaStream | null>(null)
   const videoChunksRef = useRef<Blob[]>([])
+  const videoPreviewRef = useRef<HTMLVideoElement>(null)
+  const faceCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  const videoValidationLockRef = useRef(0)
+  const lastVideoValidationRef = useRef('')
+  const voiceDraftBlobRef = useRef<Blob | null>(null)
+  const videoDraftBlobRef = useRef<Blob | null>(null)
+  const faceValidationIntervalRef = useRef<number | null>(null)
   const videoInputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
 
@@ -401,13 +423,24 @@ export default function Chat() {
   }, [])
 
   useEffect(() => {
+    const media = window.matchMedia('(min-width: 1024px)')
+    const sync = () => setIsDesktopLayout(media.matches)
+    sync()
+    media.addEventListener('change', sync)
+    return () => media.removeEventListener('change', sync)
+  }, [])
+
+  useEffect(() => {
     return () => {
       if (recordTimerRef.current) window.clearInterval(recordTimerRef.current)
+      if (faceValidationIntervalRef.current) window.clearInterval(faceValidationIntervalRef.current)
       audioStreamRef.current?.getTracks().forEach((track) => track.stop())
       videoStreamRef.current?.getTracks().forEach((track) => track.stop())
       speechRecognitionRef.current?.stop?.()
+      if (voiceDraftUrl) URL.revokeObjectURL(voiceDraftUrl)
+      if (videoPreviewUrl) URL.revokeObjectURL(videoPreviewUrl)
     }
-  }, [])
+  }, [videoPreviewUrl, voiceDraftUrl])
 
   const groupedTimeline = useMemo(() => {
     const items: Array<{ kind: 'date'; key: string; label: string } | { kind: 'message'; message: Message }> = []
@@ -535,6 +568,51 @@ export default function Chat() {
     }
   }
 
+  async function sendVoiceMessage(blob: Blob, transcript: string, durationSeconds: number) {
+    if (!conversationId || !conversation) return
+
+    const file = new File([blob], `voice-note.${getFileExtension(blob, 'webm')}`, {
+      type: blob.type || 'audio/webm',
+    })
+
+    setSending(true)
+    setError(null)
+    try {
+      const mediaUrl = await uploadToStorage(file, 'audio')
+      if (!mediaUrl) throw new Error('upload failed')
+
+      const message = (await sendMessage(
+        conversationId,
+        'contact',
+        'voice',
+        transcript || '[Voice message]',
+        mediaUrl,
+        durationSeconds
+      )) as Message
+
+      setMessages((current) => [...current, message])
+
+      if (transcript) {
+        await createPerceptionLog({
+          messageId: message.id,
+          conversationId: conversation.id,
+          contactId: conversation.contact_id,
+          ownerId: conversation.owner_id,
+          transcript,
+          audioDurationSec: durationSeconds,
+        })
+        setTranscriptMap((current) => ({ ...current, [message.id]: transcript }))
+      }
+
+      await sendAvatarReply(transcript || 'a voice message')
+    } catch (recordingError) {
+      console.error(recordingError)
+      setError('Unable to send this voice note.')
+    } finally {
+      setSending(false)
+    }
+  }
+
   function stopRecordingTimer() {
     if (recordTimerRef.current) {
       window.clearInterval(recordTimerRef.current)
@@ -613,7 +691,7 @@ export default function Chat() {
     }
   }
 
-  async function finishVoiceRecording(send = true) {
+  async function finishVoiceRecording(action: 'send' | 'draft' | 'cancel' = 'send') {
     if (recordingMode === 'idle') return
 
     setRecordingMode('stopping')
@@ -636,60 +714,33 @@ export default function Chat() {
     setCaptureKind('none')
     setRecordingSeconds(0)
 
-    if (!send || !blob || !conversationId || !conversation) return
-
     const durationSeconds = Math.max(1, Math.round((Date.now() - audioStartRef.current) / 1000))
-    const file = new File([blob], `voice-note.${getFileExtension(blob, 'webm')}`, { type: blob.type || 'audio/webm' })
+    const transcript = browserTranscriptRef.current.trim()
+    browserTranscriptRef.current = ''
 
-    setSending(true)
-    setError(null)
-    try {
-      const mediaUrl = await uploadToStorage(file, 'audio')
-      if (!mediaUrl) throw new Error('upload failed')
-
-      const transcript = browserTranscriptRef.current.trim()
-      const message = (await sendMessage(
-        conversationId,
-        'contact',
-        'voice',
-        transcript || '[Voice message]',
-        mediaUrl,
-        durationSeconds
-      )) as Message
-
-      setMessages((current) => [...current, message])
-
-      if (transcript) {
-        await createPerceptionLog({
-          messageId: message.id,
-          conversationId: conversation.id,
-          contactId: conversation.contact_id,
-          ownerId: conversation.owner_id,
-          transcript,
-          audioDurationSec: durationSeconds,
-        })
-        setTranscriptMap((current) => ({ ...current, [message.id]: transcript }))
-      }
-
-      await sendAvatarReply(transcript || 'a voice message')
-    } catch (recordingError) {
-      console.error(recordingError)
-      setError('Unable to send this voice note.')
-    } finally {
-      browserTranscriptRef.current = ''
-      setSending(false)
+    if (!blob || action === 'cancel') return
+    if (action === 'draft') {
+      voiceDraftBlobRef.current = blob
+      setVoiceDraftTranscript(transcript)
+      setVoiceDraftSeconds(durationSeconds)
+      setVoiceDraftReady(true)
+      setVoiceDraftUrl((current) => {
+        if (current) URL.revokeObjectURL(current)
+        return URL.createObjectURL(blob)
+      })
+      return
     }
+
+    await sendVoiceMessage(blob, transcript, durationSeconds)
   }
 
   async function startLiveVideoRecording() {
-    if (!conversation) return
+    if (!conversation || !videoStreamRef.current) return
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: true })
       const mimeTypeOptions = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4']
       const mimeType = mimeTypeOptions.find((option) => MediaRecorder.isTypeSupported(option)) || ''
-      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream)
-      videoStreamRef.current = stream
+      const recorder = mimeType ? new MediaRecorder(videoStreamRef.current, { mimeType }) : new MediaRecorder(videoStreamRef.current)
       videoRecorderRef.current = recorder
       videoChunksRef.current = []
 
@@ -701,6 +752,12 @@ export default function Chat() {
       setCaptureKind('video')
       audioStartRef.current = Date.now()
       stopRecordingTimer()
+      if (faceValidationIntervalRef.current) {
+        window.clearInterval(faceValidationIntervalRef.current)
+        faceValidationIntervalRef.current = null
+      }
+      setVideoValidationText('Recording...')
+      setVideoValidationTone('')
       recordTimerRef.current = window.setInterval(() => {
         setRecordingSeconds(Math.floor((Date.now() - audioStartRef.current) / 1000))
       }, 250)
@@ -714,6 +771,10 @@ export default function Chat() {
     if (!videoRecorderRef.current || !conversation || !conversationId) return
 
     stopRecordingTimer()
+    if (faceValidationIntervalRef.current) {
+      window.clearInterval(faceValidationIntervalRef.current)
+      faceValidationIntervalRef.current = null
+    }
     setRecordingMode('stopping')
 
     const blob = await new Promise<Blob | null>((resolve) => {
@@ -746,9 +807,34 @@ export default function Chat() {
     })
     const duration = Math.max(1, Math.round((Date.now() - audioStartRef.current) / 1000))
 
+    try {
+      const previewUrl = URL.createObjectURL(file)
+      videoDraftBlobRef.current = file
+      setVideoDraftSeconds(duration)
+      setVideoPreviewUrl((current) => {
+        if (current) URL.revokeObjectURL(current)
+        return previewUrl
+      })
+      setVideoOverlayMode('preview')
+      setVideoValidationText('Preview ready. Send or cancel.')
+      setVideoValidationTone('success')
+    } catch (videoSendError) {
+      console.error(videoSendError)
+      setError('Unable to prepare this recorded video.')
+    }
+  }
+
+  async function sendRecordedVideoDraft() {
+    if (!videoDraftBlobRef.current || !conversationId) return
+
     setSending(true)
     setError(null)
     try {
+      const file = videoDraftBlobRef.current instanceof File
+        ? videoDraftBlobRef.current
+        : new File([videoDraftBlobRef.current], `recorded-video.${getFileExtension(videoDraftBlobRef.current, 'webm')}`, {
+            type: videoDraftBlobRef.current.type || 'video/webm',
+          })
       const mediaUrl = await uploadToStorage(file, 'video')
       if (!mediaUrl) throw new Error('upload failed')
 
@@ -758,9 +844,10 @@ export default function Chat() {
         'video',
         '[Recorded video]',
         mediaUrl,
-        duration
+        videoDraftSeconds
       )) as Message
       setMessages((current) => [...current, message])
+      closeVideoOverlay()
       await sendAvatarReply('a recorded video')
     } catch (videoSendError) {
       console.error(videoSendError)
@@ -870,6 +957,221 @@ export default function Chat() {
     })
   }
 
+  function setVideoValidation(text: string, tone: ValidationTone, blockRecording: boolean) {
+    const now = Date.now()
+    if (!blockRecording && now < videoValidationLockRef.current && text !== lastVideoValidationRef.current) {
+      return
+    }
+    if (text !== lastVideoValidationRef.current && tone && navigator.vibrate) {
+      navigator.vibrate(blockRecording ? [80, 50, 80] : 60)
+    }
+    if (text !== lastVideoValidationRef.current) {
+      videoValidationLockRef.current = now + 1800
+    }
+    lastVideoValidationRef.current = text
+    setVideoValidationText(text)
+    setVideoValidationTone(tone)
+    setVideoCanRecord(!blockRecording)
+  }
+
+  function runFaceValidation() {
+    const video = videoPreviewRef.current
+    if (!video || !videoStreamRef.current || videoOverlayMode !== 'live') return
+    if (!video.videoWidth || !video.videoHeight) return
+
+    if (!faceCanvasRef.current) {
+      faceCanvasRef.current = document.createElement('canvas')
+    }
+
+    const canvas = faceCanvasRef.current
+    const context = canvas.getContext('2d', { willReadFrequently: true })
+    if (!context) return
+
+    const width = 160
+    const height = 160
+    canvas.width = width
+    canvas.height = height
+    context.drawImage(video, 0, 0, width, height)
+
+    const { data } = context.getImageData(0, 0, width, height)
+    const centerX = width / 2
+    const centerY = height / 2
+    const radius = width * 0.35
+    let skinPixels = 0
+    let totalPixels = 0
+    let brightnessSum = 0
+    let skinXSum = 0
+    let skinYSum = 0
+    let leftSkinPixels = 0
+    let rightSkinPixels = 0
+
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const index = (y * width + x) * 4
+        const red = data[index]
+        const green = data[index + 1]
+        const blue = data[index + 2]
+        const brightness = (red + green + blue) / 3
+        const dx = x - centerX
+        const dy = y - centerY
+
+        if (dx * dx + dy * dy <= radius * radius) {
+          brightnessSum += brightness
+          totalPixels += 1
+        }
+
+        if (
+          red > 60 &&
+          green > 40 &&
+          blue > 20 &&
+          red > green &&
+          red > blue &&
+          Math.abs(red - green) > 10 &&
+          brightness > 50 &&
+          brightness < 240
+        ) {
+          skinPixels += 1
+          skinXSum += x
+          skinYSum += y
+          if (x < centerX) leftSkinPixels += 1
+          else rightSkinPixels += 1
+        }
+      }
+    }
+
+    const totalFramePixels = width * height
+    const skinRatio = skinPixels / totalFramePixels
+    const averageBrightness = totalPixels > 0 ? brightnessSum / totalPixels : 0
+
+    if (averageBrightness < 40) {
+      setVideoValidation('We need more light so the camera can see you.', 'warning', true)
+      return
+    }
+    if (skinRatio < 0.02) {
+      setVideoValidation('Position your face in the circle.', '', true)
+      return
+    }
+
+    const faceCenterX = skinPixels > 0 ? skinXSum / skinPixels : centerX
+    const faceCenterY = skinPixels > 0 ? skinYSum / skinPixels : centerY
+    const offsetX = Math.abs(faceCenterX - centerX) / (width / 2)
+    const offsetY = Math.abs(faceCenterY - centerY) / (height / 2)
+
+    if (offsetX > 0.35 || offsetY > 0.35) {
+      setVideoValidation('Center your face in the circle.', 'warning', true)
+      return
+    }
+    if (skinRatio < 0.05) {
+      setVideoValidation('Move a little closer to the camera.', 'warning', true)
+      return
+    }
+
+    const totalSideSkin = leftSkinPixels + rightSkinPixels
+    if (totalSideSkin > 0) {
+      const asymmetry = Math.abs(leftSkinPixels - rightSkinPixels) / totalSideSkin
+      if (asymmetry > 0.4) {
+        setVideoValidation('Look into the camera for a clean take.', 'warning', false)
+        return
+      }
+    }
+
+    if (averageBrightness < 70) {
+      setVideoValidation('A bit more light would help.', 'warning', false)
+      return
+    }
+
+    setVideoValidation('Ready to record.', 'success', false)
+  }
+
+  async function openVideoOverlay() {
+    if (videoOverlayOpen) return
+    setMediaMenuOpen(false)
+    setVideoOverlayOpen(true)
+    setVideoOverlayMode('live')
+    setVideoPermissionPending(true)
+    setVideoValidationText('Preparing camera...')
+    setVideoValidationTone('')
+    setVideoCanRecord(false)
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 720 } },
+        audio: true,
+      })
+      videoStreamRef.current = stream
+      const video = videoPreviewRef.current
+      if (video) {
+        video.srcObject = stream
+        video.muted = true
+        video.playsInline = true
+        await video.play().catch(() => undefined)
+      }
+      setVideoPermissionPending(false)
+      setVideoValidationText('Position your face in the circle.')
+      if (faceValidationIntervalRef.current) window.clearInterval(faceValidationIntervalRef.current)
+      faceValidationIntervalRef.current = window.setInterval(runFaceValidation, 500)
+    } catch (videoError) {
+      console.error(videoError)
+      setVideoPermissionPending(false)
+      setVideoValidationText('Camera access is required to record video.')
+      setVideoValidationTone('error')
+      setVideoCanRecord(false)
+    }
+  }
+
+  function closeVideoOverlay() {
+    if (recordTimerRef.current) {
+      window.clearInterval(recordTimerRef.current)
+      recordTimerRef.current = null
+    }
+    if (faceValidationIntervalRef.current) {
+      window.clearInterval(faceValidationIntervalRef.current)
+      faceValidationIntervalRef.current = null
+    }
+    if (videoRecorderRef.current && videoRecorderRef.current.state !== 'inactive') {
+      videoRecorderRef.current.onstop = null
+      videoRecorderRef.current.stop()
+    }
+    videoStreamRef.current?.getTracks().forEach((track) => track.stop())
+    videoStreamRef.current = null
+    videoRecorderRef.current = null
+    videoChunksRef.current = []
+    videoDraftBlobRef.current = null
+    setRecordingMode('idle')
+    setCaptureKind('none')
+    setRecordingSeconds(0)
+    setVideoOverlayOpen(false)
+    setVideoOverlayMode('live')
+    setVideoPermissionPending(false)
+    setVideoValidationText('Position your face in the circle.')
+    setVideoValidationTone('')
+    setVideoCanRecord(false)
+    setVideoPreviewUrl((current) => {
+      if (current) URL.revokeObjectURL(current)
+      return null
+    })
+    const video = videoPreviewRef.current
+    if (video) {
+      video.pause()
+      video.srcObject = null
+      video.src = ''
+    }
+  }
+
+  async function openVoiceOverlay() {
+    setMediaMenuOpen(false)
+    setVoiceOverlayOpen(true)
+    setVoiceDraftReady(false)
+    setVoiceDraftTranscript('')
+    setVoiceDraftSeconds(0)
+    setVoiceDraftUrl((current) => {
+      if (current) URL.revokeObjectURL(current)
+      return null
+    })
+    voiceDraftBlobRef.current = null
+    await startVoiceRecording()
+  }
+
   function openCaptionDraft(file: File, kind: 'image' | 'video') {
     const previewUrl = URL.createObjectURL(file)
     setMediaMenuOpen(false)
@@ -955,21 +1257,32 @@ export default function Chat() {
     openCaptionDraft(file, 'video')
   }
 
-  async function handleVoicePointerDown() {
-    if (sending || recordingMode !== 'idle') return
-    await startVoiceRecording()
+  function closeVoiceOverlay() {
+    if (recordingMode !== 'idle' && captureKind === 'voice') {
+      void finishVoiceRecording('cancel')
+    }
+    voiceDraftBlobRef.current = null
+    setVoiceOverlayOpen(false)
+    setVoiceDraftReady(false)
+    setVoiceDraftTranscript('')
+    setVoiceDraftSeconds(0)
+    setVoiceDraftUrl((current) => {
+      if (current) URL.revokeObjectURL(current)
+      return null
+    })
   }
 
-  async function handleVoicePointerUp() {
-    if (recordingMode === 'recording') {
-      await finishVoiceRecording(true)
-    }
+  async function stopVoiceIntoDraft() {
+    await finishVoiceRecording('draft')
   }
 
-  async function handleVoicePointerCancel() {
-    if (recordingMode === 'recording') {
-      await finishVoiceRecording(false)
-    }
+  async function sendVoiceDraft() {
+    if (!voiceDraftBlobRef.current) return
+    const blob = voiceDraftBlobRef.current
+    const transcript = voiceDraftTranscript
+    const duration = voiceDraftSeconds
+    closeVoiceOverlay()
+    await sendVoiceMessage(blob, transcript, duration)
   }
 
   if (loading) {
@@ -994,7 +1307,7 @@ export default function Chat() {
     <div className="relative flex h-[100svh] min-h-[100svh] flex-col overflow-hidden bg-[radial-gradient(circle_at_top,_rgba(72,216,255,0.2),_transparent_28%),radial-gradient(circle_at_80%_20%,_rgba(0,255,170,0.16),_transparent_22%),linear-gradient(180deg,_#061018_0%,_#07111f_48%,_#050b15_100%)] text-white">
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(126,255,234,0.04)_1px,transparent_1px),linear-gradient(90deg,rgba(126,255,234,0.04)_1px,transparent_1px)] bg-[size:34px_34px] opacity-[0.16]" />
       <div className="pointer-events-none absolute inset-x-0 top-0 h-44 bg-[radial-gradient(circle_at_top,_rgba(83,208,255,0.32),_transparent_58%)] blur-3xl" />
-
+      <div className={`relative z-10 flex min-h-0 flex-1 flex-col ${isDesktopLayout ? 'mx-auto my-5 w-[min(1400px,calc(100vw-48px))] rounded-[32px] border border-white/10 bg-[#07121ccc] shadow-[0_30px_120px_rgba(0,0,0,0.42)] backdrop-blur-2xl' : ''}`}>
       <header className="relative z-10 flex items-center gap-3 border-b border-white/8 bg-[#0d1826]/72 px-4 py-3 shadow-[0_12px_40px_rgba(0,0,0,0.24)] backdrop-blur-2xl">
         {owner.avatar_url ? (
           <img src={owner.avatar_url} alt={owner.display_name} className="h-10 w-10 rounded-full object-cover" />
@@ -1012,7 +1325,7 @@ export default function Chat() {
       <main
         className="relative z-0 min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 pb-6"
       >
-        <div className="mx-auto flex max-w-2xl flex-col gap-3">
+        <div className={`mx-auto flex w-full flex-col gap-3 ${isDesktopLayout ? 'max-w-[920px] py-6' : 'max-w-2xl'}`}>
           {groupedTimeline.map((item) => {
             if (item.kind === 'date') {
               return (
@@ -1080,7 +1393,7 @@ export default function Chat() {
           <div className="mx-auto flex max-w-2xl items-center gap-3 rounded-[28px] border border-white/8 bg-[linear-gradient(180deg,rgba(17,29,44,0.9),rgba(10,20,33,0.95))] px-4 py-3 text-white shadow-[0_20px_60px_rgba(0,0,0,0.28)]">
             <button
               type="button"
-              onClick={() => finishVoiceRecording(false)}
+              onClick={() => finishVoiceRecording('cancel')}
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#ff7a7a] to-[#e23e63] text-white shadow-[0_0_24px_rgba(255,91,118,0.36)]"
             >
               <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
@@ -1105,7 +1418,7 @@ export default function Chat() {
       ) : null}
 
       <footer className="relative z-20 border-t border-white/8 bg-[#101b28]/82 px-3 pt-2 backdrop-blur-2xl">
-        <div className="mx-auto flex max-w-2xl items-end gap-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)]">
+        <div className={`mx-auto flex items-end gap-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] ${isDesktopLayout ? 'max-w-[980px]' : 'max-w-2xl'}`}>
           <div className="relative shrink-0">
             <button
               type="button"
@@ -1151,7 +1464,7 @@ export default function Chat() {
                   type="button"
                   onClick={() => {
                     setMediaMenuOpen(false)
-                    void (videoRecorderRef.current ? stopLiveVideoRecording() : startLiveVideoRecording())
+                    void openVideoOverlay()
                   }}
                   className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm text-white/88 transition hover:bg-white/6"
                 >
@@ -1160,7 +1473,7 @@ export default function Chat() {
                       <path d="M17 10.5V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-3.5l4 4v-11l-4 4z" />
                     </svg>
                   </span>
-                  <span>{videoRecorderRef.current ? 'Stop recording' : 'Record video'}</span>
+                  <span>Record video</span>
                 </button>
               </div>
             ) : null}
@@ -1186,19 +1499,10 @@ export default function Chat() {
 
           <button
             type="button"
-            onPointerDown={(event: ReactPointerEvent<HTMLButtonElement>) => {
-              event.preventDefault()
-              void handleVoicePointerDown()
-            }}
-            onPointerUp={(event: ReactPointerEvent<HTMLButtonElement>) => {
-              event.preventDefault()
-              void handleVoicePointerUp()
-            }}
-            onPointerCancel={() => void handleVoicePointerCancel()}
-            onPointerLeave={() => void handleVoicePointerCancel()}
-            disabled={sending || text.trim().length > 0 || videoRecorderRef.current !== null || mediaMenuOpen}
+            onClick={() => void openVoiceOverlay()}
+            disabled={sending || text.trim().length > 0 || videoOverlayOpen || mediaMenuOpen}
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#10c8a6] to-[#0f9f88] text-white shadow-[0_0_32px_rgba(16,200,166,0.28)] transition hover:brightness-110 disabled:opacity-40"
-            title="Hold to record voice note"
+            title="Record voice note"
           >
             <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
               <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1 1.93c-3.94-.49-7-3.85-7-7.93h2c0 3.31 2.69 6 6 6s6-2.69 6-6h2c0 4.08-3.06 7.44-7 7.93V19h4v2H8v-2h4v-3.07z" />
@@ -1227,6 +1531,140 @@ export default function Chat() {
           onChange={handleVideoSelected}
         />
       </footer>
+      </div>
+
+      {voiceOverlayOpen ? (
+        <div className="absolute inset-0 z-30 flex items-end bg-[#02060dd9] p-4 sm:items-center sm:justify-center">
+          <div className="w-full max-w-md rounded-[32px] border border-white/10 bg-[linear-gradient(180deg,rgba(17,29,44,0.96),rgba(10,20,33,0.98))] p-5 shadow-[0_28px_100px_rgba(0,0,0,0.45)] backdrop-blur-2xl">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-semibold text-white">Voice message</h2>
+              <button type="button" onClick={closeVoiceOverlay} className="text-sm text-white/60">Cancel</button>
+            </div>
+            <div className="mt-5 rounded-[28px] border border-white/10 bg-[linear-gradient(180deg,rgba(26,42,61,0.92),rgba(18,31,47,0.96))] px-4 py-5">
+              <div className="flex items-center gap-3">
+                <div className={`h-3 w-3 rounded-full ${recordingMode !== 'idle' ? 'animate-pulse bg-[#ff6b7f]' : 'bg-[#11c2a0]'}`} />
+                <span className="text-sm text-white/80">
+                  {recordingMode !== 'idle' ? 'Recording...' : voiceDraftReady ? 'Ready to send' : 'Preparing...'}
+                </span>
+                <span className="ml-auto text-sm font-medium text-white/70">{formatClock(voiceDraftReady ? voiceDraftSeconds : recordingSeconds)}</span>
+              </div>
+              <div className="mt-4 flex items-end gap-1">
+                {WAVEFORM_BARS.map((bar) => (
+                  <span
+                    key={`voice-overlay-${bar}`}
+                    className={`block w-2 rounded-full ${voiceDraftReady ? 'bg-[#89fbe3]/60' : 'animate-pulse bg-[#ff6b7f]'}`}
+                    style={{ height: `${[10, 20, 30, 16, 34, 24, 12, 28, 18, 26, 36, 16, 28, 14, 22][bar]}px`, animationDelay: `${bar * 70}ms` }}
+                  />
+                ))}
+              </div>
+              {voiceDraftTranscript ? (
+                <div className="mt-4 rounded-2xl bg-black/15 px-3 py-2 text-sm text-white/84">
+                  {voiceDraftTranscript}
+                </div>
+              ) : null}
+              {voiceDraftUrl ? <audio className="mt-4 w-full" controls src={voiceDraftUrl} /> : null}
+            </div>
+            <div className="mt-5 flex items-center justify-between gap-3">
+              {recordingMode !== 'idle' ? (
+                <button
+                  type="button"
+                  onClick={() => void stopVoiceIntoDraft()}
+                  className="flex-1 rounded-full bg-gradient-to-r from-[#ff6b7f] to-[#e63d62] px-4 py-3 text-sm font-semibold text-white"
+                >
+                  Stop recording
+                </button>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={closeVoiceOverlay}
+                    className="flex-1 rounded-full border border-white/10 px-4 py-3 text-sm font-semibold text-white/80"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void sendVoiceDraft()}
+                    disabled={!voiceDraftReady || sending}
+                    className="flex-1 rounded-full bg-gradient-to-r from-[#11c2a0] to-[#38a9ff] px-4 py-3 text-sm font-semibold text-white disabled:opacity-40"
+                  >
+                    Send
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {videoOverlayOpen ? (
+        <div className="absolute inset-0 z-30 bg-[#000d]">
+          <div className="flex h-full w-full flex-col items-center justify-between px-4 pb-[calc(env(safe-area-inset-bottom)+20px)] pt-[calc(env(safe-area-inset-top)+20px)]">
+            <div className="flex w-full max-w-5xl items-center justify-between">
+              <button type="button" onClick={closeVideoOverlay} className="rounded-full bg-white/8 px-4 py-2 text-sm text-white backdrop-blur">
+                Cancel
+              </button>
+              <div className="rounded-full bg-black/35 px-4 py-2 text-sm font-medium text-white/90 backdrop-blur">
+                {formatClock(videoOverlayMode === 'preview' ? videoDraftSeconds : recordingSeconds)}
+              </div>
+            </div>
+
+            <div className="flex flex-1 flex-col items-center justify-center">
+              <div className={`relative flex items-center justify-center overflow-hidden border border-white/10 bg-[#07111c] shadow-[0_30px_120px_rgba(0,0,0,0.46)] ${isDesktopLayout ? 'h-[420px] w-[420px] rounded-full' : 'h-[300px] w-[300px] rounded-full'}`}>
+                {videoOverlayMode === 'preview' && videoPreviewUrl ? (
+                  <video src={videoPreviewUrl} autoPlay loop controls playsInline className="h-full w-full object-cover" />
+                ) : (
+                  <video ref={videoPreviewRef} autoPlay muted playsInline className="-scale-x-100 h-full w-full object-cover" />
+                )}
+                <div className="pointer-events-none absolute inset-[10%] rounded-full border border-white/12 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]" />
+                {videoPermissionPending ? (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/28 backdrop-blur-sm">
+                    <span className="rounded-full bg-black/40 px-4 py-2 text-sm text-white/85">Waiting for camera permission…</span>
+                  </div>
+                ) : null}
+              </div>
+              <div className={`mt-6 rounded-full px-4 py-2 text-sm backdrop-blur ${videoValidationTone === 'error' ? 'bg-red-500/18 text-red-200' : videoValidationTone === 'warning' ? 'bg-amber-400/14 text-amber-100' : videoValidationTone === 'success' ? 'bg-emerald-400/14 text-emerald-100' : 'bg-black/28 text-white/80'}`}>
+                {videoValidationText}
+              </div>
+            </div>
+
+            <div className="flex w-full max-w-5xl items-center justify-center gap-4">
+              {videoOverlayMode === 'preview' ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={closeVideoOverlay}
+                    className="rounded-full border border-white/10 bg-white/6 px-5 py-3 text-sm font-semibold text-white/80 backdrop-blur"
+                  >
+                    Discard
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void sendRecordedVideoDraft()}
+                    disabled={sending}
+                    className="rounded-full bg-gradient-to-r from-[#11c2a0] to-[#38a9ff] px-6 py-3 text-sm font-semibold text-white shadow-[0_0_36px_rgba(42,196,231,0.22)] disabled:opacity-40"
+                  >
+                    Send video
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void (recordingMode !== 'idle' ? stopLiveVideoRecording() : startLiveVideoRecording())}
+                  disabled={videoPermissionPending || (!videoCanRecord && recordingMode === 'idle')}
+                  className={`flex h-20 w-20 items-center justify-center rounded-full border-4 ${recordingMode !== 'idle' ? 'border-[#ff6b7f] bg-[#ff6b7f]/24' : 'border-white/85 bg-white/10'} shadow-[0_0_40px_rgba(255,255,255,0.12)] disabled:opacity-40`}
+                >
+                  {recordingMode !== 'idle' ? (
+                    <div className="h-6 w-6 rounded-md bg-[#ff6b7f]" />
+                  ) : (
+                    <div className="h-14 w-14 rounded-full bg-white" />
+                  )}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {captionDraft ? (
         <div className="absolute inset-0 z-30 flex items-end bg-[#02060dcc] p-4 sm:items-center sm:justify-center">
