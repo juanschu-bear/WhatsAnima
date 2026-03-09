@@ -66,8 +66,7 @@ function formatMessagePreview(content: string | null, type: MessageType) {
 
 function getContactName(conversation: ConversationListItem) {
   const contact = conversation.wa_contacts
-  const fullName = [contact?.first_name, contact?.last_name].filter(Boolean).join(' ').trim()
-  return fullName || contact?.display_name || contact?.email || contact?.phone_number || 'Guest'
+  return contact?.display_name || contact?.email || 'Guest'
 }
 
 function getInitials(name: string) {
@@ -227,7 +226,6 @@ export default function Dashboard() {
       return [
         getContactName(conversation),
         contact?.email || '',
-        contact?.phone_number || '',
         conversation.last_message?.content || '',
       ].some((value) => value.toLowerCase().includes(query))
     })
@@ -445,7 +443,7 @@ export default function Dashboard() {
                               <p className="truncate text-sm font-semibold text-white">{getContactName(conversation)}</p>
                             </div>
                             <p className="mt-1 truncate text-xs text-white/46">
-                              {conversation.wa_contacts?.email || conversation.wa_contacts?.phone_number || 'No contact detail'}
+                              {conversation.wa_contacts?.email || 'No contact detail'}
                             </p>
                           </div>
                           <div className="shrink-0 text-[11px] text-white/45">{formatTimestamp(lastActive)}</div>
@@ -497,7 +495,7 @@ export default function Dashboard() {
                       {inviteBusy ? 'Generating...' : 'Generate'}
                     </button>
                   </div>
-                  <div className="mt-4 space-y-2">
+                  <div className="mt-4 max-h-52 space-y-2 overflow-y-auto">
                     {links.length === 0 ? (
                       <div className="rounded-[20px] border border-white/6 bg-black/14 px-3 py-4 text-sm text-white/56">
                         No invite links yet.
@@ -561,9 +559,7 @@ export default function Dashboard() {
                         <div className="mt-1 flex items-center gap-2 text-sm text-white/52">
                           <span className={`h-2.5 w-2.5 rounded-full ${isOnline(selectedConversation.last_message?.created_at || selectedConversation.updated_at) ? 'bg-[#00a884]' : 'bg-white/22'}`} />
                           <span>
-                            {selectedConversation.wa_contacts?.email ||
-                              selectedConversation.wa_contacts?.phone_number ||
-                              'No contact detail'}
+                            {selectedConversation.wa_contacts?.email || 'No contact detail'}
                           </span>
                         </div>
                       </div>
