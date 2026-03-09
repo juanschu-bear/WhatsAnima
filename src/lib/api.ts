@@ -172,13 +172,41 @@ export async function createContactAndConversation(
 }
 
 export async function getConversation(conversationId: string) {
-  const { data, error } = await supabase
+  const { data: conversation, error } = await supabase
     .from('wa_conversations')
-    .select('*, wa_owners(display_name, avatar_url, voice_id, tavus_replica_id, system_prompt), wa_contacts(display_name)')
+    .select('*')
     .eq('id', conversationId)
     .single()
   if (error) throw error
-  return data
+
+  const [{ data: owner }, { data: contact }] = await Promise.all([
+    supabase
+      .from('wa_owners')
+      .select('id, display_name, avatar_url, voice_id, tavus_replica_id, system_prompt')
+      .eq('id', conversation.owner_id)
+      .maybeSingle(),
+    supabase
+      .from('wa_contacts')
+      .select('id, display_name')
+      .eq('id', conversation.contact_id)
+      .maybeSingle(),
+  ])
+
+  return {
+    ...conversation,
+    wa_owners: owner ?? {
+      id: conversation.owner_id,
+      display_name: 'WhatsAnima',
+      avatar_url: null,
+      voice_id: null,
+      tavus_replica_id: null,
+      system_prompt: null,
+    },
+    wa_contacts: contact ?? {
+      id: conversation.contact_id,
+      display_name: 'Guest',
+    },
+  }
 }
 
 export async function listMessages(conversationId: string) {

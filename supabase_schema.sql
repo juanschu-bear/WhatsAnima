@@ -124,6 +124,14 @@ CREATE POLICY "contacts_owner_select" ON public.wa_contacts
   FOR SELECT USING (
     owner_id IN (SELECT id FROM public.wa_owners WHERE user_id = auth.uid())
   );
+CREATE POLICY "contacts_public_for_conversations" ON public.wa_contacts
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1
+      FROM public.wa_conversations conversations
+      WHERE conversations.contact_id = public.wa_contacts.id
+    )
+  );
 CREATE POLICY "contacts_insert" ON public.wa_contacts
   FOR INSERT WITH CHECK (TRUE);
 
@@ -178,6 +186,16 @@ NOTIFY pgrst, 'reload schema';
 DROP POLICY IF EXISTS "contacts_insert" ON public.wa_contacts;
 CREATE POLICY "contacts_insert" ON public.wa_contacts
   FOR INSERT WITH CHECK (TRUE);
+
+DROP POLICY IF EXISTS "contacts_public_for_conversations" ON public.wa_contacts;
+CREATE POLICY "contacts_public_for_conversations" ON public.wa_contacts
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1
+      FROM public.wa_conversations conversations
+      WHERE conversations.contact_id = public.wa_contacts.id
+    )
+  );
 
 DROP POLICY IF EXISTS "conversations_insert" ON public.wa_conversations;
 CREATE POLICY "conversations_insert" ON public.wa_conversations
