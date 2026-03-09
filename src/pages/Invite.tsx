@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import { createContactAndConversation, validateInvitationToken } from '../lib/api'
 import { supabase } from '../lib/supabase'
+import { createContactAndConversation, validateInvitationToken } from '../lib/api'
 
 interface InviteData {
   id: string
@@ -17,24 +17,32 @@ interface InviteData {
   }
 }
 
+/** Ensure the phone string starts with '+' for E.164 format */
+function normalizePhone(raw: string): string {
+  const digits = raw.replace(/[\s\-()]/g, '')
+  return digits.startsWith('+') ? digits : `+${digits}`
+}
+
 export default function Invite() {
   const { token } = useParams<{ token: string }>()
   const navigate = useNavigate()
+
   const [invite, setInvite] = useState<InviteData | null>(null)
   const [loading, setLoading] = useState(true)
   const [invalid, setInvalid] = useState(false)
-  const [starting, setStarting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Contact info
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
   const [phoneNumber, setPhoneNumber] = useState('')
+
+  // OTP flow state
   const [otpCode, setOtpCode] = useState('')
   const [otpSent, setOtpSent] = useState(false)
-  const [otpVerified, setOtpVerified] = useState(false)
-  const [sendingOtp, setSendingOtp] = useState(false)
-  const [verifyingOtp, setVerifyingOtp] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
 
-  const normalizedPhoneNumber = useMemo(() => phoneNumber.replace(/\s+/g, ''), [phoneNumber])
+  const normalizedPhone = useMemo(() => normalizePhone(phoneNumber), [phoneNumber])
 
   useEffect(() => {
     if (!token) {
@@ -52,73 +60,76 @@ export default function Invite() {
     })
   }, [token])
 
-  async function handleSendOtp() {
-    if (!invite) return
-    if (!firstName.trim() || !lastName.trim() || !normalizedPhoneNumber) {
+  async function handleRequestOtp(event: FormEvent) {
+    event.preventDefault()
+    if (!firstName.trim() || !lastName.trim() || !phoneNumber.trim()) {
       setError('Enter your first name, last name, and phone number.')
       return
     }
-
-    setSendingOtp(true)
     setError(null)
-    try {
-      const { error: otpError } = await supabase.auth.signInWithOtp({
-        phone: normalizedPhoneNumber,
-        options: {
-          shouldCreateUser: true,
-        },
-      })
-      if (otpError) throw otpError
-      setOtpSent(true)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to send the verification code.')
-    } finally {
-      setSendingOtp(false)
-    }
-  }
+    setSubmitting(true)
 
-  async function handleVerifyOtp() {
-    if (!normalizedPhoneNumber || !otpCode.trim()) {
-      setError('Enter the verification code from SMS.')
+    console.log('[Invite] requesting OTP for', normalizedPhone)
+
+    const { data, error: otpError } = await supabase.auth.signInWithOtp({
+      phone: normalizedPhone,
+      options: { shouldCreateUser: true },
+    })
+
+    console.log('[Invite] signInWithOtp response', { data, error: otpError })
+
+    if (otpError) {
+      console.error('[Invite] OTP error:', otpError.message, otpError)
+      setError(otpError.message)
+      setSubmitting(false)
       return
     }
 
-    setVerifyingOtp(true)
-    setError(null)
-    try {
-      const { error: verifyError } = await supabase.auth.verifyOtp({
-        phone: normalizedPhoneNumber,
-        token: otpCode.trim(),
-        type: 'sms',
-      })
-      if (verifyError) throw verifyError
-      setOtpVerified(true)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to verify the code.')
-    } finally {
-      setVerifyingOtp(false)
-    }
+    setOtpSent(true)
+    setSubmitting(false)
   }
 
-  async function handleStart() {
-    if (!invite || !otpVerified) return
-    setStarting(true)
+  async function handleVerifyAndStart(event: FormEvent) {
+    event.preventDefault()
+    if (!invite) return
     setError(null)
+    setSubmitting(true)
+
+    console.log('[Invite] verifying OTP for', normalizedPhone)
+
+    const { data: verifyData, error: verifyError } = await supabase.auth.verifyOtp({
+      phone: normalizedPhone,
+      token: otpCode,
+      type: 'sms',
+    })
+
+    console.log('[Invite] verifyOtp response', { data: verifyData, error: verifyError })
+
+    if (verifyError) {
+      console.error('[Invite] verify error:', verifyError.message, verifyError)
+      setError(verifyError.message)
+      setSubmitting(false)
+      return
+    }
+
+    // OTP verified — create the contact and conversation
     try {
       const { conversation } = await createContactAndConversation({
         ownerId: invite.wa_owners.id,
         invitationId: invite.id,
-        firstName,
-        lastName,
-        phoneNumber: normalizedPhoneNumber,
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        phoneNumber: normalizedPhone,
       })
       navigate(`/chat/${conversation.id}`)
     } catch (err) {
+      console.error('[Invite] createContactAndConversation error:', err)
       setError(err instanceof Error ? err.message : 'Unable to start the conversation.')
-    } finally {
-      setStarting(false)
+      setSubmitting(false)
     }
   }
+
+  // ---------- render ----------
 
   if (loading) {
     return (
@@ -163,84 +174,95 @@ export default function Invite() {
         <h1 className="text-2xl font-bold text-white">{owner.display_name}</h1>
         <p className="mt-2 text-white/60">has invited you to start a conversation</p>
 
-        {error && (
-          <p className="mt-6 rounded-2xl border border-red-400/15 bg-red-500/15 px-4 py-3 text-sm text-red-200">
-            {error}
-          </p>
-        )}
-
-        <div className="mt-8 space-y-4 text-left">
+        <form
+          onSubmit={otpSent ? handleVerifyAndStart : handleRequestOtp}
+          className="mt-6 space-y-4 text-left"
+        >
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
-              <label className="mb-2 block text-sm font-medium text-white/80">First Name</label>
+              <label htmlFor="invite-first" className="mb-2 block text-sm font-medium text-white/80">
+                First Name
+              </label>
               <input
+                id="invite-first"
+                type="text"
+                required
+                disabled={otpSent}
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value)}
+                className="brand-inset w-full rounded-2xl px-4 py-3 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20 disabled:opacity-50"
                 placeholder="Juan"
-                className="brand-inset w-full rounded-2xl px-4 py-3 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20"
               />
             </div>
             <div>
-              <label className="mb-2 block text-sm font-medium text-white/80">Last Name</label>
+              <label htmlFor="invite-last" className="mb-2 block text-sm font-medium text-white/80">
+                Last Name
+              </label>
               <input
+                id="invite-last"
+                type="text"
+                required
+                disabled={otpSent}
                 value={lastName}
                 onChange={(e) => setLastName(e.target.value)}
+                className="brand-inset w-full rounded-2xl px-4 py-3 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20 disabled:opacity-50"
                 placeholder="Schubert"
-                className="brand-inset w-full rounded-2xl px-4 py-3 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20"
               />
             </div>
           </div>
 
           <div>
-            <label className="mb-2 block text-sm font-medium text-white/80">Phone Number</label>
+            <label htmlFor="invite-phone" className="mb-2 block text-sm font-medium text-white/80">
+              Phone Number
+            </label>
             <input
+              id="invite-phone"
+              type="tel"
+              required
+              disabled={otpSent}
               value={phoneNumber}
               onChange={(e) => setPhoneNumber(e.target.value)}
-              placeholder="+491701234567"
-              className="brand-inset w-full rounded-2xl px-4 py-3 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20"
+              className="brand-inset w-full rounded-2xl px-4 py-3 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20 disabled:opacity-50"
+              placeholder="+49 1512 3456789"
             />
           </div>
 
-          {!otpSent ? (
-            <button
-              onClick={handleSendOtp}
-              disabled={sendingOtp}
-              className="w-full rounded-2xl bg-[#00a884] py-3 font-semibold text-[#0b141a] transition hover:brightness-110 disabled:opacity-50"
-            >
-              {sendingOtp ? 'Sending Code...' : 'Send Verification Code'}
-            </button>
-          ) : (
-            <>
-              <div>
-                <label className="mb-2 block text-sm font-medium text-white/80">SMS Code</label>
-                <input
-                  value={otpCode}
-                  onChange={(e) => setOtpCode(e.target.value)}
-                  placeholder="123456"
-                  className="brand-inset w-full rounded-2xl px-4 py-3 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20"
-                />
-              </div>
-
-              {!otpVerified ? (
-                <button
-                  onClick={handleVerifyOtp}
-                  disabled={verifyingOtp}
-                  className="w-full rounded-2xl bg-[#00a884] py-3 font-semibold text-[#0b141a] transition hover:brightness-110 disabled:opacity-50"
-                >
-                  {verifyingOtp ? 'Verifying...' : 'Verify Phone Number'}
-                </button>
-              ) : (
-                <button
-                  onClick={handleStart}
-                  disabled={starting}
-                  className="w-full rounded-2xl bg-[#00a884] py-3 font-semibold text-[#0b141a] transition hover:brightness-110 disabled:opacity-50"
-                >
-                  {starting ? 'Starting...' : 'Start Conversation'}
-                </button>
-              )}
-            </>
+          {otpSent && (
+            <div>
+              <label htmlFor="invite-otp" className="mb-2 block text-sm font-medium text-white/80">
+                SMS Code
+              </label>
+              <input
+                id="invite-otp"
+                type="text"
+                inputMode="numeric"
+                required
+                value={otpCode}
+                onChange={(e) => setOtpCode(e.target.value)}
+                className="brand-inset w-full rounded-2xl px-4 py-3 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20"
+                placeholder="123456"
+              />
+            </div>
           )}
-        </div>
+
+          {error && (
+            <p className="rounded-2xl border border-red-400/15 bg-red-500/15 px-4 py-3 text-sm text-red-200">
+              {error}
+            </p>
+          )}
+
+          <button
+            type="submit"
+            disabled={submitting}
+            className="w-full rounded-2xl bg-[#00a884] py-3 font-semibold text-[#0b141a] transition hover:brightness-110 disabled:opacity-50"
+          >
+            {submitting
+              ? 'Working...'
+              : otpSent
+                ? 'Verify & Start Conversation'
+                : 'Send Verification Code'}
+          </button>
+        </form>
       </div>
     </div>
   )
