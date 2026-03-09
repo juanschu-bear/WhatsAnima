@@ -104,7 +104,7 @@ export async function validateInvitationToken(token: string) {
     ...data,
     wa_owners: owner ?? {
       id: data.owner_id,
-      display_name: 'WhatsAnima',
+      display_name: 'Avatar',
       avatar_url: null,
       voice_id: null,
       tavus_replica_id: null,
@@ -196,7 +196,7 @@ export async function getConversation(conversationId: string) {
     ...conversation,
     wa_owners: owner ?? {
       id: conversation.owner_id,
-      display_name: 'WhatsAnima',
+      display_name: 'Avatar',
       avatar_url: null,
       voice_id: null,
       tavus_replica_id: null,

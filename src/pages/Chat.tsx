@@ -1346,7 +1346,7 @@ export default function Chat() {
           <img src={owner.avatar_url} alt={owner.display_name} className="h-10 w-10 rounded-full object-cover" />
         ) : (
           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-[#4bd8ff] via-[#17c8a4] to-[#067b72] text-sm font-bold text-white shadow-[0_0_24px_rgba(38,218,200,0.35)]">
-            {owner.display_name.charAt(0).toUpperCase()}
+            {owner.display_name.split(/\s+/).map(w => w.charAt(0).toUpperCase()).join('').slice(0, 2)}
           </div>
         )}
         <div className="min-w-0 flex-1">
