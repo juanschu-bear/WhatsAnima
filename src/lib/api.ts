@@ -71,21 +71,57 @@ export async function createContactAndConversation(
   invitationId: string,
   displayName: string
 ) {
-  const { data: contact, error: contactErr } = await supabase
+  const contactId = crypto.randomUUID()
+  const conversationId = crypto.randomUUID()
+  const contactPayload = {
+    id: contactId,
+    owner_id: ownerId,
+    invitation_id: invitationId,
+    display_name: displayName,
+  }
+
+  console.log('[createContactAndConversation] inserting contact', contactPayload)
+
+  const { error: contactErr } = await supabase
     .from('wa_contacts')
-    .insert({ owner_id: ownerId, invitation_id: invitationId, display_name: displayName })
-    .select()
-    .single()
-  if (contactErr) throw contactErr
+    .insert(contactPayload)
+  if (contactErr) {
+    console.log('[createContactAndConversation] contact insert error', {
+      message: contactErr.message,
+      details: contactErr.details,
+      hint: contactErr.hint,
+      code: contactErr.code,
+      payload: contactPayload,
+    })
+    throw contactErr
+  }
 
-  const { data: conversation, error: convErr } = await supabase
+  const conversationPayload = {
+    id: conversationId,
+    owner_id: ownerId,
+    contact_id: contactId,
+  }
+
+  console.log('[createContactAndConversation] inserting conversation', conversationPayload)
+
+  const { error: convErr } = await supabase
     .from('wa_conversations')
-    .insert({ owner_id: ownerId, contact_id: contact.id })
-    .select()
-    .single()
-  if (convErr) throw convErr
+    .insert(conversationPayload)
+  if (convErr) {
+    console.log('[createContactAndConversation] conversation insert error', {
+      message: convErr.message,
+      details: convErr.details,
+      hint: convErr.hint,
+      code: convErr.code,
+      payload: conversationPayload,
+    })
+    throw convErr
+  }
 
-  return { contact, conversation }
+  return {
+    contact: contactPayload,
+    conversation: conversationPayload,
+  }
 }
 
 export async function getConversation(conversationId: string) {
