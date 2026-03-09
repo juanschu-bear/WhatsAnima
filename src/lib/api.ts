@@ -73,8 +73,9 @@ export async function createOwnerIfNeeded(payload: {
   firstName: string
   lastName: string
   phoneNumber: string
+  email: string
 }) {
-  const displayName = `${payload.firstName} ${payload.lastName}`.trim() || 'Juan Schubert'
+  // 1. Try matching by auth user_id (primary key link)
   const { data: existing, error: existingError } = await supabase
     .from('wa_owners')
     .select('*')
@@ -82,32 +83,39 @@ export async function createOwnerIfNeeded(payload: {
     .maybeSingle()
 
   if (existingError) throw existingError
+  if (existing) return existing
 
-  if (existing) {
-    const { data, error } = await supabase
+  // 2. Fallback: try matching by email
+  if (payload.email) {
+    const { data: byEmail } = await supabase
       .from('wa_owners')
-      .update({
-        display_name: displayName || existing.display_name,
-        first_name: payload.firstName || existing.first_name,
-        last_name: payload.lastName || existing.last_name,
-        phone_number: payload.phoneNumber || existing.phone_number,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', existing.id)
-      .select()
-      .single()
-    if (error) throw error
-    return data
+      .select('*')
+      .eq('email', payload.email)
+      .maybeSingle()
+
+    if (byEmail) return byEmail
   }
 
+  // 3. Fallback: if exactly one owner exists, use it (single-owner setup)
+  const { data: allOwners } = await supabase
+    .from('wa_owners')
+    .select('*')
+
+  if (allOwners && allOwners.length === 1) {
+    return allOwners[0]
+  }
+
+  // 4. No existing owner — create a new one
+  const displayName = `${payload.firstName} ${payload.lastName}`.trim() || 'Juan Schubert'
   const { data, error } = await supabase
     .from('wa_owners')
     .insert({
       user_id: payload.userId,
-      display_name: displayName || payload.phoneNumber,
+      display_name: displayName || payload.email || payload.phoneNumber,
       first_name: payload.firstName,
       last_name: payload.lastName,
       phone_number: payload.phoneNumber,
+      email: payload.email,
     })
     .select()
     .single()
