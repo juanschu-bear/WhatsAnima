@@ -1,35 +1,13 @@
+import Anthropic from '@anthropic-ai/sdk'
+
 const DEFAULT_SYSTEM_PROMPT = 'You are a helpful assistant.'
 
+const LANGUAGE_INSTRUCTION =
+  'CRITICAL: Always respond in the same language the user\'s last message is written in. If they write Spanish, respond in Spanish. If German, German. If English, English. Never mix languages unless the user does. Never use em-dashes (\u2014).'
+
 type ChatMessage = {
-  role: 'system' | 'user' | 'assistant'
+  role: 'user' | 'assistant'
   content: string
-}
-
-function detectLanguage(text: string) {
-  const lower = text.toLowerCase()
-  if (/[¿¡]|ñ|á|é|í|ó|ú/.test(lower) || /\b(hola|que|cómo|gracias|vale|claro|bien)\b/.test(lower)) {
-    return 'es'
-  }
-  if (/\b(hey|hallo|danke|genau|und|nicht|was|wie|gut|alter)\b/.test(lower)) {
-    return 'de'
-  }
-  return 'en'
-}
-
-function fallbackReply(message: string) {
-  const trimmed = message.trim()
-  const language = detectLanguage(trimmed)
-
-  if (language === 'de') {
-    if (/^\s*(hey|hi|hallo)\s*[!.?]*$/i.test(trimmed)) return 'Hey, was geht? Was führt dich her?'
-    return 'Honestly? Erzähl mir den interessanten Teil zuerst.'
-  }
-  if (language === 'es') {
-    if (/^\s*(hey|hola|buenas)\s*[!.?]*$/i.test(trimmed)) return 'Hey. Que te trae por aqui?'
-    return 'Honestamente? Dame la parte interesante primero.'
-  }
-  if (/^\s*(hey|hi|hello)\s*[!.?]*$/i.test(trimmed)) return 'Hey. Tell me something interesting.'
-  return 'Honestly? Give me the interesting part first.'
 }
 
 export default async function handler(req: any, res: any) {
@@ -38,10 +16,10 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
-  const apiKey =
-    process.env.OPENAI_API_KEY ||
-    process.env.OPENAI_KEY ||
-    process.env.OPENAI_SECRET_KEY
+  const apiKey = process.env.ANTHROPIC_API_KEY
+  if (!apiKey) {
+    return res.status(500).json({ error: 'Missing ANTHROPIC_API_KEY' })
+  }
 
   const {
     message,
@@ -72,45 +50,35 @@ export default async function handler(req: any, res: any) {
       )
     : []
 
-  if (!apiKey) {
-    return res.status(200).json({ content: fallbackReply(message) })
-  }
+  const messages: ChatMessage[] = [
+    ...priorMessages.slice(-10),
+    { role: 'user', content: message },
+  ]
 
   try {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: process.env.OPENAI_CHAT_MODEL || 'gpt-4.1-mini',
-        temperature: 0.8,
-        max_tokens: 180,
-        messages: [
-          { role: 'system', content: safeSystemPrompt },
-          ...priorMessages.slice(-10),
-          { role: 'user', content: message },
-        ],
-      }),
+    const client = new Anthropic({ apiKey })
+
+    const response = await client.messages.create({
+      model: 'claude-opus-4-5-20250501',
+      max_tokens: 300,
+      temperature: 0.5,
+      system: `${safeSystemPrompt}\n\n${LANGUAGE_INSTRUCTION}`,
+      messages,
     })
 
-    if (!response.ok) {
-      const errorText = await response.text()
-      return res.status(200).json({ content: fallbackReply(message), details: errorText })
-    }
-
-    const data = await response.json()
-    const content = data?.choices?.[0]?.message?.content?.trim()
+    const content =
+      response.content[0]?.type === 'text'
+        ? response.content[0].text.trim()
+        : ''
 
     if (!content) {
-      return res.status(200).json({ content: fallbackReply(message) })
+      return res.status(200).json({ content: 'Sorry, I could not generate a response.' })
     }
 
     return res.status(200).json({ content })
   } catch (error) {
-    return res.status(200).json({
-      content: fallbackReply(message),
+    return res.status(500).json({
+      error: 'Chat request failed',
       details: error instanceof Error ? error.message : 'Unknown error',
     })
   }
