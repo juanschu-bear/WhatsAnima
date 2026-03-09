@@ -61,51 +61,77 @@ export default function Invite() {
     })
   }, [token])
 
-  // --- handle magic-link return ---
+  // --- complete the invite after magic-link verification ---
+  async function finalisePendingInvite(pending: PendingInvite) {
+    console.log('[Invite] finalising invite for', pending.email)
+
+    const inviteData = await validateInvitationToken(pending.token)
+    if (!inviteData) {
+      localStorage.removeItem(PENDING_KEY)
+      setError('This invitation link is no longer active.')
+      return
+    }
+
+    try {
+      const { conversation } = await createContactAndConversation({
+        ownerId: (inviteData as InviteData).wa_owners.id,
+        invitationId: (inviteData as InviteData).id,
+        firstName: pending.firstName,
+        lastName: pending.lastName,
+        email: pending.email,
+      })
+      localStorage.removeItem(PENDING_KEY)
+      navigate(`/chat/${conversation.id}`)
+    } catch (err) {
+      console.error('[Invite] createContactAndConversation error:', err)
+      localStorage.removeItem(PENDING_KEY)
+      setError(err instanceof Error ? err.message : 'Unable to start the conversation.')
+    }
+  }
+
+  // Handle magic-link return. Two cases:
+  // 1. SIGNED_IN fires while we're mounted (listener catches it)
+  // 2. Session already exists by the time we mount (race: event fired before
+  //    this component rendered). We check getSession() to cover that case.
   useEffect(() => {
-    // When the user clicks the magic link Supabase redirects here with hash
-    // params. The supabase-js client automatically exchanges them for a session.
-    // We listen for the SIGNED_IN event to finalise the invite flow.
+    let cancelled = false
+
+    // Helper: read and validate pending data
+    function readPending(): PendingInvite | null {
+      const raw = localStorage.getItem(PENDING_KEY)
+      if (!raw) return null
+      const pending: PendingInvite = JSON.parse(raw)
+      if (pending.token !== token) return null
+      return pending
+    }
+
+    // Case 1 — listen for future SIGNED_IN events
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event) => {
+        if (cancelled) return
         if (event !== 'SIGNED_IN') return
-
-        const raw = localStorage.getItem(PENDING_KEY)
-        if (!raw) return
-        const pending: PendingInvite = JSON.parse(raw)
-
-        // Only act if this page matches the pending invite token
-        if (pending.token !== token) return
-
-        console.log('[Invite] magic-link session detected, creating contact…')
-
-        // Validate again (could have been deactivated while user checked email)
-        const inviteData = await validateInvitationToken(pending.token)
-        if (!inviteData) {
-          localStorage.removeItem(PENDING_KEY)
-          setError('This invitation link is no longer active.')
-          return
-        }
-
-        try {
-          const { conversation } = await createContactAndConversation({
-            ownerId: (inviteData as InviteData).wa_owners.id,
-            invitationId: (inviteData as InviteData).id,
-            firstName: pending.firstName,
-            lastName: pending.lastName,
-            email: pending.email,
-          })
-          localStorage.removeItem(PENDING_KEY)
-          navigate(`/chat/${conversation.id}`)
-        } catch (err) {
-          console.error('[Invite] createContactAndConversation error:', err)
-          localStorage.removeItem(PENDING_KEY)
-          setError(err instanceof Error ? err.message : 'Unable to start the conversation.')
-        }
+        const pending = readPending()
+        if (!pending) return
+        await finalisePendingInvite(pending)
       },
     )
 
-    return () => subscription.unsubscribe()
+    // Case 2 — session may already exist (magic-link hash was processed
+    // before this component mounted)
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (cancelled) return
+      if (!session) return
+      const pending = readPending()
+      if (!pending) return
+      console.log('[Invite] session already active on mount, finalising…')
+      finalisePendingInvite(pending)
+    })
+
+    return () => {
+      cancelled = true
+      subscription.unsubscribe()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, navigate])
 
   // --- send magic link ---
