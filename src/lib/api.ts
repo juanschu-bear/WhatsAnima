@@ -29,7 +29,14 @@ export interface ConversationListItem {
     content: string | null
     type: MessageType
     created_at: string
+    sender: 'contact' | 'avatar'
   } | null
+}
+
+export interface OwnerDashboardStats {
+  totalContacts: number
+  totalConversations: number
+  totalMessages: number
 }
 
 interface ConversationRow {
@@ -282,7 +289,7 @@ export async function listConversations(ownerId: string): Promise<ConversationLi
   const conversationIds = rows.map((row) => row.id)
   const { data: messages, error: messagesError } = await supabase
     .from('wa_messages')
-    .select('id, conversation_id, content, type, created_at')
+    .select('id, conversation_id, content, type, created_at, sender')
     .in('conversation_id', conversationIds)
     .order('created_at', { ascending: false })
 
@@ -296,6 +303,7 @@ export async function listConversations(ownerId: string): Promise<ConversationLi
         content: message.content,
         type: message.type as MessageType,
         created_at: message.created_at,
+        sender: message.sender as 'contact' | 'avatar',
       })
     }
   }
@@ -305,6 +313,52 @@ export async function listConversations(ownerId: string): Promise<ConversationLi
     wa_contacts: Array.isArray(row.wa_contacts) ? row.wa_contacts[0] ?? null : row.wa_contacts,
     last_message: lastMessageByConversation.get(row.id) ?? null,
   }))
+}
+
+export async function getOwnerDashboardStats(ownerId: string): Promise<OwnerDashboardStats> {
+  const [{ count: contactCount, error: contactError }, { count: conversationCount, error: conversationError }] =
+    await Promise.all([
+      supabase
+        .from('wa_contacts')
+        .select('id', { count: 'exact', head: true })
+        .eq('owner_id', ownerId),
+      supabase
+        .from('wa_conversations')
+        .select('id', { count: 'exact', head: true })
+        .eq('owner_id', ownerId),
+    ])
+
+  if (contactError) throw contactError
+  if (conversationError) throw conversationError
+
+  const { data: conversationIds, error: conversationIdsError } = await supabase
+    .from('wa_conversations')
+    .select('id')
+    .eq('owner_id', ownerId)
+
+  if (conversationIdsError) throw conversationIdsError
+
+  const ids = (conversationIds ?? []).map((conversation) => conversation.id)
+  if (ids.length === 0) {
+    return {
+      totalContacts: contactCount ?? 0,
+      totalConversations: conversationCount ?? 0,
+      totalMessages: 0,
+    }
+  }
+
+  const { count: messageCount, error: messageError } = await supabase
+    .from('wa_messages')
+    .select('id', { count: 'exact', head: true })
+    .in('conversation_id', ids)
+
+  if (messageError) throw messageError
+
+  return {
+    totalContacts: contactCount ?? 0,
+    totalConversations: conversationCount ?? 0,
+    totalMessages: messageCount ?? 0,
+  }
 }
 
 export async function getConversation(conversationId: string) {
