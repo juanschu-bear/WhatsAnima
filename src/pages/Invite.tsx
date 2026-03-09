@@ -6,7 +6,13 @@ interface InviteData {
   id: string
   token: string
   active: boolean
-  wa_owners: { id: string; display_name: string; avatar_url: string | null }
+  wa_owners: {
+    id: string
+    display_name: string
+    avatar_url: string | null
+    voice_id: string | null
+    tavus_replica_id: string | null
+  }
 }
 
 export default function Invite() {
@@ -16,6 +22,7 @@ export default function Invite() {
   const [loading, setLoading] = useState(true)
   const [invalid, setInvalid] = useState(false)
   const [starting, setStarting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!token) {
@@ -36,6 +43,7 @@ export default function Invite() {
   async function handleStart() {
     if (!invite) return
     setStarting(true)
+    setError(null)
     try {
       const { conversation } = await createContactAndConversation(
         invite.wa_owners.id,
@@ -43,7 +51,8 @@ export default function Invite() {
         'Guest'
       )
       navigate(`/chat/${conversation.id}`)
-    } catch {
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to start the conversation.')
       setStarting(false)
     }
   }
@@ -90,6 +99,12 @@ export default function Invite() {
 
         <h1 className="text-2xl font-bold text-white">{owner.display_name}</h1>
         <p className="mt-2 text-white/60">has invited you to start a conversation</p>
+
+        {error && (
+          <p className="mt-6 rounded-2xl border border-red-400/15 bg-red-500/15 px-4 py-3 text-sm text-red-200">
+            {error}
+          </p>
+        )}
 
         <button
           onClick={handleStart}

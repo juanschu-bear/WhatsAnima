@@ -15,12 +15,16 @@ interface Message {
 interface ConversationData {
   id: string
   owner_id: string
-  wa_owners: { display_name: string; avatar_url: string | null }
+  wa_owners: {
+    display_name: string
+    avatar_url: string | null
+    voice_id: string | null
+    tavus_replica_id: string | null
+  }
   wa_contacts: { display_name: string }
 }
 
 const ELEVENLABS_API_KEY = import.meta.env.VITE_ELEVENLABS_API_KEY as string
-const ELEVENLABS_VOICE_ID = import.meta.env.VITE_ELEVENLABS_VOICE_ID as string
 
 export default function Chat() {
   const { conversationId } = useParams<{ conversationId: string }>()
@@ -50,14 +54,20 @@ export default function Chat() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, avatarTyping])
 
-  async function getAvatarReply(userMessage: string): Promise<string> {
-    if (!ELEVENLABS_API_KEY || !ELEVENLABS_VOICE_ID) {
-      return 'Voice service is not configured.'
+  async function getAvatarReply(
+    userMessage: string,
+    voiceId: string | null | undefined
+  ): Promise<{ content: string; mediaUrl: string | null }> {
+    if (!ELEVENLABS_API_KEY || !voiceId) {
+      return {
+        content: 'Voice service is not configured for this owner.',
+        mediaUrl: null,
+      }
     }
 
     try {
       const response = await fetch(
-        `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`,
+        `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
         {
           method: 'POST',
           headers: {
@@ -73,7 +83,10 @@ export default function Chat() {
       )
 
       if (!response.ok) {
-        return 'Sorry, I could not generate a voice response right now.'
+        return {
+          content: 'Sorry, I could not generate a voice response right now.',
+          mediaUrl: null,
+        }
       }
 
       const audioBlob = await response.blob()
@@ -81,9 +94,15 @@ export default function Chat() {
       const audio = new Audio(audioUrl)
       await audio.play().catch(() => {})
 
-      return `Voice reply to: "${userMessage}"`
+      return {
+        content: `Voice reply to: "${userMessage}"`,
+        mediaUrl: audioUrl,
+      }
     } catch {
-      return 'Sorry, something went wrong generating my response.'
+      return {
+        content: 'Sorry, something went wrong generating my response.',
+        mediaUrl: null,
+      }
     }
   }
 
@@ -98,8 +117,15 @@ export default function Chat() {
       setMessages((prev) => [...prev, msg as Message])
 
       setAvatarTyping(true)
-      const replyText = await getAvatarReply(content)
-      const reply = await sendMessage(conversationId, 'avatar', 'voice', replyText)
+      const ownerVoiceId = conversation?.wa_owners.voice_id
+      const replyPayload = await getAvatarReply(content, ownerVoiceId)
+      const reply = await sendMessage(
+        conversationId,
+        'avatar',
+        'voice',
+        replyPayload.content,
+        replyPayload.mediaUrl ?? undefined
+      )
       setMessages((prev) => [...prev, reply as Message])
     } finally {
       setAvatarTyping(false)
@@ -136,8 +162,15 @@ export default function Chat() {
           setMessages((prev) => [...prev, msg as Message])
 
           setAvatarTyping(true)
-          const replyText = await getAvatarReply('a voice message')
-          const reply = await sendMessage(conversationId, 'avatar', 'voice', replyText)
+          const ownerVoiceId = conversation?.wa_owners.voice_id
+          const replyPayload = await getAvatarReply('a voice message', ownerVoiceId)
+          const reply = await sendMessage(
+            conversationId,
+            'avatar',
+            'voice',
+            replyPayload.content,
+            replyPayload.mediaUrl ?? undefined
+          )
           setMessages((prev) => [...prev, reply as Message])
         } finally {
           setAvatarTyping(false)

@@ -121,6 +121,8 @@ CREATE POLICY "conversations_owner" ON public.wa_conversations
   );
 CREATE POLICY "conversations_public_read" ON public.wa_conversations
   FOR SELECT USING (TRUE);
+CREATE POLICY "conversations_insert" ON public.wa_conversations
+  FOR INSERT WITH CHECK (TRUE);
 
 -- wa_messages: anyone in the conversation can read/write messages
 CREATE POLICY "messages_select" ON public.wa_messages
@@ -138,3 +140,12 @@ CREATE POLICY "perception_insert" ON public.wa_perception_logs
 
 -- Notify PostgREST to reload schema
 NOTIFY pgrst, 'reload schema';
+
+-- Incremental policy patch for existing projects
+DROP POLICY IF EXISTS "contacts_insert" ON public.wa_contacts;
+CREATE POLICY "contacts_insert" ON public.wa_contacts
+  FOR INSERT WITH CHECK (TRUE);
+
+DROP POLICY IF EXISTS "conversations_insert" ON public.wa_conversations;
+CREATE POLICY "conversations_insert" ON public.wa_conversations
+  FOR INSERT WITH CHECK (TRUE);
