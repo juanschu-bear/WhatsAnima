@@ -24,8 +24,6 @@ interface ConversationData {
   wa_contacts: { display_name: string }
 }
 
-const ELEVENLABS_API_KEY = import.meta.env.VITE_ELEVENLABS_API_KEY as string
-
 export default function Chat() {
   const { conversationId } = useParams<{ conversationId: string }>()
   const [conversation, setConversation] = useState<ConversationData | null>(null)
@@ -58,7 +56,7 @@ export default function Chat() {
     userMessage: string,
     voiceId: string | null | undefined
   ): Promise<{ content: string; mediaUrl: string | null }> {
-    if (!ELEVENLABS_API_KEY || !voiceId) {
+    if (!voiceId) {
       return {
         content: 'Voice service is not configured for this owner.',
         mediaUrl: null,
@@ -66,21 +64,17 @@ export default function Chat() {
     }
 
     try {
-      const response = await fetch(
-        `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'xi-api-key': ELEVENLABS_API_KEY,
-          },
-          body: JSON.stringify({
-            text: `You said: "${userMessage}". Thank you for your message! I'm here to chat with you.`,
-            model_id: 'eleven_multilingual_v2',
-            voice_settings: { stability: 0.5, similarity_boost: 0.75 },
-          }),
-        }
-      )
+      const replyText = `You said: "${userMessage}". Thank you for your message! I'm here to chat with you.`
+      const response = await fetch('/api/tts', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          text: replyText,
+          voiceId,
+        }),
+      })
 
       if (!response.ok) {
         return {
@@ -95,7 +89,7 @@ export default function Chat() {
       await audio.play().catch(() => {})
 
       return {
-        content: `Voice reply to: "${userMessage}"`,
+        content: replyText,
         mediaUrl: audioUrl,
       }
     } catch {
