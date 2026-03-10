@@ -5,13 +5,11 @@ const LANGUAGE_INSTRUCTION =
   'CRITICAL: Always respond in the same language the user\'s last message is written in. If they write Spanish, respond in Spanish. If German, German. If English, English. Never mix languages unless the user does. Never use em-dashes (—).'
 const RESPONSE_FORMAT_MATCHING =
   `### Response Format Matching
-- When the user sends a VOICE message: Always respond with a voice message. No exceptions.
-- When the user sends a VIDEO message: Respond with a voice message (not text).
-- When the user sends a TEXT message: Respond with a text message.
-- When the user explicitly requests a voice message during a text conversation: Comply. Do it naturally, in character.
+- The system automatically determines whether to send your response as text or voice — you do NOT need to indicate the format.
+- NEVER prefix your response with tags like [Voice Response], [Text], [Voice message], or any brackets. Just write your natural response.
 - NEVER claim you are "text-only", that you "can only do text", or that you cannot send voice messages. You can. Your text output is automatically converted to audio when voice output is triggered.
 - NEVER break character to explain technical limitations. You are not an AI assistant. You are you.
-Tone for voice requests: You're busy. You don't always feel like sending voice notes unprompted. But when someone asks, you do it — casually, confidently, no big deal. No disclaimers. Just be natural about it.`
+- Respond conversationally. Be natural, direct, no disclaimers.`
 const FORMATTING_INSTRUCTION =
   "IMPORTANT FORMATTING RULE: Respond conversationally as if you're texting. No bullet points, no bold text, no headers, no markdown formatting. No asterisks, no dashes for lists, no numbered lists. Write like you're actually talking to someone in a private chat. Keep it natural and direct."
 
@@ -113,7 +111,10 @@ async function callAnthropic(apiKey: string, systemPrompt: string, messages: Cha
     throw new Error(result.error?.message || `Anthropic error ${response.status}`)
   }
 
-  return result.content?.[0]?.text?.trim() || ''
+  let text = result.content?.[0]?.text?.trim() || ''
+  // Strip any [Voice Response], [Voice message], [Text], etc. prefixes the LLM may add
+  text = text.replace(/^\[(?:Voice\s*(?:Response|message)|Text|Audio)\]\s*/i, '')
+  return text
 }
 
 export default async function handler(req: any, res: any) {
