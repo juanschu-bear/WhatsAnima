@@ -25,50 +25,45 @@ export default async function handler(req: any, res: any) {
     return res.status(503).json({ error: 'Storage not configured' })
   }
 
-  const { audio_base64, owner_id, conversation_id, mime_type } = req.body ?? {}
-  if (!audio_base64 || !owner_id || !conversation_id) {
-    return res.status(400).json({ error: 'Missing required fields: audio_base64, owner_id, conversation_id' })
+  // Accept both old field names (audio_base64, owner_id, conversation_id) and
+  // new field names (audio, conversationId, filename) for backwards compat
+  const body = req.body ?? {}
+  const audioData = body.audio || body.audio_base64
+  const convId = body.conversationId || body.conversation_id || 'general'
+  const ownerId = body.owner_id || 'shared'
+  const mimeType = body.mime_type || 'audio/webm'
+  const filename = body.filename
+
+  if (!audioData) {
+    return res.status(400).json({ error: 'Audio data is required (send as "audio" or "audio_base64")' })
   }
 
   try {
-    const audioBuffer = Buffer.from(audio_base64, 'base64')
-    const ext = String(mime_type || 'audio/webm').includes('mpeg') ? 'mp3' : 'webm'
-    const fileName = `${owner_id}/${conversation_id}/${Date.now()}-${crypto.randomBytes(4).toString('hex')}.${ext}`
-    const contentType = mime_type || 'audio/webm'
+    const audioBuffer = Buffer.from(audioData, 'base64')
+    const ext = String(mimeType).includes('mpeg') ? 'mp3' : 'webm'
+    const fileName = filename
+      ? `${convId}/${filename}`
+      : `${ownerId}/${convId}/${Date.now()}-${crypto.randomBytes(4).toString('hex')}.${ext}`
+    const contentType = (mimeType || 'audio/webm').split(';')[0]
 
-    const { data: bucketData, error: bucketError } = await supabase.storage.createBucket(BUCKET, {
-      public: true,
-      allowedMimeTypes: ['audio/webm', 'audio/mpeg', 'audio/mp4', 'audio/ogg'],
-      fileSizeLimit: 5 * 1024 * 1024,
-    })
-    if (bucketError) {
-      console.log('[UploadAudio] createBucket result:', bucketError.message, '(expected if bucket already exists)')
-    } else {
-      console.log('[UploadAudio] createBucket success:', JSON.stringify(bucketData))
-    }
-
-    console.log('[UploadAudio] Uploading file:', fileName, 'size:', audioBuffer.length, 'contentType:', contentType)
+    await supabase.storage.createBucket(BUCKET, { public: true }).catch(() => undefined)
 
     const { data, error } = await supabase.storage
       .from(BUCKET)
-      .upload(fileName, audioBuffer, {
-        contentType,
-        upsert: false,
-      })
-
-    console.log('[UploadAudio] Upload response — data:', JSON.stringify(data), 'error:', error ? JSON.stringify({ message: error.message, statusCode: (error as any).statusCode, error: (error as any).error }) : 'null')
+      .upload(fileName, audioBuffer, { contentType, upsert: true })
 
     if (error) {
-      console.error('[UploadAudio] Storage upload FAILED:', 'message:', error.message, 'statusCode:', (error as any).statusCode, 'error:', (error as any).error, 'full:', JSON.stringify(error))
+      console.error('[upload-audio] Storage error:', error.message)
       return res.status(500).json({ error: 'Upload failed: ' + error.message })
     }
 
     const { data: urlData } = supabase.storage.from(BUCKET).getPublicUrl(fileName)
-    console.log('[UploadAudio] Upload SUCCESS — path:', data?.path, 'publicUrl:', urlData.publicUrl)
+    const publicUrl = urlData.publicUrl
 
-    return res.status(200).json({ audio_url: urlData.publicUrl })
+    // Return both field names so both old and new frontends work
+    return res.status(200).json({ url: publicUrl, audio_url: publicUrl, path: data?.path })
   } catch (error) {
-    console.error('[UploadAudio] Error:', error instanceof Error ? error.message : error)
+    console.error('[upload-audio] Error:', error instanceof Error ? error.message : error)
     return res.status(500).json({
       error: 'Upload failed: ' + (error instanceof Error ? error.message : 'Unknown error'),
     })

@@ -77,6 +77,10 @@ declare global {
   }
 }
 
+const BOARDROOM_API_BASE = 'https://boardroom-api.onioko.com'
+const LIVE_CALL_REPLICA_ID = 'rf5414018e80'
+const LIVE_CALL_PERSONA_ID = 'pipecat-stream'
+
 const WAVEFORM_BARS = Array.from({ length: 15 }, (_, index) => index)
 
 function formatClock(totalSeconds: number) {
@@ -384,6 +388,7 @@ export default function Chat() {
   const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null)
   const [videoDraftSeconds, setVideoDraftSeconds] = useState(0)
   const [isDesktopLayout, setIsDesktopLayout] = useState(false)
+  const [liveCallState, setLiveCallState] = useState<'idle' | 'starting' | 'joining' | 'active'>('idle')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const audioRecorderRef = useRef<MediaRecorder | null>(null)
   const audioStreamRef = useRef<MediaStream | null>(null)
@@ -1648,6 +1653,50 @@ export default function Chat() {
 
   const owner = conversation.wa_owners
 
+  async function openLiveCall() {
+    if (liveCallState !== 'idle') return
+    setLiveCallState('starting')
+    try {
+      // Sync persona
+      await fetch(`${BOARDROOM_API_BASE}/api/tavus/personas/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          persona_id: LIVE_CALL_PERSONA_ID,
+          persona_name: `${owner.display_name} Live`,
+          default_replica_id: owner.tavus_replica_id || LIVE_CALL_REPLICA_ID,
+          system_prompt: owner.system_prompt?.trim() || `You are ${owner.display_name} in a live WhatsAnima video call. Stay conversational and present.`,
+        }),
+      })
+
+      // Create conversation
+      setLiveCallState('joining')
+      const convRes = await fetch(`${BOARDROOM_API_BASE}/api/tavus/conversations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          persona_id: LIVE_CALL_PERSONA_ID,
+          replica_id: owner.tavus_replica_id || LIVE_CALL_REPLICA_ID,
+        }),
+      })
+
+      if (!convRes.ok) throw new Error('Failed to create video call')
+      const convData = await convRes.json()
+      const joinUrl = convData.conversation_url || convData.url
+      if (joinUrl) {
+        window.open(joinUrl, '_blank')
+        setLiveCallState('active')
+        setTimeout(() => setLiveCallState('idle'), 5000)
+      } else {
+        throw new Error('No join URL returned')
+      }
+    } catch (err) {
+      console.error('[LiveCall] Error:', err)
+      setError('Unable to start video call.')
+      setLiveCallState('idle')
+    }
+  }
+
   return (
     <div className="relative flex h-[100svh] min-h-[100svh] flex-col overflow-hidden bg-[radial-gradient(circle_at_top,_rgba(72,216,255,0.2),_transparent_28%),radial-gradient(circle_at_80%_20%,_rgba(0,255,170,0.16),_transparent_22%),linear-gradient(180deg,_#061018_0%,_#07111f_48%,_#050b15_100%)] text-white">
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(126,255,234,0.04)_1px,transparent_1px),linear-gradient(90deg,rgba(126,255,234,0.04)_1px,transparent_1px)] bg-[size:34px_34px] opacity-[0.16]" />
@@ -1665,6 +1714,17 @@ export default function Chat() {
           <h1 className="truncate text-base font-semibold text-white">{owner.display_name}</h1>
           <p className="text-xs text-[#84f5e1]">{avatarTyping ? 'typing...' : 'online'}</p>
         </div>
+        <button
+          type="button"
+          onClick={() => void openLiveCall()}
+          disabled={liveCallState === 'starting' || liveCallState === 'joining'}
+          className="flex h-11 w-11 items-center justify-center rounded-full border border-[#74f0df]/25 bg-[linear-gradient(180deg,rgba(12,136,109,0.34),rgba(7,76,79,0.42))] text-[#9af8ea] shadow-[0_0_30px_rgba(48,214,193,0.18)] transition hover:border-[#74f0df]/50 hover:text-white disabled:opacity-50"
+          title="Start live video call"
+        >
+          <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M17 10.5V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-3.5l4 4v-11l-4 4z" />
+          </svg>
+        </button>
       </header>
 
       <main
