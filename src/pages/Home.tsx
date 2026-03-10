@@ -1,12 +1,49 @@
-import { Link } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { supabase } from '../lib/supabase'
 
 export default function Home() {
   const { user, signOut } = useAuth()
+  const navigate = useNavigate()
+  const [checking, setChecking] = useState(true)
+
   const ownerDisplay =
     [user?.user_metadata?.first_name, user?.user_metadata?.last_name].filter(Boolean).join(' ') ||
-    user?.phone ||
+    user?.email ||
     'WhatsAnima'
+
+  useEffect(() => {
+    if (!user) {
+      setChecking(false)
+      return
+    }
+
+    // Check if user is an owner
+    Promise.resolve(
+      supabase
+        .from('wa_owners')
+        .select('id')
+        .eq('user_id', user.id)
+        .maybeSingle()
+    )
+      .then(({ data }) => {
+        if (data) {
+          setChecking(false)
+        } else {
+          navigate('/avatars', { replace: true })
+        }
+      })
+      .catch(() => setChecking(false))
+  }, [user, navigate])
+
+  if (checking) {
+    return (
+      <div className="brand-scene flex min-h-screen items-center justify-center">
+        <div className="h-10 w-10 animate-spin rounded-full border-4 border-[#1f2c34] border-t-[#00a884]" />
+      </div>
+    )
+  }
 
   return (
     <div className="brand-scene min-h-screen text-white">
