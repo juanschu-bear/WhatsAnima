@@ -7,8 +7,9 @@ import {
   type ChangeEvent,
 } from 'react'
 import { useParams } from 'react-router-dom'
-import { createPerceptionLog, getConversation, listMessages, listPerceptionLogs, sendMessage } from '../lib/api'
+import { createPerceptionLog, getConversation, listMessages, listPerceptionLogs, sendMessage, listAllOwners, findContactByEmail, findOrCreateConversation, createContactForOwner } from '../lib/api'
 import { resolveAvatarUrl } from '../lib/avatars'
+import { getStoredLocale, t } from '../lib/i18n'
 
 type MessageType = 'text' | 'voice' | 'video' | 'image'
 
@@ -401,6 +402,182 @@ export default function Chat() {
   const faceValidationIntervalRef = useRef<number | null>(null)
   const videoInputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
+
+  // Message selection & forward/export state
+  const locale = getStoredLocale()
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [selectionMode, setSelectionMode] = useState(false)
+  const [forwardModalOpen, setForwardModalOpen] = useState(false)
+  const [forwardOwners, setForwardOwners] = useState<Array<{ id: string; display_name: string }>>([])
+  const [forwardLoading, setForwardLoading] = useState(false)
+  const [forwardSending, setForwardSending] = useState<string | null>(null)
+  const [exportMenuOpen, setExportMenuOpen] = useState(false)
+  const [toastMessage, setToastMessage] = useState<string | null>(null)
+  const longPressTimerRef = useRef<number | null>(null)
+
+  function toggleSelectMessage(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+      }
+      if (next.size === 0) setSelectionMode(false)
+      return next
+    })
+  }
+
+  function handleMessagePress(id: string) {
+    if (selectionMode) {
+      toggleSelectMessage(id)
+    }
+  }
+
+  function handleMessageLongPress(id: string) {
+    if (!selectionMode) {
+      setSelectionMode(true)
+    }
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      next.add(id)
+      return next
+    })
+  }
+
+  function clearSelection() {
+    setSelectionMode(false)
+    setSelectedIds(new Set())
+    setExportMenuOpen(false)
+  }
+
+  function getSelectedMessages(): Message[] {
+    return messages.filter((m) => selectedIds.has(m.id))
+  }
+
+  function formatMessageForExport(msg: Message, ownerName: string, contactName: string): string {
+    const sender = msg.sender === 'contact' ? contactName : ownerName
+    const time = new Date(msg.created_at).toLocaleString()
+    const content = msg.type === 'voice'
+      ? `[Voice message${msg.duration_sec ? ` ${formatClock(msg.duration_sec)}` : ''}]${msg.content ? ` ${msg.content}` : ''}`
+      : msg.type === 'image'
+      ? `[Image]${msg.content ? ` ${msg.content}` : ''}`
+      : msg.type === 'video'
+      ? `[Video]${msg.content ? ` ${msg.content}` : ''}`
+      : msg.content || ''
+    return `[${time}] ${sender}: ${content}`
+  }
+
+  async function handleCopySelected() {
+    const selected = getSelectedMessages()
+    if (selected.length === 0) return
+    const ownerName = conversation?.wa_owners.display_name || 'Avatar'
+    const contactName = conversation?.wa_contacts.display_name || 'You'
+    const text = selected.map((m) => formatMessageForExport(m, ownerName, contactName)).join('\n')
+    try {
+      await navigator.clipboard.writeText(text)
+      showToast(t(locale, 'copiedToClipboard'))
+    } catch {
+      showToast(t(locale, 'noTextToCopy'))
+    }
+    clearSelection()
+  }
+
+  function handleExportAsFile() {
+    const selected = selectionMode ? getSelectedMessages() : messages
+    if (selected.length === 0) return
+    const ownerName = conversation?.wa_owners.display_name || 'Avatar'
+    const contactName = conversation?.wa_contacts.display_name || 'You'
+    const lines = selected.map((m) => formatMessageForExport(m, ownerName, contactName))
+    const header = `WhatsAnima Chat Export — ${ownerName} & ${contactName}\n${'='.repeat(50)}\n\n`
+    const blob = new Blob([header + lines.join('\n')], { type: 'text/plain' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `chat-${ownerName.replace(/\s+/g, '-')}-${new Date().toISOString().slice(0, 10)}.txt`
+    a.click()
+    URL.revokeObjectURL(url)
+    clearSelection()
+    setExportMenuOpen(false)
+  }
+
+  async function handleExportToClipboard() {
+    const selected = selectionMode ? getSelectedMessages() : messages
+    if (selected.length === 0) return
+    const ownerName = conversation?.wa_owners.display_name || 'Avatar'
+    const contactName = conversation?.wa_contacts.display_name || 'You'
+    const lines = selected.map((m) => formatMessageForExport(m, ownerName, contactName))
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'))
+      showToast(t(locale, 'copiedToClipboard'))
+    } catch {
+      showToast(t(locale, 'noTextToCopy'))
+    }
+    clearSelection()
+    setExportMenuOpen(false)
+  }
+
+  async function openForwardModal() {
+    setForwardModalOpen(true)
+    setForwardLoading(true)
+    try {
+      const owners = await listAllOwners()
+      setForwardOwners(owners as Array<{ id: string; display_name: string }>)
+    } catch {
+      setForwardOwners([])
+    } finally {
+      setForwardLoading(false)
+    }
+  }
+
+  async function forwardToOwner(targetOwnerId: string) {
+    if (!conversation || forwardSending) return
+    setForwardSending(targetOwnerId)
+    try {
+      const userEmail = (await (await import('../lib/supabase')).supabase.auth.getUser()).data.user?.email
+      if (!userEmail) throw new Error('Not logged in')
+
+      let contact = await findContactByEmail(userEmail)
+      if (!contact) {
+        contact = await createContactForOwner({
+          ownerId: targetOwnerId,
+          firstName: '',
+          lastName: '',
+          email: userEmail,
+        })
+      }
+
+      const convId = await findOrCreateConversation(targetOwnerId, contact.id)
+      const selected = getSelectedMessages()
+      const ownerName = conversation.wa_owners.display_name || 'Avatar'
+
+      for (const msg of selected) {
+        const prefix = `[${t(locale, 'forwardedMessage')} — ${ownerName}]\n`
+        const content = msg.type === 'voice'
+          ? `${prefix}[Voice] ${msg.content || ''}`
+          : msg.type === 'image'
+          ? `${prefix}[Image] ${msg.content || ''}`
+          : msg.type === 'video'
+          ? `${prefix}[Video] ${msg.content || ''}`
+          : `${prefix}${msg.content || ''}`
+
+        await sendMessage(convId, 'contact', 'text', content.trim())
+      }
+
+      showToast(`${t(locale, 'forward')} ✓`)
+      clearSelection()
+      setForwardModalOpen(false)
+    } catch (err) {
+      console.error('Forward failed:', err)
+    } finally {
+      setForwardSending(null)
+    }
+  }
+
+  function showToast(message: string) {
+    setToastMessage(message)
+    setTimeout(() => setToastMessage(null), 2500)
+  }
 
   useEffect(() => {
     if (!conversationId) return
@@ -1723,22 +1900,77 @@ export default function Chat() {
       <div className="pointer-events-none absolute inset-x-0 top-0 h-44 bg-[radial-gradient(circle_at_top,_rgba(83,208,255,0.32),_transparent_58%)] blur-3xl" />
       <div className={`relative z-10 flex min-h-0 flex-1 flex-col ${isDesktopLayout ? 'mx-auto my-5 w-[min(1400px,calc(100vw-48px))] rounded-[32px] border border-white/10 bg-[#07121ccc] shadow-[0_30px_120px_rgba(0,0,0,0.42)] backdrop-blur-2xl' : ''}`}>
       <header className="relative z-10 flex items-center gap-3 border-b border-white/8 bg-[#0d1826]/72 px-4 py-3 shadow-[0_12px_40px_rgba(0,0,0,0.24)] backdrop-blur-2xl">
-        <img src={resolveAvatarUrl(owner.display_name)} alt={owner.display_name} className="h-10 w-10 rounded-full object-cover" />
-        <div className="min-w-0 flex-1">
-          <h1 className="truncate text-base font-semibold text-white">{owner.display_name}</h1>
-          <p className="text-xs text-[#84f5e1]">{avatarTyping ? 'typing...' : 'online'}</p>
-        </div>
-        <button
-          type="button"
-          onClick={() => void openLiveCall()}
-          disabled={liveCallState === 'starting' || liveCallState === 'joining'}
-          className="flex h-11 w-11 items-center justify-center rounded-full border border-[#74f0df]/25 bg-[linear-gradient(180deg,rgba(12,136,109,0.34),rgba(7,76,79,0.42))] text-[#9af8ea] shadow-[0_0_30px_rgba(48,214,193,0.18)] transition hover:border-[#74f0df]/50 hover:text-white disabled:opacity-50"
-          title="Start live video call"
-        >
-          <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
-            <path d="M17 10.5V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-3.5l4 4v-11l-4 4z" />
-          </svg>
-        </button>
+        {selectionMode ? (
+          <>
+            <button type="button" onClick={clearSelection} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white/70 transition hover:bg-white/8 hover:text-white">
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+            <span className="min-w-0 flex-1 text-base font-semibold text-white">{selectedIds.size} {t(locale, 'selectedCount')}</span>
+            {/* Copy */}
+            <button type="button" onClick={() => void handleCopySelected()} title={t(locale, 'copyText')} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[#9af8ea] transition hover:bg-white/8">
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" /></svg>
+            </button>
+            {/* Forward */}
+            <button type="button" onClick={() => void openForwardModal()} title={t(locale, 'forward')} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[#9af8ea] transition hover:bg-white/8">
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M5 12h15" /></svg>
+            </button>
+            {/* Export */}
+            <div className="relative">
+              <button type="button" onClick={() => setExportMenuOpen((c) => !c)} title={t(locale, 'exportChat')} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[#9af8ea] transition hover:bg-white/8">
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" /></svg>
+              </button>
+              {exportMenuOpen && (
+                <div className="absolute right-0 top-12 z-50 w-56 rounded-2xl border border-white/10 bg-[linear-gradient(180deg,rgba(17,29,44,0.98),rgba(10,20,33,0.99))] p-2 shadow-[0_24px_80px_rgba(0,0,0,0.4)] backdrop-blur-2xl">
+                  <button type="button" onClick={() => void handleExportToClipboard()} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-white/88 transition hover:bg-white/6">
+                    <svg className="h-4 w-4 text-[#9af8ea]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" /></svg>
+                    {t(locale, 'exportToClipboard')}
+                  </button>
+                  <button type="button" onClick={handleExportAsFile} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-white/88 transition hover:bg-white/6">
+                    <svg className="h-4 w-4 text-[#9af8ea]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" /></svg>
+                    {t(locale, 'exportAsText')}
+                  </button>
+                </div>
+              )}
+            </div>
+          </>
+        ) : (
+          <>
+            <img src={resolveAvatarUrl(owner.display_name)} alt={owner.display_name} className="h-10 w-10 rounded-full object-cover" />
+            <div className="min-w-0 flex-1">
+              <h1 className="truncate text-base font-semibold text-white">{owner.display_name}</h1>
+              <p className="text-xs text-[#84f5e1]">{avatarTyping ? 'typing...' : 'online'}</p>
+            </div>
+            {/* Export full chat button */}
+            <div className="relative">
+              <button type="button" onClick={() => setExportMenuOpen((c) => !c)} title={t(locale, 'exportChat')} className="flex h-11 w-11 items-center justify-center rounded-full border border-white/8 bg-white/[0.04] text-[#9af8ea] transition hover:border-[#74f0df]/30 hover:text-white">
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" /></svg>
+              </button>
+              {exportMenuOpen && (
+                <div className="absolute right-0 top-14 z-50 w-56 rounded-2xl border border-white/10 bg-[linear-gradient(180deg,rgba(17,29,44,0.98),rgba(10,20,33,0.99))] p-2 shadow-[0_24px_80px_rgba(0,0,0,0.4)] backdrop-blur-2xl">
+                  <button type="button" onClick={() => void handleExportToClipboard()} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-white/88 transition hover:bg-white/6">
+                    <svg className="h-4 w-4 text-[#9af8ea]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" /></svg>
+                    {t(locale, 'exportToClipboard')}
+                  </button>
+                  <button type="button" onClick={handleExportAsFile} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-white/88 transition hover:bg-white/6">
+                    <svg className="h-4 w-4 text-[#9af8ea]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" /></svg>
+                    {t(locale, 'exportAsText')}
+                  </button>
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => void openLiveCall()}
+              disabled={liveCallState === 'starting' || liveCallState === 'joining'}
+              className="flex h-11 w-11 items-center justify-center rounded-full border border-[#74f0df]/25 bg-[linear-gradient(180deg,rgba(12,136,109,0.34),rgba(7,76,79,0.42))] text-[#9af8ea] shadow-[0_0_30px_rgba(48,214,193,0.18)] transition hover:border-[#74f0df]/50 hover:text-white disabled:opacity-50"
+              title="Start live video call"
+            >
+              <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M17 10.5V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-3.5l4 4v-11l-4 4z" />
+              </svg>
+            </button>
+          </>
+        )}
       </header>
 
       <main
@@ -1758,9 +1990,27 @@ export default function Chat() {
 
             const message = item.message
             const isContact = message.sender === 'contact'
+            const isSelected = selectedIds.has(message.id)
 
             return (
-              <div key={message.id} className={`flex ${isContact ? 'justify-end' : 'justify-start'}`}>
+              <div
+                key={message.id}
+                className={`flex transition-colors ${isContact ? 'justify-end' : 'justify-start'} ${isSelected ? 'rounded-2xl bg-[#00a884]/10' : ''}`}
+                onClick={() => handleMessagePress(message.id)}
+                onContextMenu={(e) => { e.preventDefault(); handleMessageLongPress(message.id) }}
+                onTouchStart={() => {
+                  longPressTimerRef.current = window.setTimeout(() => handleMessageLongPress(message.id), 500)
+                }}
+                onTouchEnd={() => { if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null } }}
+                onTouchMove={() => { if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null } }}
+              >
+                {selectionMode && (
+                  <div className="flex items-center px-1">
+                    <div className={`flex h-5 w-5 items-center justify-center rounded-full border-2 transition ${isSelected ? 'border-[#00a884] bg-[#00a884]' : 'border-white/30'}`}>
+                      {isSelected && <svg className="h-3 w-3 text-white" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                    </div>
+                  </div>
+                )}
                 {message.type === 'voice' ? (
                   <VoiceMessageBubble
                     isContact={isContact}
@@ -2124,6 +2374,64 @@ export default function Chat() {
           </div>
         </div>
       ) : null}
+
+      {/* Forward modal */}
+      {forwardModalOpen && (
+        <div className="absolute inset-0 z-40 flex items-end bg-[#02060dcc] p-4 sm:items-center sm:justify-center" onClick={() => { setForwardModalOpen(false); setForwardSending(null) }}>
+          <div className="w-full max-w-md rounded-[32px] border border-white/10 bg-[linear-gradient(180deg,rgba(17,29,44,0.97),rgba(10,20,33,0.99))] p-5 shadow-[0_28px_100px_rgba(0,0,0,0.5)] backdrop-blur-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-white">{t(locale, 'forwardTo')}</h2>
+              <button type="button" onClick={() => { setForwardModalOpen(false); setForwardSending(null) }} className="text-sm text-white/60 hover:text-white/80">
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <p className="mt-1 text-sm text-white/50">{selectedIds.size} {t(locale, 'selectedCount')}</p>
+
+            <div className="mt-5 max-h-[50vh] space-y-2 overflow-y-auto">
+              {forwardLoading ? (
+                <div className="flex justify-center py-8">
+                  <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#1f2c34] border-t-[#00a884]" />
+                </div>
+              ) : forwardOwners.length === 0 ? (
+                <p className="py-6 text-center text-sm text-white/40">No avatars available.</p>
+              ) : (
+                forwardOwners.map((fw) => (
+                  <button
+                    key={fw.id}
+                    type="button"
+                    onClick={() => void forwardToOwner(fw.id)}
+                    disabled={forwardSending !== null}
+                    className={`w-full rounded-[20px] border px-4 py-4 text-left transition ${
+                      forwardSending === fw.id
+                        ? 'border-[#00a884]/50 bg-[#00a884]/10'
+                        : 'border-white/6 bg-white/[0.02] hover:border-[#00a884]/40 hover:bg-[#00a884]/[0.06]'
+                    } disabled:opacity-60`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <img src={resolveAvatarUrl(fw.display_name)} alt={fw.display_name} className="h-11 w-11 rounded-full object-cover ring-2 ring-white/10" />
+                      <p className="flex-1 truncate text-sm font-semibold text-white">{fw.display_name}</p>
+                      {forwardSending === fw.id ? (
+                        <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#1f2c34] border-t-[#00a884]" />
+                      ) : (
+                        <svg className="h-4 w-4 text-white/30" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M5 12h15" /></svg>
+                      )}
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast notification */}
+      {toastMessage && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-24 z-50 flex justify-center">
+          <div className="rounded-full border border-[#00a884]/30 bg-[#0d1826]/95 px-5 py-2.5 text-sm font-medium text-[#00a884] shadow-[0_12px_40px_rgba(0,0,0,0.4)] backdrop-blur-xl">
+            {toastMessage}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

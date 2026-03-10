@@ -84,6 +84,22 @@ const translations = {
     switchOwner: 'Switch owner view',
     viewing: 'Viewing',
 
+    // Message actions
+    forward: 'Forward',
+    forwardMessage: 'Forward message',
+    forwardTo: 'Forward to',
+    copyText: 'Copy text',
+    exportChat: 'Export chat',
+    exportSelected: 'Export selected',
+    download: 'Download',
+    selectedCount: 'selected',
+    copiedToClipboard: 'Copied to clipboard',
+    noTextToCopy: 'No text to copy',
+    forwardedMessage: 'Forwarded message',
+    selectMessages: 'Tap messages to select',
+    exportAsText: 'Export as text file',
+    exportToClipboard: 'Copy to clipboard',
+
     // Login flow
     welcome: 'Welcome',
     chooseLanguage: 'Choose your language',
@@ -188,6 +204,22 @@ const translations = {
     switchOwner: 'Cambiar vista de owner',
     viewing: 'Viendo',
 
+    // Message actions
+    forward: 'Reenviar',
+    forwardMessage: 'Reenviar mensaje',
+    forwardTo: 'Reenviar a',
+    copyText: 'Copiar texto',
+    exportChat: 'Exportar chat',
+    exportSelected: 'Exportar seleccionados',
+    download: 'Descargar',
+    selectedCount: 'seleccionados',
+    copiedToClipboard: 'Copiado al portapapeles',
+    noTextToCopy: 'No hay texto para copiar',
+    forwardedMessage: 'Mensaje reenviado',
+    selectMessages: 'Toca mensajes para seleccionar',
+    exportAsText: 'Exportar como archivo de texto',
+    exportToClipboard: 'Copiar al portapapeles',
+
     // Login flow
     welcome: 'Bienvenido',
     chooseLanguage: 'Elige tu idioma',
@@ -291,6 +323,22 @@ const translations = {
     allOwners: 'Alle Owners',
     switchOwner: 'Owner-Ansicht wechseln',
     viewing: 'Anzeige',
+
+    // Message actions
+    forward: 'Weiterleiten',
+    forwardMessage: 'Nachricht weiterleiten',
+    forwardTo: 'Weiterleiten an',
+    copyText: 'Text kopieren',
+    exportChat: 'Chat exportieren',
+    exportSelected: 'Ausgew\u00e4hlte exportieren',
+    download: 'Herunterladen',
+    selectedCount: 'ausgew\u00e4hlt',
+    copiedToClipboard: 'In Zwischenablage kopiert',
+    noTextToCopy: 'Kein Text zum Kopieren',
+    forwardedMessage: 'Weitergeleitete Nachricht',
+    selectMessages: 'Nachrichten antippen zum Ausw\u00e4hlen',
+    exportAsText: 'Als Textdatei exportieren',
+    exportToClipboard: 'In Zwischenablage kopieren',
 
     // Login flow
     welcome: 'Willkommen',
