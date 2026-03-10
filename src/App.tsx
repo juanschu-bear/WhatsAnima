@@ -7,6 +7,7 @@ import Signup from './pages/Signup'
 import Dashboard from './pages/Dashboard'
 import Invite from './pages/Invite'
 import Chat from './pages/Chat'
+import AvatarSelect from './pages/AvatarSelect'
 
 export default function App() {
   return (
@@ -17,6 +18,14 @@ export default function App() {
           <Route path="/signup" element={<Signup />} />
           <Route path="/invite/:token" element={<Invite />} />
           <Route path="/chat/:conversationId" element={<Chat />} />
+          <Route
+            path="/avatars"
+            element={
+              <ProtectedRoute>
+                <AvatarSelect />
+              </ProtectedRoute>
+            }
+          />
           <Route
             path="/"
             element={

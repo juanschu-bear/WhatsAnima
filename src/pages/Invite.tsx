@@ -144,7 +144,7 @@ export default function Invite() {
   useEffect(() => {
     if (!welcomeData) return
     const timer = window.setTimeout(() => {
-      navigate(`/chat/${welcomeData.chatId}`)
+      navigate('/avatars')
     }, 2000)
     return () => window.clearTimeout(timer)
   }, [welcomeData, navigate])
