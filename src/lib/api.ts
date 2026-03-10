@@ -468,7 +468,10 @@ export async function listPerceptionLogs(conversationId: string) {
     .select('message_id, transcript, created_at')
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: false })
-  if (error) throw error
+  if (error) {
+    console.warn('[listPerceptionLogs] RLS/query error:', error.message)
+    return []
+  }
   return data ?? []
 }
 

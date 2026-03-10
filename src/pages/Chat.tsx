@@ -409,7 +409,7 @@ export default function Chat() {
     Promise.all([
       getConversation(conversationId),
       listMessages(conversationId),
-      listPerceptionLogs(conversationId),
+      listPerceptionLogs(conversationId).catch(() => []),
     ])
       .then(([conv, msgs, logs]) => {
         setConversation(conv as ConversationData)
@@ -882,14 +882,14 @@ export default function Chat() {
       setMessages((current) => [...current, message])
 
       if (finalTranscript) {
-        await createPerceptionLog({
+        createPerceptionLog({
           messageId: message.id,
           conversationId: conversation.id,
           contactId: conversation.contact_id,
           ownerId: conversation.owner_id,
           transcript: finalTranscript,
           audioDurationSec: durationSeconds,
-        })
+        }).catch((logErr) => console.warn('[perception-log]', logErr.message))
         setTranscriptMap((current) => ({ ...current, [message.id]: finalTranscript }))
       }
 
