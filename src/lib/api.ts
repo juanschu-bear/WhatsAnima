@@ -504,25 +504,22 @@ export async function sendMessage(
   mediaUrl?: string,
   durationSec?: number
 ) {
-  const { data, error } = await supabase
-    .from('wa_messages')
-    .insert({
-      conversation_id: conversationId,
+  const response = await fetch('/api/send-message', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      conversationId,
       sender,
       type,
       content,
-      media_url: mediaUrl ?? null,
-      duration_sec: durationSec ?? null,
-    })
-    .select()
-    .single()
-  if (error) throw error
+      mediaUrl: mediaUrl ?? null,
+      durationSec: durationSec ?? null,
+    }),
+  })
 
-  const { error: conversationError } = await supabase
-    .from('wa_conversations')
-    .update({ updated_at: new Date().toISOString() })
-    .eq('id', conversationId)
-  if (conversationError) throw conversationError
-
+  const data = await response.json()
+  if (!response.ok) {
+    throw new Error(data?.error || `sendMessage failed (${response.status})`)
+  }
   return data
 }
