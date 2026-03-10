@@ -52,7 +52,7 @@ async function loadOwnerPrompt(conversationId: string | undefined) {
 
 async function callAnthropic(apiKey: string, systemPrompt: string, messages: ChatMessage[]) {
   const payload = {
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-opus-4-5-20251101',
     max_tokens: 300,
     system: systemPrompt,
     messages: messages.map((message) => {
@@ -152,11 +152,7 @@ export default async function handler(req: any, res: any) {
 
     return res.status(200).json({ content })
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error)
-    console.error('Chat API error:', errorMessage, error)
-    return res.status(500).json({
-      error: errorMessage,
-      content: `Sorry, something went wrong: ${errorMessage}`,
-    })
+    console.error('Chat API error:', error instanceof Error ? error.message : error)
+    return res.status(200).json({ content: 'Sorry, something went wrong. Try again.' })
   }
 }
