@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
+import { findContactByEmail } from '../lib/api'
 
 export default function Home() {
   const { user, signOut } = useAuth()
   const navigate = useNavigate()
   const [checking, setChecking] = useState(true)
 
-  const ownerDisplay =
+  const displayName =
     [user?.user_metadata?.first_name, user?.user_metadata?.last_name].filter(Boolean).join(' ') ||
     user?.email ||
     'WhatsAnima'
@@ -19,22 +20,49 @@ export default function Home() {
       return
     }
 
-    // Check if user is an owner
-    Promise.resolve(
-      supabase
+    // Check role and route accordingly
+    async function routeByRole() {
+      // Check if owner
+      const { data: ownerData } = await supabase
         .from('wa_owners')
         .select('id')
-        .eq('user_id', user.id)
+        .eq('user_id', user!.id)
         .maybeSingle()
-    )
-      .then(({ data }) => {
-        if (data) {
-          setChecking(false)
-        } else {
-          navigate('/avatars', { replace: true })
+
+      if (ownerData) {
+        setChecking(false)
+        return
+      }
+
+      // Not an owner — check if they're a contact with an existing conversation
+      if (user!.email) {
+        try {
+          const contact = await findContactByEmail(user!.email)
+          if (contact) {
+            // Find their most recent conversation
+            const { data: conv } = await supabase
+              .from('wa_conversations')
+              .select('id')
+              .eq('contact_id', contact.id)
+              .order('updated_at', { ascending: false })
+              .limit(1)
+              .maybeSingle()
+
+            if (conv) {
+              navigate(`/chat/${conv.id}`, { replace: true })
+              return
+            }
+          }
+        } catch {
+          // Fallback to avatar select
         }
-      })
-      .catch(() => setChecking(false))
+      }
+
+      // Contact without conversation — go to avatar select
+      navigate('/avatars', { replace: true })
+    }
+
+    routeByRole().catch(() => setChecking(false))
   }, [user, navigate])
 
   if (checking) {
@@ -45,6 +73,7 @@ export default function Home() {
     )
   }
 
+  // Only owners reach this point — show a welcome screen with Dashboard link
   return (
     <div className="brand-scene min-h-screen text-white">
       <div className="relative z-10 flex min-h-screen items-center justify-center px-6 py-12">
@@ -64,16 +93,18 @@ export default function Home() {
             Your AI twin is ready.
           </p>
           <div className="mt-5 rounded-full border border-white/10 bg-white/5 px-5 py-2 text-sm text-white/70 backdrop-blur-xl">
-            {ownerDisplay}
+            {displayName}
           </div>
           <div className="mt-8 flex w-full max-w-sm flex-col gap-3 sm:flex-row">
-            <Link
-              to="/dashboard"
+            <button
+              type="button"
+              onClick={() => navigate('/dashboard')}
               className="rounded-2xl bg-[#00a884] px-6 py-3 text-center text-sm font-semibold text-[#0b141a] transition hover:brightness-110"
             >
               Dashboard
-            </Link>
+            </button>
             <button
+              type="button"
               onClick={signOut}
               className="rounded-2xl border border-white/10 bg-[#1f2c34]/80 px-6 py-3 text-sm font-medium transition hover:border-[#00a884]/60 hover:text-[#00a884]"
             >

@@ -61,6 +61,22 @@ export default function Invite() {
     })
   }, [token])
 
+  // --- If user already has a session and no pending invite, auto-fill email ---
+  useEffect(() => {
+    if (!invite) return
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session?.user?.email) return
+      const pending = localStorage.getItem(PENDING_KEY)
+      if (pending) return // Let the normal pending flow handle it
+      // Pre-fill the email so they don't have to type it again
+      setEmail(session.user.email)
+      const meta = session.user.user_metadata
+      if (meta?.first_name && !firstName) setFirstName(meta.first_name)
+      if (meta?.last_name && !lastName) setLastName(meta.last_name)
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [invite])
+
   // --- complete the invite after magic-link verification ---
   async function finalisePendingInvite(pending: PendingInvite) {
     console.log('[Invite] finalising invite for', pending.email)
