@@ -496,9 +496,14 @@ export default function Chat() {
 
     const data = await response.json().catch(() => ({}))
     if (!response.ok) {
-      console.error('[uploadAudio] API error:', data?.error || response.status)
+      const msg = data?.error || `Upload failed (${response.status})`
+      console.error('[uploadAudio] API error:', msg)
+      throw new Error(msg)
     }
-    return typeof data.url === 'string' ? data.url : null
+    if (typeof data.url !== 'string') {
+      throw new Error('Upload succeeded but no URL returned')
+    }
+    return data.url
   }
 
   async function uploadMediaToStorage(file: File, mediaType: 'image' | 'video') {
@@ -884,9 +889,9 @@ export default function Chat() {
         isVoice: true,
         perception: opmResponse,
       })
-    } catch (recordingError) {
-      console.error(recordingError)
-      setError('Unable to send this voice note.')
+    } catch (recordingError: any) {
+      console.error('[sendVoiceMessage]', recordingError)
+      setError(recordingError?.message || 'Unable to send this voice note.')
     } finally {
       setSending(false)
     }
