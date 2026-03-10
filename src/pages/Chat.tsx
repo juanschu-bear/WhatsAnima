@@ -238,10 +238,10 @@ const VoiceMessageBubble = memo(function VoiceMessageBubble({
 
   return (
     <div
-      className={`relative max-w-[84%] rounded-[24px] border px-3 py-2.5 text-sm shadow-[0_18px_50px_rgba(0,0,0,0.18)] backdrop-blur-xl ${
+      className={`relative max-w-[78%] rounded-[20px] border px-4 py-3 text-sm shadow-[0_2px_8px_rgba(0,0,0,0.12)] ${
         isContact
-          ? 'rounded-tr-md border-[#47dfc2]/20 bg-[linear-gradient(180deg,rgba(8,118,100,0.9),rgba(5,86,79,0.92))] text-white'
-          : 'rounded-tl-md border-white/8 bg-[linear-gradient(180deg,rgba(22,34,51,0.86),rgba(12,24,39,0.92))] text-white'
+          ? 'rounded-tr-[6px] border-[#00a884]/15 bg-[#005c4b] text-white'
+          : 'rounded-tl-[6px] border-white/[0.06] bg-[#1a2332] text-white'
       }`}
     >
       <div className="flex items-center gap-3">
@@ -249,7 +249,7 @@ const VoiceMessageBubble = memo(function VoiceMessageBubble({
           type="button"
           onClick={togglePlay}
           disabled={!hasPlayableAudio}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/8 bg-white/8 text-white disabled:opacity-40"
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition disabled:opacity-40 ${isContact ? 'bg-[#00a884]/25 text-[#7be3ce]' : 'bg-white/8 text-white/70'}`}
         >
           {isPlaying ? (
             <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
@@ -286,7 +286,7 @@ const VoiceMessageBubble = memo(function VoiceMessageBubble({
       {hasTranscript && isTranscriptOpen ? (
         <div className="mt-2 rounded-2xl bg-black/15 px-3 py-2 text-sm text-white/84">{transcript}</div>
       ) : null}
-      <span className="mt-1 block text-right text-[10px] text-white/45">{formatMessageTime(message.created_at)}</span>
+      <span className={`mt-1 flex justify-end text-[10px] ${isContact ? 'text-white/40' : 'text-white/30'}`}>{formatMessageTime(message.created_at)}</span>
     </div>
   )
 })
@@ -301,23 +301,23 @@ const MediaMessageBubble = memo(function MediaMessageBubble({
   if (!message.media_url) return null
 
   const commonMeta = (
-    <span className="mt-2 block text-right text-[10px] text-white/45">{formatMessageTime(message.created_at)}</span>
+    <span className={`mt-1 flex justify-end text-[10px] ${isContact ? 'text-white/40' : 'text-white/30'}`}>{formatMessageTime(message.created_at)}</span>
   )
 
   if (message.type === 'image') {
     return (
       <div
-        className={`relative max-w-[84%] rounded-[26px] border p-1.5 shadow-[0_18px_50px_rgba(0,0,0,0.18)] backdrop-blur-xl ${
+        className={`relative max-w-[78%] overflow-hidden rounded-[20px] border shadow-[0_2px_8px_rgba(0,0,0,0.12)] ${
           isContact
-            ? 'rounded-tr-md border-[#47dfc2]/20 bg-[linear-gradient(180deg,rgba(8,118,100,0.9),rgba(5,86,79,0.92))] text-white'
-            : 'rounded-tl-md border-white/8 bg-[linear-gradient(180deg,rgba(22,34,51,0.86),rgba(12,24,39,0.92))] text-white'
+            ? 'rounded-tr-[6px] border-[#00a884]/15 bg-[#005c4b]'
+            : 'rounded-tl-[6px] border-white/[0.06] bg-[#1a2332]'
         }`}
       >
-        <img src={message.media_url} alt="Shared image" className="max-h-80 rounded-[18px] object-cover" />
+        <img src={message.media_url} alt="Shared image" className="max-h-80 w-full object-cover" />
         {!isPlaceholderContent(message) ? (
-          <div className="px-2 pb-1 pt-2 text-sm text-white">{message.content}</div>
+          <div className="px-4 pt-2 text-[14px] text-white/90">{message.content}</div>
         ) : null}
-        <div className="px-2 pb-1">{commonMeta}</div>
+        <div className="px-4 pb-2 pt-1">{commonMeta}</div>
       </div>
     )
   }
@@ -325,22 +325,22 @@ const MediaMessageBubble = memo(function MediaMessageBubble({
   const recorded = isRecordedVideoMessage(message)
   return (
     <div
-      className={`relative max-w-[84%] overflow-hidden border shadow-[0_18px_50px_rgba(0,0,0,0.18)] backdrop-blur-xl ${
-        recorded ? 'rounded-full' : 'rounded-2xl'
+      className={`relative max-w-[78%] overflow-hidden border shadow-[0_2px_8px_rgba(0,0,0,0.12)] ${
+        recorded ? 'rounded-full' : 'rounded-[20px]'
       } ${isContact
-        ? 'border-[#47dfc2]/20 bg-[linear-gradient(180deg,rgba(8,118,100,0.9),rgba(5,86,79,0.92))] text-white'
-        : 'border-white/8 bg-[linear-gradient(180deg,rgba(22,34,51,0.86),rgba(12,24,39,0.92))] text-white'}`}
+        ? `${recorded ? '' : 'rounded-tr-[6px]'} border-[#00a884]/15 bg-[#005c4b]`
+        : `${recorded ? '' : 'rounded-tl-[6px]'} border-white/[0.06] bg-[#1a2332]`}`}
     >
       <video
         src={message.media_url ?? undefined}
         controls
         playsInline
         preload="auto"
-        className={recorded ? 'h-52 w-52 object-cover' : 'max-h-96 max-w-full rounded-t-2xl'}
+        className={recorded ? 'h-52 w-52 object-cover' : 'max-h-96 max-w-full'}
       />
-      <div className="px-3 pb-2 pt-2">
-        {!isPlaceholderContent(message) ? <div className="text-sm text-white">{message.content}</div> : null}
-        <div className="mt-1 flex items-center justify-between gap-4 text-[10px] text-white/50">
+      <div className="px-4 pb-2 pt-2">
+        {!isPlaceholderContent(message) ? <div className="text-[14px] text-white/90">{message.content}</div> : null}
+        <div className={`mt-1 flex items-center justify-between gap-4 text-[10px] ${isContact ? 'text-white/40' : 'text-white/30'}`}>
           <span>{message.duration_sec ? formatClock(message.duration_sec) : ''}</span>
           <span>{formatMessageTime(message.created_at)}</span>
         </div>
@@ -1953,11 +1953,12 @@ export default function Chat() {
   }
 
   return (
-    <div className="relative flex h-[100svh] min-h-[100svh] flex-col overflow-hidden bg-[radial-gradient(circle_at_top,_rgba(72,216,255,0.2),_transparent_28%),radial-gradient(circle_at_80%_20%,_rgba(0,255,170,0.16),_transparent_22%),linear-gradient(180deg,_#061018_0%,_#07111f_48%,_#050b15_100%)] text-white">
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(126,255,234,0.04)_1px,transparent_1px),linear-gradient(90deg,rgba(126,255,234,0.04)_1px,transparent_1px)] bg-[size:34px_34px] opacity-[0.16]" />
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-44 bg-[radial-gradient(circle_at_top,_rgba(83,208,255,0.32),_transparent_58%)] blur-3xl" />
-      <div className={`relative z-10 flex min-h-0 flex-1 flex-col ${isDesktopLayout ? 'mx-auto my-5 w-[min(1400px,calc(100vw-48px))] rounded-[32px] border border-white/10 bg-[#07121ccc] shadow-[0_30px_120px_rgba(0,0,0,0.42)] backdrop-blur-2xl' : ''}`}>
-      <header className="relative z-10 flex items-center gap-3 border-b border-white/8 bg-[#0d1826]/72 px-4 py-3 shadow-[0_12px_40px_rgba(0,0,0,0.24)] backdrop-blur-2xl">
+    <div className="relative flex h-[100svh] min-h-[100svh] flex-col overflow-hidden bg-[linear-gradient(140deg,_#020a12_0%,_#071420_35%,_#060e1a_65%,_#030810_100%)] text-white">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_-10%,rgba(0,168,132,0.12),transparent_60%)]" />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_60%_40%_at_80%_20%,rgba(56,169,255,0.07),transparent_50%)]" />
+      {isDesktopLayout && <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(126,255,234,0.015)_1px,transparent_1px),linear-gradient(90deg,rgba(126,255,234,0.015)_1px,transparent_1px)] bg-[size:40px_40px]" />}
+      <div className={`relative z-10 flex min-h-0 flex-1 flex-col ${isDesktopLayout ? 'mx-auto my-6 w-[min(900px,calc(100vw-80px))] overflow-hidden rounded-[28px] border border-white/[0.06] bg-[rgba(6,14,22,0.88)] shadow-[0_40px_160px_rgba(0,0,0,0.55),0_0_0_1px_rgba(255,255,255,0.03)] backdrop-blur-3xl' : ''}`}>
+      <header className={`relative z-10 flex items-center gap-3 border-b border-white/[0.06] px-4 py-3 backdrop-blur-2xl ${isDesktopLayout ? 'bg-[rgba(8,18,28,0.65)] shadow-[0_1px_0_rgba(255,255,255,0.03)]' : 'bg-[#0a1420]/80 shadow-[0_8px_32px_rgba(0,0,0,0.2)]'}`}>
         {selectionMode ? (
           <>
             <button type="button" onClick={clearSelection} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white/70 transition hover:bg-white/8 hover:text-white">
@@ -1993,10 +1994,13 @@ export default function Chat() {
           </>
         ) : (
           <>
-            <img src={resolveAvatarUrl(owner.display_name)} alt={owner.display_name} className="h-10 w-10 rounded-full object-cover" />
+            <div className="relative">
+              <img src={resolveAvatarUrl(owner.display_name)} alt={owner.display_name} className="h-10 w-10 rounded-full object-cover ring-1 ring-white/10" />
+              <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-[#0a1420] bg-[#00d4a1]" />
+            </div>
             <div className="min-w-0 flex-1">
-              <h1 className="truncate text-base font-semibold text-white">{owner.display_name}</h1>
-              <p className="text-xs text-[#84f5e1]">{avatarTyping ? 'typing...' : 'online'}</p>
+              <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em] text-white">{owner.display_name}</h1>
+              <p className="text-xs text-[#00d4a1]/80">{avatarTyping ? 'typing...' : 'online'}</p>
             </div>
             {/* Export full chat button */}
             <div className="relative">
@@ -2032,14 +2036,14 @@ export default function Chat() {
       </header>
 
       <main
-        className="relative z-0 min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 pb-6"
+        className="relative z-0 min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 pb-6"
       >
-        <div className={`mx-auto flex w-full flex-col gap-3 ${isDesktopLayout ? 'max-w-[920px] py-6' : 'max-w-2xl'}`}>
+        <div className={`mx-auto flex w-full flex-col gap-2.5 ${isDesktopLayout ? 'max-w-[680px] py-5' : 'max-w-2xl'}`}>
           {groupedTimeline.map((item) => {
             if (item.kind === 'date') {
               return (
-                <div key={item.key} className="my-2 flex justify-center">
-                  <span className="rounded-full border border-white/10 bg-[#0f1d2d]/84 px-3 py-1 text-xs text-white/70 shadow-[0_8px_32px_rgba(0,0,0,0.22)] backdrop-blur-xl">
+                <div key={item.key} className="my-3 flex justify-center">
+                  <span className="rounded-full border border-white/[0.06] bg-[#182533]/90 px-3.5 py-1 text-[11px] font-medium tracking-wide text-white/50 shadow-[0_2px_8px_rgba(0,0,0,0.15)]">
                     {item.label}
                   </span>
                 </div>
@@ -2079,14 +2083,14 @@ export default function Chat() {
                   <MediaMessageBubble isContact={isContact} message={message} />
                 ) : (
                   <div
-                    className={`relative max-w-[84%] rounded-[24px] border px-3 py-2.5 text-sm shadow-[0_18px_50px_rgba(0,0,0,0.18)] backdrop-blur-xl ${
+                    className={`relative max-w-[78%] rounded-[20px] border px-4 py-3 text-[14.5px] leading-relaxed shadow-[0_2px_8px_rgba(0,0,0,0.12)] ${
                       isContact
-                        ? 'rounded-tr-md border-[#47dfc2]/20 bg-[linear-gradient(180deg,rgba(8,118,100,0.9),rgba(5,86,79,0.92))] text-white'
-                        : 'rounded-tl-md border-white/8 bg-[linear-gradient(180deg,rgba(22,34,51,0.86),rgba(12,24,39,0.92))] text-white'
+                        ? 'rounded-tr-[6px] border-[#00a884]/15 bg-[#005c4b] text-white'
+                        : 'rounded-tl-[6px] border-white/[0.06] bg-[#1a2332] text-white/[0.92]'
                     }`}
                   >
                     <span>{message.content}</span>
-                    <span className="mt-1 block text-right text-[10px] text-white/45">
+                    <span className={`mt-1 flex justify-end text-[10px] ${isContact ? 'text-white/40' : 'text-white/30'}`}>
                       {formatMessageTime(message.created_at)}
                     </span>
                   </div>
@@ -2097,11 +2101,11 @@ export default function Chat() {
 
           {avatarTyping ? (
             <div className="flex justify-start">
-              <div className="rounded-[24px] rounded-tl-md border border-white/8 bg-[linear-gradient(180deg,rgba(22,34,51,0.86),rgba(12,24,39,0.92))] px-4 py-3 shadow-[0_18px_50px_rgba(0,0,0,0.18)] backdrop-blur-xl">
-                <div className="flex gap-1">
-                  <span className="h-2 w-2 animate-bounce rounded-full bg-white/40" style={{ animationDelay: '0ms' }} />
-                  <span className="h-2 w-2 animate-bounce rounded-full bg-white/40" style={{ animationDelay: '150ms' }} />
-                  <span className="h-2 w-2 animate-bounce rounded-full bg-white/40" style={{ animationDelay: '300ms' }} />
+              <div className="rounded-[20px] rounded-tl-[6px] border border-white/[0.06] bg-[#1a2332] px-5 py-3.5 shadow-[0_2px_8px_rgba(0,0,0,0.12)]">
+                <div className="flex gap-1.5">
+                  <span className="h-2 w-2 animate-bounce rounded-full bg-[#00d4a1]/60" style={{ animationDelay: '0ms' }} />
+                  <span className="h-2 w-2 animate-bounce rounded-full bg-[#00d4a1]/60" style={{ animationDelay: '150ms' }} />
+                  <span className="h-2 w-2 animate-bounce rounded-full bg-[#00d4a1]/60" style={{ animationDelay: '300ms' }} />
                 </div>
               </div>
             </div>
@@ -2144,14 +2148,14 @@ export default function Chat() {
         </div>
       ) : null}
 
-      <footer className="relative z-20 border-t border-white/8 bg-[#101b28]/82 px-3 pt-2 backdrop-blur-2xl">
-        <div className={`mx-auto flex items-end gap-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] ${isDesktopLayout ? 'max-w-[980px]' : 'max-w-2xl'}`}>
+      <footer className={`relative z-20 border-t border-white/[0.06] px-3 pt-2.5 backdrop-blur-2xl ${isDesktopLayout ? 'bg-[rgba(8,18,28,0.55)]' : 'bg-[#0a1420]/80'}`}>
+        <div className={`mx-auto flex items-end gap-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] ${isDesktopLayout ? 'max-w-[720px]' : 'max-w-2xl'}`}>
           <div className="relative shrink-0">
             <button
               type="button"
               onClick={() => setMediaMenuOpen((current) => !current)}
               disabled={sending || recordingMode !== 'idle'}
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/10 bg-[linear-gradient(180deg,rgba(27,43,63,0.94),rgba(16,27,40,0.94))] text-[#9af8ea] shadow-[0_0_28px_rgba(92,221,212,0.18)] transition hover:border-[#74f0df]/40 hover:text-white disabled:opacity-40"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-[#1a2332] text-white/60 transition hover:border-white/15 hover:text-white disabled:opacity-40"
               title="Media options"
             >
               <svg className={`h-5 w-5 transition ${mediaMenuOpen ? 'rotate-45' : ''}`} fill="currentColor" viewBox="0 0 24 24">
@@ -2219,7 +2223,7 @@ export default function Chat() {
               }}
               placeholder="Type a message"
               disabled={sending || recordingMode !== 'idle'}
-              className="w-full rounded-full border border-white/10 bg-[linear-gradient(180deg,rgba(26,42,61,0.92),rgba(18,31,47,0.96))] px-4 py-3 text-base text-white placeholder-white/30 outline-none focus:border-[#79f5df]/45 focus:ring-2 focus:ring-[#79f5df]/18 disabled:opacity-40"
+              className="w-full rounded-full border border-white/[0.08] bg-[#1a2332] px-4 py-3 text-base text-white placeholder-white/30 outline-none transition focus:border-[#00a884]/40 focus:ring-1 focus:ring-[#00a884]/20 disabled:opacity-40"
               style={{ fontSize: '16px' }}
             />
           </div>
@@ -2228,7 +2232,7 @@ export default function Chat() {
             type="button"
             onClick={() => void openVoiceOverlay()}
             disabled={sending || text.trim().length > 0 || videoOverlayOpen || mediaMenuOpen}
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#10c8a6] to-[#0f9f88] text-white shadow-[0_0_32px_rgba(16,200,166,0.28)] transition hover:brightness-110 disabled:opacity-40"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#00a884] text-white shadow-[0_2px_12px_rgba(0,168,132,0.25)] transition hover:bg-[#00bf96] disabled:opacity-40"
             title="Record voice note"
           >
             <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
@@ -2240,7 +2244,7 @@ export default function Chat() {
             type="button"
             onClick={() => void handleSendText()}
             disabled={!text.trim() || sending || recordingMode !== 'idle'}
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#0c886d] to-[#0d6d72] text-white shadow-[0_0_32px_rgba(32,201,177,0.18)] transition hover:brightness-110 disabled:opacity-40"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#00a884] text-white shadow-[0_2px_12px_rgba(0,168,132,0.25)] transition hover:bg-[#00bf96] disabled:opacity-40"
             title="Send message"
           >
             <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
