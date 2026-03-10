@@ -326,10 +326,10 @@ const MediaMessageBubble = memo(function MediaMessageBubble({
         : 'border-white/8 bg-[linear-gradient(180deg,rgba(22,34,51,0.86),rgba(12,24,39,0.92))] text-white'}`}
     >
       <video
-        src={message.media_url}
+        src={message.media_url ?? undefined}
         controls
         playsInline
-        preload="metadata"
+        preload="auto"
         className={recorded ? 'h-52 w-52 object-cover' : 'max-h-96 max-w-full rounded-t-2xl'}
       />
       <div className="px-3 pb-2 pt-2">
@@ -391,6 +391,7 @@ export default function Chat() {
   const lastVideoValidationRef = useRef('')
   const voiceDraftBlobRef = useRef<Blob | null>(null)
   const videoDraftBlobRef = useRef<Blob | null>(null)
+  const videoDraftTranscriptRef = useRef('')
   const faceValidationIntervalRef = useRef<number | null>(null)
   const videoInputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
@@ -469,9 +470,12 @@ export default function Chat() {
     return items
   }, [messages])
 
-  async function uploadAudioToStorage(audioBase64: string, _mimeType: string) {
+  async function uploadAudioToStorage(audioBase64: string, mimeType: string) {
     if (!conversation) return null
 
+    // Strip codec info from MIME type for storage compatibility
+    const cleanType = (mimeType || 'audio/webm').split(';')[0]
+    const ext = cleanType === 'audio/mpeg' ? 'mp3' : cleanType === 'audio/mp4' ? 'm4a' : 'webm'
     const response = await fetch('/api/upload-audio', {
       method: 'POST',
       headers: {
@@ -480,10 +484,14 @@ export default function Chat() {
       body: JSON.stringify({
         audio: audioBase64,
         conversationId: conversation.id,
+        filename: `voice-${Date.now()}.${ext}`,
       }),
     })
 
     const data = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      console.error('[uploadAudio] API error:', data?.error || response.status)
+    }
     return typeof data.url === 'string' ? data.url : null
   }
 
@@ -492,7 +500,9 @@ export default function Chat() {
 
     const mediaBase64 = await blobToBase64(file)
     const storageBucket = mediaType === 'image' ? 'image-uploads' : 'voice-messages'
-    const ext = file.name?.split('.').pop() || (mediaType === 'image' ? 'jpg' : 'mp4')
+    const ext = file.name?.split('.').pop() || (mediaType === 'image' ? 'jpg' : 'webm')
+    // Strip codec info from MIME type for storage compatibility
+    const rawType = (file.type || '').split(';')[0] || (mediaType === 'image' ? 'image/jpeg' : 'video/webm')
     const response = await fetch('/api/upload-media', {
       method: 'POST',
       headers: {
@@ -502,12 +512,15 @@ export default function Chat() {
         file: mediaBase64,
         conversationId: conversation.id,
         filename: `${mediaType}-${Date.now()}.${ext}`,
-        contentType: file.type || (mediaType === 'image' ? 'image/jpeg' : 'video/mp4'),
+        contentType: rawType,
         bucket: storageBucket,
       }),
     })
 
     const data = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      console.error('[uploadMedia] API error:', data?.error || response.status)
+    }
     return typeof data.url === 'string' ? data.url : null
   }
 
@@ -662,6 +675,20 @@ export default function Chat() {
     }
   }
 
+  function sendToOpm(audioBase64: string, convId: string, contId: string, fname: string, cType: string) {
+    fetch('/api/opm-process', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        audio: audioBase64,
+        conversationId: convId,
+        contactId: contId,
+        filename: fname,
+        contentType: cType,
+      }),
+    }).catch((err) => console.warn('[OPM] background send failed:', err))
+  }
+
   async function sendVoiceMessage(blob: Blob, transcript: string, durationSeconds: number) {
     if (!conversationId || !conversation) return
 
@@ -699,7 +726,11 @@ export default function Chat() {
         setTranscriptMap((current) => ({ ...current, [message.id]: transcript }))
       }
 
-      await sendAvatarReply(transcript || 'a voice message', { isVoice: true })
+      // Send to OPM in background
+      sendToOpm(audioBase64, conversation.id, conversation.contact_id, file.name, (file.type || 'audio/webm').split(';')[0])
+
+      // Send transcript to LLM so avatar can respond to what was said
+      await sendAvatarReply(transcript || 'The user sent a voice message but transcription was unavailable.', { isVoice: true })
     } catch (recordingError) {
       console.error(recordingError)
       setError('Unable to send this voice note.')
@@ -838,11 +869,13 @@ export default function Chat() {
       const recorder = mimeType ? new MediaRecorder(videoStreamRef.current, { mimeType }) : new MediaRecorder(videoStreamRef.current)
       videoRecorderRef.current = recorder
       videoChunksRef.current = []
+      browserTranscriptRef.current = ''
 
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) videoChunksRef.current.push(event.data)
       }
       recorder.start(250)
+      startSpeechRecognition()
       setRecordingMode('recording')
       setCaptureKind('video')
       audioStartRef.current = Date.now()
@@ -866,6 +899,8 @@ export default function Chat() {
     if (!videoRecorderRef.current || !conversation || !conversationId) return
 
     stopRecordingTimer()
+    speechRecognitionRef.current?.stop?.()
+    speechRecognitionRef.current = null
     if (faceValidationIntervalRef.current) {
       window.clearInterval(faceValidationIntervalRef.current)
       faceValidationIntervalRef.current = null
@@ -897,6 +932,9 @@ export default function Chat() {
 
     if (!blob) return
 
+    const videoTranscript = browserTranscriptRef.current.trim()
+    browserTranscriptRef.current = ''
+
     const file = new File([blob], `recorded-video.${getFileExtension(blob, 'webm')}`, {
       type: blob.type || 'video/webm',
     })
@@ -905,6 +943,7 @@ export default function Chat() {
     try {
       const previewUrl = URL.createObjectURL(file)
       videoDraftBlobRef.current = file
+      videoDraftTranscriptRef.current = videoTranscript
       setVideoDraftSeconds(duration)
       setVideoPreviewUrl((current) => {
         if (current) URL.revokeObjectURL(current)
@@ -920,7 +959,7 @@ export default function Chat() {
   }
 
   async function sendRecordedVideoDraft() {
-    if (!videoDraftBlobRef.current || !conversationId) return
+    if (!videoDraftBlobRef.current || !conversationId || !conversation) return
 
     setSending(true)
     setError(null)
@@ -930,20 +969,35 @@ export default function Chat() {
         : new File([videoDraftBlobRef.current], `recorded-video.${getFileExtension(videoDraftBlobRef.current, 'webm')}`, {
             type: videoDraftBlobRef.current.type || 'video/webm',
           })
+      const transcript = videoDraftTranscriptRef.current
+      videoDraftTranscriptRef.current = ''
+
       const mediaUrl = await uploadMediaToStorage(file, 'video')
       if (!mediaUrl) throw new Error('upload failed')
 
+      const contentText = transcript || '[Recorded video]'
       const message = (await sendMessage(
         conversationId,
         'contact',
         'video',
-        '[Recorded video]',
+        contentText,
         mediaUrl,
         videoDraftSeconds
       )) as Message
       setMessages((current) => [...current, message])
+
+      if (transcript) {
+        setTranscriptMap((current) => ({ ...current, [message.id]: transcript }))
+      }
+
+      // Send audio to OPM in background
+      try {
+        const audioBase64 = await blobToBase64(file)
+        sendToOpm(audioBase64, conversation.id, conversation.contact_id, file.name, (file.type || 'video/webm').split(';')[0])
+      } catch {}
+
       closeVideoOverlay()
-      await sendAvatarReply('a recorded video', { isVideo: true })
+      await sendAvatarReply(transcript || 'The user sent a video message but transcription was unavailable.', { isVideo: true })
     } catch (videoSendError) {
       console.error(videoSendError)
       setError('Unable to send this recorded video.')
@@ -1232,6 +1286,9 @@ export default function Chat() {
     videoRecorderRef.current = null
     videoChunksRef.current = []
     videoDraftBlobRef.current = null
+    videoDraftTranscriptRef.current = ''
+    speechRecognitionRef.current?.stop?.()
+    speechRecognitionRef.current = null
     setRecordingMode('idle')
     setCaptureKind('none')
     setRecordingSeconds(0)
@@ -1336,7 +1393,7 @@ export default function Chat() {
         metadata.duration || null || undefined
       )
       setMessages((current) => [...current, message as Message])
-      await sendAvatarReply(caption || 'an uploaded video', { isVideo: true })
+      await sendAvatarReply(caption || 'The user uploaded a video.', { isVideo: true })
     } catch (draftError) {
       console.error(draftError)
       setError(`Unable to send this ${kind}.`)
