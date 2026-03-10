@@ -93,9 +93,10 @@ export async function getOwnerByUserId(userId: string) {
     .from('wa_owners')
     .select('*')
     .eq('user_id', userId)
-    .single()
+    .limit(1)
   if (error) throw error
-  return data
+  if (!data || data.length === 0) throw new Error('Owner not found')
+  return data[0]
 }
 
 export async function createOwnerIfNeeded(payload: {
@@ -104,14 +105,13 @@ export async function createOwnerIfNeeded(payload: {
   displayName?: string
 }) {
   // 1. Try matching by auth user_id (primary key link)
-  const { data: existing, error: existingError } = await supabase
+  const { data: byUserId } = await supabase
     .from('wa_owners')
     .select('*')
     .eq('user_id', payload.userId)
-    .maybeSingle()
+    .limit(1)
 
-  if (existingError) throw existingError
-  if (existing) return existing
+  if (byUserId && byUserId.length > 0) return byUserId[0]
 
   // 2. Fallback: try matching by email
   if (payload.email) {
@@ -119,15 +119,16 @@ export async function createOwnerIfNeeded(payload: {
       .from('wa_owners')
       .select('*')
       .eq('email', payload.email)
-      .maybeSingle()
+      .limit(1)
 
-    if (byEmail) return byEmail
+    if (byEmail && byEmail.length > 0) return byEmail[0]
   }
 
   // 3. Fallback: if exactly one owner exists, use it (single-owner setup)
   const { data: allOwners } = await supabase
     .from('wa_owners')
     .select('*')
+    .limit(10)
 
   if (allOwners && allOwners.length === 1) {
     return allOwners[0]
