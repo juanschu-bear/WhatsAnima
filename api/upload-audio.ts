@@ -3,15 +3,16 @@ import { createClient } from '@supabase/supabase-js'
 
 const BUCKET = 'voice-messages'
 
-function getSupabaseAdminClient() {
+function getSupabaseAdminClient(): { client: ReturnType<typeof createClient> | null; missing: string | null } {
   const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
   const supabaseKey =
     process.env.SUPABASE_SERVICE_KEY ||
     process.env.SUPABASE_SERVICE_ROLE_KEY ||
     process.env.SUPABASE_KEY
 
-  if (!supabaseUrl || !supabaseKey) return null
-  return createClient(supabaseUrl, supabaseKey)
+  if (!supabaseUrl) return { client: null, missing: 'SUPABASE_URL' }
+  if (!supabaseKey) return { client: null, missing: 'SUPABASE_SERVICE_KEY' }
+  return { client: createClient(supabaseUrl, supabaseKey), missing: null }
 }
 
 export default async function handler(req: any, res: any) {
@@ -20,9 +21,9 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
-  const supabase = getSupabaseAdminClient()
+  const { client: supabase, missing } = getSupabaseAdminClient()
   if (!supabase) {
-    return res.status(503).json({ error: 'Storage not configured' })
+    return res.status(503).json({ error: `Storage not configured – missing env var ${missing}` })
   }
 
   // Accept both old field names (audio_base64, owner_id, conversation_id) and
