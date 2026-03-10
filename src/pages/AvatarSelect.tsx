@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { listAllOwners, findContactByEmail, findOrCreateConversation } from '../lib/api'
+import { resolveAvatarUrl } from '../lib/avatars'
 
 interface OwnerOption {
   id: string
@@ -15,16 +16,6 @@ function getInitials(name: string) {
     .map((w) => w.charAt(0).toUpperCase())
     .join('')
     .slice(0, 2)
-}
-
-const LOCAL_AVATAR_MAP: Record<string, string> = {
-  'brian cox': '/brian-cox-192.jpg',
-  'prof. brian cox': '/brian-cox-192.jpg',
-  'professor brian cox': '/brian-cox-192.jpg',
-}
-
-function resolveAvatarUrl(displayName: string): string | null {
-  return LOCAL_AVATAR_MAP[displayName.toLowerCase()] ?? null
 }
 
 export default function AvatarSelect() {
@@ -103,17 +94,11 @@ export default function AvatarSelect() {
               } disabled:opacity-60`}
             >
               <div className="flex items-center gap-4">
-                {resolveAvatarUrl(owner.display_name) ? (
-                  <img
-                    src={resolveAvatarUrl(owner.display_name)!}
-                    alt={owner.display_name}
-                    className="h-14 w-14 rounded-full object-cover ring-2 ring-white/10"
-                  />
-                ) : (
-                  <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[linear-gradient(135deg,#0e8f74,#153f43)] text-lg font-semibold text-white ring-2 ring-white/10">
-                    {getInitials(owner.display_name)}
-                  </div>
-                )}
+                <img
+                  src={resolveAvatarUrl(owner.display_name)}
+                  alt={owner.display_name}
+                  className="h-14 w-14 rounded-full object-cover ring-2 ring-white/10"
+                />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-lg font-semibold text-white">{owner.display_name}</p>
                   <div className="mt-1 flex items-center gap-2 text-sm text-white/50">
