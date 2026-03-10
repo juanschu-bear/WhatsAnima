@@ -796,10 +796,12 @@ export default function Chat() {
         }),
       })
 
-      let replyText = ''
-      if (chatResponse.ok) {
-        const chatData = await chatResponse.json()
-        replyText = typeof chatData?.content === 'string' ? chatData.content.trim() : ''
+      const chatData = await chatResponse.json().catch(() => ({}))
+      let replyText = typeof chatData?.content === 'string' ? chatData.content.trim() : ''
+      if (!chatResponse.ok) {
+        const apiError = chatData?.error || `API error ${chatResponse.status}`
+        console.error('[Chat] API error:', apiError)
+        replyText = replyText || `Sorry, the AI is temporarily unavailable (${apiError}).`
       }
       if (!replyText) {
         replyText = 'Honestly? Give me the interesting part first.'
@@ -895,8 +897,8 @@ export default function Chat() {
       setMessages((current) => [...current, message as Message])
       await sendAvatarReply(content, { useVoice: false })
     } catch (sendError) {
-      console.error(sendError)
-      setError('Unable to send your message.')
+      console.error('[Chat] send error:', sendError)
+      setError(sendError instanceof Error ? sendError.message : 'Unable to send your message.')
     } finally {
       setSending(false)
     }

@@ -43,6 +43,7 @@ export default function Invite() {
 
   const [emailSent, setEmailSent] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [welcomeData, setWelcomeData] = useState<{ ownerName: string; avatarUrl: string | null; chatId: string } | null>(null)
 
   // --- validate token ---
   useEffect(() => {
@@ -73,15 +74,20 @@ export default function Invite() {
     }
 
     try {
+      const ownerInfo = (inviteData as InviteData).wa_owners
       const { conversation } = await createContactAndConversation({
-        ownerId: (inviteData as InviteData).wa_owners.id,
+        ownerId: ownerInfo.id,
         invitationId: (inviteData as InviteData).id,
         firstName: pending.firstName,
         lastName: pending.lastName,
         email: pending.email,
       })
       localStorage.removeItem(PENDING_KEY)
-      navigate(`/chat/${conversation.id}`)
+      setWelcomeData({
+        ownerName: ownerInfo.display_name,
+        avatarUrl: ownerInfo.avatar_url,
+        chatId: conversation.id,
+      })
     } catch (err) {
       console.error('[Invite] createContactAndConversation error:', err)
       localStorage.removeItem(PENDING_KEY)
@@ -134,6 +140,15 @@ export default function Invite() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, navigate])
 
+  // --- auto-navigate after welcome screen ---
+  useEffect(() => {
+    if (!welcomeData) return
+    const timer = window.setTimeout(() => {
+      navigate(`/chat/${welcomeData.chatId}`)
+    }, 2000)
+    return () => window.clearTimeout(timer)
+  }, [welcomeData, navigate])
+
   // --- send magic link ---
   async function handleSendLink(event: FormEvent) {
     event.preventDefault()
@@ -182,6 +197,36 @@ export default function Invite() {
     return (
       <div className="brand-scene flex min-h-screen items-center justify-center">
         <div className="h-10 w-10 animate-spin rounded-full border-4 border-[#1f2c34] border-t-[#00a884]" />
+      </div>
+    )
+  }
+
+  if (welcomeData) {
+    const initials = welcomeData.ownerName
+      .split(/\s+/)
+      .map((w) => w.charAt(0).toUpperCase())
+      .join('')
+      .slice(0, 2)
+
+    return (
+      <div className="brand-scene flex min-h-screen flex-col items-center justify-center px-4 text-center">
+        <div className="brand-panel relative z-10 w-full max-w-md rounded-[30px] p-8">
+          {welcomeData.avatarUrl ? (
+            <img
+              src={welcomeData.avatarUrl}
+              alt={welcomeData.ownerName}
+              className="mx-auto mb-4 h-24 w-24 rounded-full object-cover ring-4 ring-[#00a884]/30 shadow-[0_0_40px_rgba(0,168,132,0.3)]"
+            />
+          ) : (
+            <div className="mx-auto mb-4 flex h-24 w-24 items-center justify-center rounded-full bg-[linear-gradient(135deg,#0e8f74,#153f43)] text-2xl font-bold text-white ring-4 ring-[#00a884]/30 shadow-[0_0_40px_rgba(0,168,132,0.3)]">
+              {initials}
+            </div>
+          )}
+          <h1 className="text-2xl font-bold text-white">You're now connected with</h1>
+          <p className="mt-2 text-xl font-semibold text-[#00a884]">{welcomeData.ownerName}</p>
+          <p className="mt-4 text-sm text-white/60">Starting your conversation...</p>
+          <div className="mx-auto mt-6 h-8 w-8 animate-spin rounded-full border-4 border-[#1f2c34] border-t-[#00a884]" />
+        </div>
       </div>
     )
   }
