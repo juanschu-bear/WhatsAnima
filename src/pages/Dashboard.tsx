@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import {
@@ -6,6 +6,7 @@ import {
   deleteInvitationLink,
   generateInvitationLink,
   getOwnerDashboardStats,
+  listAllOwners,
   listConversations,
   listInvitationLinks,
   listMessages,
@@ -14,6 +15,7 @@ import {
   type MessageType,
   type OwnerDashboardStats,
 } from '../lib/api'
+import { type Locale, getStoredLocale, setStoredLocale, t } from '../lib/i18n'
 
 interface InvitationLink {
   id: string
@@ -103,8 +105,11 @@ function summarizeTopics(messages: MessageRow[]) {
 
 export default function Dashboard() {
   const { user, signOut } = useAuth()
+  const [locale, setLocale] = useState<Locale>(getStoredLocale)
   const [ownerId, setOwnerId] = useState<string | null>(null)
   const [owner, setOwner] = useState<OwnerProfile | null>(null)
+  const [allOwners, setAllOwners] = useState<OwnerProfile[]>([])
+  const [ownerSwitcherOpen, setOwnerSwitcherOpen] = useState(false)
   const [links, setLinks] = useState<InvitationLink[]>([])
   const [label, setLabel] = useState('')
   const [search, setSearch] = useState('')
@@ -124,9 +129,18 @@ export default function Dashboard() {
   })
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
 
+  const L = useCallback((key: Parameters<typeof t>[1]) => t(locale, key), [locale])
+
+  const toggleLocale = () => {
+    const next: Locale = locale === 'en' ? 'es' : 'en'
+    setLocale(next)
+    setStoredLocale(next)
+  }
+
   const userEmail = String(user?.email ?? '').trim()
   const ownerName = owner?.display_name || userEmail || 'Owner'
 
+  // Load the authenticated user's owner + all owners for the switcher
   useEffect(() => {
     if (!user) {
       setLoading(false)
@@ -135,16 +149,22 @@ export default function Dashboard() {
 
     setLoading(true)
     setError(null)
-    createOwnerIfNeeded({
-      userId: user.id,
-      email: userEmail,
-    })
-      .then(async (ownerRow) => {
+
+    Promise.all([
+      createOwnerIfNeeded({ userId: user.id, email: userEmail }),
+      listAllOwners(),
+    ])
+      .then(async ([ownerRow, owners]) => {
         setOwnerId(ownerRow.id)
         setOwner({
           id: ownerRow.id,
           display_name: ownerRow.display_name ?? null,
         })
+        setAllOwners(
+          (owners as OwnerProfile[]).length > 0
+            ? (owners as OwnerProfile[])
+            : [{ id: ownerRow.id, display_name: ownerRow.display_name ?? null }]
+        )
 
         const [conversationResult, linkResult, statsResult] = await Promise.allSettled([
           listConversations(ownerRow.id),
@@ -186,6 +206,49 @@ export default function Dashboard() {
       })
       .finally(() => setLoading(false))
   }, [userEmail, user])
+
+  // Switch owner view — reload conversations/stats for a different owner
+  const switchToOwner = useCallback(async (targetOwner: OwnerProfile) => {
+    setOwnerSwitcherOpen(false)
+    if (targetOwner.id === ownerId) return
+
+    setOwnerId(targetOwner.id)
+    setOwner(targetOwner)
+    setConversations([])
+    setSelectedConversationId(null)
+    setSelectedMessages([])
+    setLinks([])
+    setStats({ totalContacts: 0, totalConversations: 0, totalMessages: 0 })
+    setMessagesLoading(false)
+    setError(null)
+
+    try {
+      const [conversationResult, linkResult, statsResult] = await Promise.allSettled([
+        listConversations(targetOwner.id),
+        listInvitationLinks(targetOwner.id),
+        getOwnerDashboardStats(targetOwner.id),
+      ])
+
+      const conversationData = conversationResult.status === 'fulfilled' ? conversationResult.value : []
+      const linkData = linkResult.status === 'fulfilled' ? linkResult.value : []
+      const statsData =
+        statsResult.status === 'fulfilled'
+          ? statsResult.value
+          : {
+              totalContacts: conversationData.length,
+              totalConversations: conversationData.length,
+              totalMessages: conversationData.reduce((total, c) => total + c.message_count, 0),
+            }
+
+      setConversations(conversationData)
+      setLinks((linkData as InvitationLink[]) ?? [])
+      setStats(statsData)
+      setSelectedConversationId(conversationData[0]?.id ?? null)
+    } catch (err) {
+      console.error('Owner switch error:', err)
+      setError(`Failed to load data for ${targetOwner.display_name || 'owner'}`)
+    }
+  }, [ownerId])
 
   useEffect(() => {
     if (!selectedConversationId) {
@@ -232,10 +295,10 @@ export default function Dashboard() {
     : 0
 
   const mostActiveContact = useMemo(() => {
-    if (conversations.length === 0) return 'No contact yet'
+    if (conversations.length === 0) return L('noContactYet')
     return [...conversations]
       .sort((left, right) => right.message_count - left.message_count)[0]
-  }, [conversations])
+  }, [conversations, L])
 
   const selectedInsights = useMemo(() => {
     const contactMessages = selectedMessages.filter((message) => message.sender === 'contact').length
@@ -326,56 +389,108 @@ export default function Dashboard() {
         <header className="brand-panel rounded-[34px] p-4 sm:p-5">
           <div className="grid gap-4 xl:grid-cols-[1.2fr_2fr_auto] xl:items-center">
             <div className="flex items-center gap-4">
-              <div className="flex h-16 w-16 items-center justify-center rounded-[22px] bg-[linear-gradient(135deg,#0e8f74,#153f43)] text-xl font-semibold text-white shadow-[0_0_28px_rgba(0,168,132,0.25)]">
-                {getInitials(ownerName) || 'WA'}
+              <div className="relative">
+                <div className="flex h-16 w-16 items-center justify-center rounded-[22px] bg-[linear-gradient(135deg,#0e8f74,#153f43)] text-xl font-semibold text-white shadow-[0_0_28px_rgba(0,168,132,0.25)]">
+                  {getInitials(ownerName) || 'WA'}
+                </div>
+                {/* Owner switcher dropdown trigger */}
+                {allOwners.length > 1 ? (
+                  <button
+                    type="button"
+                    onClick={() => setOwnerSwitcherOpen((v) => !v)}
+                    title={L('switchOwner')}
+                    className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full border border-white/15 bg-[#0b141a] text-[10px] text-white/70 transition hover:border-[#00a884]/60 hover:text-[#00a884]"
+                  >
+                    <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M8 9l4-4 4 4m0 6l-4 4-4-4" />
+                    </svg>
+                  </button>
+                ) : null}
+                {/* Owner switcher dropdown */}
+                {ownerSwitcherOpen && allOwners.length > 1 ? (
+                  <div className="absolute left-0 top-full z-50 mt-2 w-64 rounded-[20px] border border-white/10 bg-[#0b1a22] p-2 shadow-[0_20px_60px_rgba(0,0,0,0.5)]">
+                    <p className="px-3 py-2 text-[10px] uppercase tracking-[0.24em] text-white/40">{L('allOwners')}</p>
+                    {allOwners.map((o) => (
+                      <button
+                        key={o.id}
+                        type="button"
+                        onClick={() => switchToOwner(o)}
+                        className={`flex w-full items-center gap-3 rounded-[14px] px-3 py-3 text-left transition ${
+                          o.id === ownerId
+                            ? 'border border-[#00a884]/40 bg-[#00a884]/10 text-[#00a884]'
+                            : 'border border-transparent text-white hover:bg-white/5'
+                        }`}
+                      >
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(135deg,#0e8f74,#153f43)] text-sm font-semibold text-white">
+                          {getInitials(o.display_name || '')}
+                        </div>
+                        <span className="truncate text-sm font-medium">{o.display_name || 'Unnamed'}</span>
+                        {o.id === ownerId ? (
+                          <svg className="ml-auto h-4 w-4 shrink-0 text-[#00a884]" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
+                        ) : null}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
               </div>
               <div>
-                <p className="brand-kicker text-[10px] text-white/38">Owner Console</p>
+                <p className="brand-kicker text-[10px] text-white/38">{L('ownerConsole')}</p>
                 <h1 className="mt-2 text-3xl font-bold text-white">{ownerName}</h1>
                 <div className="mt-2 flex items-center gap-2 text-sm text-white/58">
                   <span className="h-2.5 w-2.5 rounded-full bg-[#00a884] shadow-[0_0_12px_rgba(0,168,132,0.7)]" />
-                  <span>Online</span>
+                  <span>{L('online')}</span>
                 </div>
               </div>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-5">
               <div className="brand-inset rounded-[24px] px-4 py-4">
-                <p className="text-[11px] uppercase tracking-[0.24em] text-white/40">Contacts</p>
+                <p className="text-[11px] uppercase tracking-[0.24em] text-white/40">{L('contacts')}</p>
                 <p className="mt-3 text-3xl font-semibold text-white">{stats.totalContacts}</p>
               </div>
               <div className="brand-inset rounded-[24px] px-4 py-4">
-                <p className="text-[11px] uppercase tracking-[0.24em] text-white/40">Conversations</p>
+                <p className="text-[11px] uppercase tracking-[0.24em] text-white/40">{L('conversations')}</p>
                 <p className="mt-3 text-3xl font-semibold text-white">{stats.totalConversations}</p>
               </div>
               <div className="brand-inset rounded-[24px] px-4 py-4">
-                <p className="text-[11px] uppercase tracking-[0.24em] text-white/40">Messages</p>
+                <p className="text-[11px] uppercase tracking-[0.24em] text-white/40">{L('messages')}</p>
                 <p className="mt-3 text-3xl font-semibold text-white">{stats.totalMessages}</p>
               </div>
               <div className="brand-inset rounded-[24px] px-4 py-4">
-                <p className="text-[11px] uppercase tracking-[0.24em] text-white/40">Avg / Conv</p>
+                <p className="text-[11px] uppercase tracking-[0.24em] text-white/40">{L('avgPerConv')}</p>
                 <p className="mt-3 text-3xl font-semibold text-white">{avgMessages}</p>
               </div>
               <div className="brand-inset rounded-[24px] px-4 py-4">
-                <p className="text-[11px] uppercase tracking-[0.24em] text-white/40">Most Active</p>
+                <p className="text-[11px] uppercase tracking-[0.24em] text-white/40">{L('mostActive')}</p>
                 <p className="mt-3 truncate text-lg font-semibold text-white">
                   {typeof mostActiveContact === 'string' ? mostActiveContact : getContactName(mostActiveContact)}
                 </p>
               </div>
             </div>
 
-            <div className="flex gap-3 xl:justify-end">
+            <div className="flex flex-wrap gap-3 xl:justify-end">
+              {/* Language toggle */}
+              <button
+                type="button"
+                onClick={toggleLocale}
+                className="brand-inset rounded-2xl px-4 py-3 text-sm font-medium transition hover:border-[#00a884]/60 hover:text-[#00a884]"
+                title={locale === 'en' ? 'Cambiar a Espanol' : 'Switch to English'}
+              >
+                {locale === 'en' ? 'ES' : 'EN'}
+              </button>
               <Link
                 to="/"
                 className="brand-inset rounded-2xl px-4 py-3 text-sm font-medium transition hover:border-[#00a884]/60 hover:text-[#00a884]"
               >
-                Home
+                {L('home')}
               </Link>
               <button
                 onClick={signOut}
                 className="rounded-2xl bg-[#00a884] px-4 py-3 text-sm font-semibold text-[#07141a] transition hover:brightness-110"
               >
-                Sign Out
+                {L('signOut')}
               </button>
             </div>
           </div>
@@ -394,14 +509,14 @@ export default function Dashboard() {
             }`}
           >
             <div className="border-b border-white/8 px-5 pb-4 pt-5">
-              <p className="brand-kicker text-[10px] text-white/40">Live Inbox</p>
-              <h2 className="mt-2 text-2xl font-semibold text-white">Contacts</h2>
-              <p className="mt-2 text-sm text-white/55">Observe every live interaction with the avatar.</p>
+              <p className="brand-kicker text-[10px] text-white/40">{L('liveInbox')}</p>
+              <h2 className="mt-2 text-2xl font-semibold text-white">{L('contactsTitle')}</h2>
+              <p className="mt-2 text-sm text-white/55">{L('observeInteractions')}</p>
               <input
                 type="text"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search contacts"
+                placeholder={L('searchContacts')}
                 className="brand-inset mt-4 w-full rounded-2xl px-4 py-3 text-sm text-white placeholder-white/28 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20"
               />
             </div>
@@ -409,7 +524,7 @@ export default function Dashboard() {
             <div className="flex-1 overflow-y-auto px-3 py-3">
               {filteredConversations.length === 0 ? (
                 <div className="brand-inset mx-2 rounded-[24px] border-dashed px-4 py-8 text-center text-sm text-white/58">
-                  No conversations found.
+                  {L('noConversationsFound')}
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -461,10 +576,10 @@ export default function Dashboard() {
                 className="brand-inset flex w-full items-center justify-between rounded-[24px] px-4 py-4 text-left transition hover:border-[#00a884]/45"
               >
                 <div>
-                  <p className="text-[11px] uppercase tracking-[0.24em] text-white/40">Invites</p>
-                  <p className="mt-2 text-lg font-semibold text-white">Invite management</p>
+                  <p className="text-[11px] uppercase tracking-[0.24em] text-white/40">{L('invites')}</p>
+                  <p className="mt-2 text-lg font-semibold text-white">{L('inviteManagement')}</p>
                 </div>
-                <span className="text-sm text-white/54">{invitePanelOpen ? 'Hide' : 'Show'}</span>
+                <span className="text-sm text-white/54">{invitePanelOpen ? L('hide') : L('show')}</span>
               </button>
 
               {invitePanelOpen ? (
@@ -474,7 +589,7 @@ export default function Dashboard() {
                       type="text"
                       value={label}
                       onChange={(event) => setLabel(event.target.value)}
-                      placeholder="Optional invite label"
+                      placeholder={L('optionalInviteLabel')}
                       className="brand-inset min-w-0 flex-1 rounded-2xl px-4 py-3 text-sm text-white placeholder-white/28 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20"
                     />
                     <button
@@ -483,21 +598,21 @@ export default function Dashboard() {
                       disabled={inviteBusy}
                       className="rounded-2xl bg-[#00a884] px-4 py-3 text-sm font-semibold text-[#07141a] transition hover:brightness-110 disabled:opacity-60"
                     >
-                      {inviteBusy ? 'Generating...' : 'Generate'}
+                      {inviteBusy ? L('generating') : L('generate')}
                     </button>
                   </div>
                   <div className="mt-4 max-h-52 space-y-2 overflow-y-auto">
                     {links.length === 0 ? (
                       <div className="rounded-[20px] border border-white/6 bg-black/14 px-3 py-4 text-sm text-white/56">
-                        No invite links yet.
+                        {L('noInviteLinksYet')}
                       </div>
                     ) : null}
                     {links.map((link) => (
                       <div key={link.id} className="rounded-[20px] border border-white/6 bg-black/14 p-3">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
-                            <p className="truncate text-sm font-medium text-white">{link.label || 'Untitled invite'}</p>
-                            <p className="mt-1 text-xs text-white/46">{link.use_count} uses</p>
+                            <p className="truncate text-sm font-medium text-white">{link.label || L('untitledInvite')}</p>
+                            <p className="mt-1 text-xs text-white/46">{link.use_count} {L('uses')}</p>
                           </div>
                           <button
                             type="button"
@@ -506,7 +621,7 @@ export default function Dashboard() {
                               link.active ? 'bg-[#00a884]/18 text-[#7be3ce]' : 'bg-white/8 text-white/60'
                             }`}
                           >
-                            {link.active ? 'Active' : 'Inactive'}
+                            {link.active ? L('active') : L('inactive')}
                           </button>
                         </div>
                         <div className="mt-3 flex gap-2">
@@ -515,14 +630,14 @@ export default function Dashboard() {
                             onClick={() => copyLink(link.token, link.id)}
                             className="rounded-xl border border-white/10 px-3 py-2 text-xs text-white/78 transition hover:border-[#00a884]/55 hover:text-[#00a884]"
                           >
-                            {copiedId === link.id ? 'Copied' : 'Copy Link'}
+                            {copiedId === link.id ? L('copied') : L('copyLink')}
                           </button>
                           <button
                             type="button"
                             onClick={() => handleDelete(link.id)}
                             className="rounded-xl border border-red-400/20 px-3 py-2 text-xs text-red-300/70 transition hover:border-red-400/50 hover:text-red-300"
                           >
-                            Delete
+                            {L('delete')}
                           </button>
                         </div>
                       </div>
@@ -563,8 +678,8 @@ export default function Dashboard() {
                       </div>
                     </div>
                     <div className="hidden text-right lg:block">
-                      <p className="text-xs uppercase tracking-[0.24em] text-white/38">Observer Mode</p>
-                      <p className="mt-2 text-sm text-white/58">The avatar handles replies automatically</p>
+                      <p className="text-xs uppercase tracking-[0.24em] text-white/38">{L('observerMode')}</p>
+                      <p className="mt-2 text-sm text-white/58">{L('avatarHandlesReplies')}</p>
                     </div>
                   </div>
                 </div>
@@ -576,7 +691,7 @@ export default function Dashboard() {
                     </div>
                   ) : selectedMessages.length === 0 ? (
                     <div className="brand-inset rounded-[24px] border-dashed px-4 py-8 text-center text-white/58">
-                      No messages in this conversation yet.
+                      {L('noMessagesYet')}
                     </div>
                   ) : (
                     <div className="space-y-3">
@@ -592,7 +707,7 @@ export default function Dashboard() {
                               }`}
                             >
                               <p className="mb-2 text-[11px] uppercase tracking-[0.2em] text-white/42">
-                                {isContactMessage ? 'Contact' : 'Avatar'}
+                                {isContactMessage ? L('contact') : L('avatar')}
                               </p>
                               {message.media_url && message.type === 'image' ? (
                                 <img src={message.media_url} alt="Shared media" className="max-h-80 rounded-[18px] object-cover" />
@@ -627,9 +742,9 @@ export default function Dashboard() {
                     alt="WhatsAnima"
                     className="mx-auto h-20 w-20 rounded-[24px] object-cover shadow-[0_0_34px_rgba(0,168,132,0.24)]"
                   />
-                  <h2 className="mt-6 text-3xl font-semibold text-white">Select a conversation</h2>
+                  <h2 className="mt-6 text-3xl font-semibold text-white">{L('selectConversation')}</h2>
                   <p className="mt-3 text-sm leading-7 text-white/58">
-                    Review every interaction, message flow, and media exchange from one premium owner console.
+                    {L('selectConversationDesc')}
                   </p>
                 </div>
               </div>
@@ -638,44 +753,44 @@ export default function Dashboard() {
 
           <aside className="brand-panel flex h-[calc(100vh-200px)] flex-col overflow-hidden rounded-[32px]">
             <div className="border-b border-white/8 px-5 pb-4 pt-5">
-              <p className="brand-kicker text-[10px] text-white/40">Insights</p>
-              <h2 className="mt-2 text-2xl font-semibold text-white">Conversation intelligence</h2>
-              <p className="mt-2 text-sm text-white/55">Operational visibility for tomorrow’s presentation.</p>
+              <p className="brand-kicker text-[10px] text-white/40">{L('insights')}</p>
+              <h2 className="mt-2 text-2xl font-semibold text-white">{L('conversationIntelligence')}</h2>
+              <p className="mt-2 text-sm text-white/55">{L('operationalVisibility')}</p>
             </div>
 
             <div className="flex-1 overflow-y-auto px-4 py-4">
               {selectedConversation ? (
                 <div className="space-y-4">
                   <div className="brand-inset rounded-[24px] p-4">
-                    <p className="text-[11px] uppercase tracking-[0.24em] text-white/40">Summary</p>
+                    <p className="text-[11px] uppercase tracking-[0.24em] text-white/40">{L('summary')}</p>
                     <p className="mt-3 text-sm leading-7 text-white/72">
                       {selectedInsights.topics.length > 0
-                        ? `Main topics: ${selectedInsights.topics.join(', ')}.`
-                        : 'Topic extraction will become richer as more conversation data accumulates.'}
+                        ? `${L('mainTopics')}: ${selectedInsights.topics.join(', ')}.`
+                        : L('topicExtractionNote')}
                     </p>
                   </div>
 
                   <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
                     <div className="brand-inset rounded-[24px] p-4">
-                      <p className="text-[11px] uppercase tracking-[0.24em] text-white/40">Breakdown</p>
+                      <p className="text-[11px] uppercase tracking-[0.24em] text-white/40">{L('breakdown')}</p>
                       <div className="mt-4 space-y-3 text-sm text-white/72">
                         <div className="flex items-center justify-between">
-                          <span>Contact messages</span>
+                          <span>{L('contactMessages')}</span>
                           <span className="font-semibold text-white">{selectedInsights.contactMessages}</span>
                         </div>
                         <div className="flex items-center justify-between">
-                          <span>Avatar replies</span>
+                          <span>{L('avatarReplies')}</span>
                           <span className="font-semibold text-white">{selectedInsights.avatarMessages}</span>
                         </div>
                         <div className="flex items-center justify-between">
-                          <span>Conversation duration</span>
+                          <span>{L('conversationDuration')}</span>
                           <span className="font-semibold text-white">{selectedInsights.durationLabel}</span>
                         </div>
                       </div>
                     </div>
 
                     <div className="brand-inset rounded-[24px] p-4">
-                      <p className="text-[11px] uppercase tracking-[0.24em] text-white/40">Perception Preview</p>
+                      <p className="text-[11px] uppercase tracking-[0.24em] text-white/40">{L('perceptionPreview')}</p>
                       <div className="mt-4 rounded-[20px] border border-white/6 bg-black/14 p-4">
                         <div className="mb-3 h-2 w-24 rounded-full bg-[#00a884]/45" />
                         <div className="space-y-2">
@@ -683,7 +798,7 @@ export default function Dashboard() {
                           <div className="h-2 w-5/6 rounded-full bg-white/10" />
                           <div className="h-2 w-2/3 rounded-full bg-white/10" />
                         </div>
-                        <p className="mt-4 text-sm text-white/62">Perception analysis coming soon</p>
+                        <p className="mt-4 text-sm text-white/62">{L('perceptionComingSoon')}</p>
                       </div>
                     </div>
                   </div>
@@ -691,7 +806,7 @@ export default function Dashboard() {
                 </div>
               ) : (
                 <div className="flex h-full items-center justify-center text-center text-sm text-white/56">
-                  Select a conversation to reveal the intelligence panel.
+                  {L('selectConversationForInsights')}
                 </div>
               )}
             </div>
