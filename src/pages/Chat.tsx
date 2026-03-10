@@ -682,24 +682,32 @@ export default function Chat() {
     return data.url
   }
 
-  async function uploadMediaToStorage(file: File, mediaType: 'image' | 'video') {
+  async function uploadMediaToStorage(file: File, mediaType: 'image' | 'video', isRecorded = false) {
     if (!conversation) throw new Error('No active conversation')
 
     const mediaBase64 = await blobToBase64(file)
-    const storageBucket = mediaType === 'image' ? 'image-uploads' : 'voice-messages'
     const ext = file.name?.split('.').pop() || (mediaType === 'image' ? 'jpg' : 'webm')
     const rawType = (file.type || '').split(';')[0] || (mediaType === 'image' ? 'image/jpeg' : 'video/webm')
     const filename = `${mediaType}-${Date.now()}.${ext}`
+
+    // Route to correct Supabase bucket:
+    // image → image-uploads, recorded video → video-messages, uploaded video → video-uploads
+    const bucket = mediaType === 'image'
+      ? 'image-uploads'
+      : isRecorded
+        ? 'video-messages'
+        : 'video-uploads'
 
     const response = await fetch('/api/upload-media', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        file: mediaBase64,
+        media: mediaBase64,
         conversationId: conversation.id,
         filename,
         contentType: rawType,
-        bucket: storageBucket,
+        mediaType,
+        bucket,
       }),
     })
 
@@ -1363,7 +1371,7 @@ export default function Chat() {
             type: videoDraftBlobRef.current.type || 'video/webm',
           })
       const [mediaUrl, opmResponse] = await Promise.all([
-        uploadMediaToStorage(file, 'video'),
+        uploadMediaToStorage(file, 'video', true),
         callOpmApi(file, 'video').catch((error) => {
           console.error('[Video] OPM recorded video analysis failed:', error)
           return null
