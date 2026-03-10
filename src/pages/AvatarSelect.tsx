@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { listAllOwners, findContactByEmail, findOrCreateConversation } from '../lib/api'
+import { listAllOwners, findContactByEmail, findOrCreateConversation, createContactForOwner } from '../lib/api'
 import { resolveAvatarUrl } from '../lib/avatars'
+import { getStoredLocale, t } from '../lib/i18n'
 
 interface OwnerOption {
   id: string
@@ -12,10 +13,19 @@ interface OwnerOption {
 export default function AvatarSelect() {
   const { user, signOut } = useAuth()
   const navigate = useNavigate()
+  const locale = getStoredLocale()
   const [owners, setOwners] = useState<OwnerOption[]>([])
   const [loading, setLoading] = useState(true)
   const [navigating, setNavigating] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  // Inline contact creation form state
+  const [showForm, setShowForm] = useState(false)
+  const [formOwner, setFormOwner] = useState<OwnerOption | null>(null)
+  const [firstName, setFirstName] = useState(user?.user_metadata?.first_name || '')
+  const [lastName, setLastName] = useState(user?.user_metadata?.last_name || '')
+  const [formEmail, setFormEmail] = useState(user?.email || '')
+  const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
     listAllOwners()
@@ -35,7 +45,9 @@ export default function AvatarSelect() {
     try {
       const contact = await findContactByEmail(user.email)
       if (!contact) {
-        setError('Your contact profile was not found. Please use an invitation link first.')
+        // No contact profile — show inline form to create one
+        setFormOwner(owner)
+        setShowForm(true)
         setNavigating(null)
         return
       }
@@ -49,6 +61,28 @@ export default function AvatarSelect() {
     }
   }
 
+  async function handleCreateContact(event: FormEvent) {
+    event.preventDefault()
+    if (!formOwner || !firstName.trim() || !lastName.trim() || !formEmail.trim()) return
+    setSubmitting(true)
+    setError(null)
+
+    try {
+      const contact = await createContactForOwner({
+        ownerId: formOwner.id,
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        email: formEmail.trim(),
+      })
+      const conversationId = await findOrCreateConversation(formOwner.id, contact.id)
+      navigate(`/chat/${conversationId}`)
+    } catch (err) {
+      console.error('Failed to create contact:', err)
+      setError(err instanceof Error ? err.message : 'Unable to create profile.')
+      setSubmitting(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="brand-scene flex min-h-screen items-center justify-center">
@@ -57,12 +91,102 @@ export default function AvatarSelect() {
     )
   }
 
+  // --- Inline contact creation form ---
+  if (showForm && formOwner) {
+    return (
+      <div className="brand-scene flex min-h-screen flex-col items-center justify-center px-4">
+        <div className="brand-panel relative z-10 w-full max-w-md rounded-[30px] p-8">
+          <div className="text-center">
+            <img
+              src={resolveAvatarUrl(formOwner.display_name)}
+              alt={formOwner.display_name}
+              className="mx-auto h-20 w-20 rounded-full object-cover ring-4 ring-[#00a884]/20"
+            />
+            <h1 className="mt-4 text-2xl font-bold text-white">{formOwner.display_name}</h1>
+            <p className="mt-2 text-sm text-white/60">{t(locale, 'enterYourDetails')}</p>
+          </div>
+
+          <form onSubmit={handleCreateContact} className="mt-6 space-y-4 text-left">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label htmlFor="as-first" className="mb-2 block text-sm font-medium text-white/80">
+                  {t(locale, 'firstName')}
+                </label>
+                <input
+                  id="as-first"
+                  type="text"
+                  required
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  className="brand-inset w-full rounded-2xl px-4 py-3 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20"
+                  placeholder="Juan"
+                />
+              </div>
+              <div>
+                <label htmlFor="as-last" className="mb-2 block text-sm font-medium text-white/80">
+                  {t(locale, 'lastName')}
+                </label>
+                <input
+                  id="as-last"
+                  type="text"
+                  required
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  className="brand-inset w-full rounded-2xl px-4 py-3 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20"
+                  placeholder="Schubert"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label htmlFor="as-email" className="mb-2 block text-sm font-medium text-white/80">
+                {t(locale, 'email')}
+              </label>
+              <input
+                id="as-email"
+                type="email"
+                required
+                value={formEmail}
+                onChange={(e) => setFormEmail(e.target.value)}
+                className="brand-inset w-full rounded-2xl px-4 py-3 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20"
+                placeholder="you@example.com"
+              />
+            </div>
+
+            {error && (
+              <p className="rounded-2xl border border-red-400/15 bg-red-500/15 px-4 py-3 text-sm text-red-200">
+                {error}
+              </p>
+            )}
+
+            <button
+              type="submit"
+              disabled={submitting}
+              className="w-full rounded-2xl bg-[#00a884] py-3 font-semibold text-[#0b141a] transition hover:brightness-110 disabled:opacity-50"
+            >
+              {submitting ? t(locale, 'sending') : t(locale, 'startConversation')}
+            </button>
+          </form>
+
+          <button
+            type="button"
+            onClick={() => { setShowForm(false); setFormOwner(null); setError(null) }}
+            className="mt-4 block w-full text-center text-sm text-white/50 transition hover:text-white/80"
+          >
+            {'\u2190'} {t(locale, 'backToOptions')}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // --- Owner selection list ---
   return (
     <div className="brand-scene flex min-h-screen flex-col items-center justify-center px-4">
       <div className="brand-panel relative z-10 w-full max-w-lg rounded-[30px] p-8">
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-white">Choose an Avatar</h1>
-          <p className="mt-2 text-sm text-white/60">Select who you'd like to talk to</p>
+          <h1 className="text-2xl font-bold text-white">{t(locale, 'chooseAvatar')}</h1>
+          <p className="mt-2 text-sm text-white/60">{t(locale, 'selectWhoToTalkTo')}</p>
         </div>
 
         {error ? (
@@ -121,7 +245,7 @@ export default function AvatarSelect() {
             onClick={signOut}
             className="text-sm text-white/50 transition hover:text-white/80"
           >
-            Sign out
+            {t(locale, 'signOut')}
           </button>
         </div>
       </div>
