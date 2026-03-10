@@ -802,16 +802,26 @@ export default function Chat() {
     const fileName = `capture.${ext}`
 
     if (!opmUrl) {
-      const submitRes = await fetch('/api/perception', {
+      // No OPM URL configured — use server-side opm-process endpoint
+      const audioBase64 = await blobToBase64(mediaBlob)
+      const opmRes = await fetch('/api/opm-process', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: conversation?.contact_id || 'guest' }),
+        body: JSON.stringify({
+          audio: audioBase64,
+          conversationId: conversation?.id || '',
+          contactId: conversation?.contact_id || 'guest',
+          ownerId: conversation?.owner_id || '',
+          filename: fileName,
+          contentType: mediaBlob.type || 'audio/webm',
+        }),
       })
-      const submitData = await submitRes.json()
-      await delay(1200)
-      const resultsRes = await fetch(`/api/perception?action=results&job_id=${submitData.job_id}`)
-      const mockResults = await resultsRes.json()
-      return normalizeOpmResponse(mockResults)
+      const opmJson = await opmRes.json().catch(() => ({}))
+      if (!opmRes.ok) {
+        console.warn('[callOpmApi] opm-process error:', opmJson.error)
+        return normalizeOpmResponse({})
+      }
+      return normalizeOpmResponse(opmJson.data || opmJson)
     }
 
     const useProxy = mediaType === 'video' && Boolean(opts?.orientation)
