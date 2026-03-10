@@ -480,19 +480,23 @@ export async function createPerceptionLog(payload: {
   transcript?: string | null
   audioDurationSec?: number | null
 }) {
-  const { data, error } = await supabase
-    .from('wa_perception_logs')
-    .insert({
-      message_id: payload.messageId,
-      conversation_id: payload.conversationId,
-      contact_id: payload.contactId,
-      owner_id: payload.ownerId,
+  const response = await fetch('/api/create-perception-log', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      messageId: payload.messageId,
+      conversationId: payload.conversationId,
+      contactId: payload.contactId,
+      ownerId: payload.ownerId,
       transcript: payload.transcript ?? null,
-      audio_duration_sec: payload.audioDurationSec ?? null,
-    })
-    .select()
-    .single()
-  if (error) throw error
+      audioDurationSec: payload.audioDurationSec ?? null,
+    }),
+  })
+
+  const data = await response.json()
+  if (!response.ok) {
+    throw new Error(data?.error || `createPerceptionLog failed (${response.status})`)
+  }
   return data
 }
 
