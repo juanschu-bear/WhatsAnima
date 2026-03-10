@@ -18,6 +18,17 @@ function getInitials(name: string) {
     .slice(0, 2)
 }
 
+const LOCAL_AVATAR_MAP: Record<string, string> = {
+  'brian cox': '/brian-cox-192.jpg',
+  'prof. brian cox': '/brian-cox-192.jpg',
+  'professor brian cox': '/brian-cox-192.jpg',
+}
+
+function resolveAvatarUrl(displayName: string, avatarUrl: string | null): string | null {
+  if (avatarUrl) return avatarUrl
+  return LOCAL_AVATAR_MAP[displayName.toLowerCase()] ?? null
+}
+
 export default function AvatarSelect() {
   const { user, signOut } = useAuth()
   const navigate = useNavigate()
@@ -94,9 +105,9 @@ export default function AvatarSelect() {
               } disabled:opacity-60`}
             >
               <div className="flex items-center gap-4">
-                {owner.avatar_url ? (
+                {resolveAvatarUrl(owner.display_name, owner.avatar_url) ? (
                   <img
-                    src={owner.avatar_url}
+                    src={resolveAvatarUrl(owner.display_name, owner.avatar_url)!}
                     alt={owner.display_name}
                     className="h-14 w-14 rounded-full object-cover ring-2 ring-white/10"
                   />
