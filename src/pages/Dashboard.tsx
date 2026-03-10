@@ -75,28 +75,100 @@ function isOnline(dateStr?: string | null) {
   return Date.now() - new Date(dateStr).getTime() < 5 * 60 * 1000
 }
 
-function summarizeTopics(messages: MessageRow[]) {
-  const text = messages
-    .map((message) => message.content || '')
-    .join(' ')
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, ' ')
+function computeConversationInsights(messages: MessageRow[], locale: Locale) {
+  const contactMsgs = messages.filter((m) => m.sender === 'contact')
+  const avatarMsgs = messages.filter((m) => m.sender === 'avatar')
+  const total = messages.length
 
-  const stopWords = new Set([
-    'the', 'and', 'you', 'that', 'have', 'for', 'with', 'this', 'your', 'from',
-    'are', 'was', 'but', 'not', 'can', 'ich', 'und', 'der', 'die', 'das', 'ein',
-    'eine', 'mit', 'ist', 'que', 'para', 'con', 'los', 'las', 'una', 'pero',
-  ])
+  const voiceCount = messages.filter((m) => m.type === 'voice').length
+  const textCount = messages.filter((m) => m.type === 'text').length
+  const imageCount = messages.filter((m) => m.type === 'image').length
+  const videoCount = messages.filter((m) => m.type === 'video').length
 
-  const counts = new Map<string, number>()
-  for (const word of text.split(/\s+/)) {
-    if (word.length < 4 || stopWords.has(word)) continue
-    counts.set(word, (counts.get(word) ?? 0) + 1)
+  const totalVoiceSec = messages.reduce((sum, m) => sum + (m.duration_sec ?? 0), 0)
+  const voiceMinutes = Math.round(totalVoiceSec / 60 * 10) / 10
+
+  const first = messages[0]?.created_at
+  const last = messages[messages.length - 1]?.created_at
+  const durationMs = first && last ? Math.max(0, new Date(last).getTime() - new Date(first).getTime()) : 0
+  const durationHours = durationMs / (1000 * 60 * 60)
+  const durationLabel = durationHours >= 24
+    ? `${Math.round(durationHours / 24)}d`
+    : durationHours >= 1 ? `${Math.round(durationHours * 10) / 10}h` : `${Math.max(1, Math.round(durationHours * 60))}m`
+
+  let totalResponseMs = 0
+  let responseCount = 0
+  for (let i = 1; i < messages.length; i++) {
+    if (messages[i].sender === 'avatar' && messages[i - 1].sender === 'contact') {
+      const diff = new Date(messages[i].created_at).getTime() - new Date(messages[i - 1].created_at).getTime()
+      if (diff > 0 && diff < 24 * 60 * 60 * 1000) { totalResponseMs += diff; responseCount++ }
+    }
   }
-  return [...counts.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 4)
-    .map(([word]) => word)
+  const avgResponseSec = responseCount > 0 ? Math.round(totalResponseMs / responseCount / 1000) : 0
+  const avgResponseLabel = avgResponseSec < 60 ? `${avgResponseSec}s`
+    : avgResponseSec < 3600 ? `${Math.floor(avgResponseSec / 60)}m ${avgResponseSec % 60}s` : `${Math.round(avgResponseSec / 3600)}h`
+
+  const engagementPct = total > 0 ? Math.round((contactMsgs.length / total) * 100) : 0
+
+  const contactTexts = contactMsgs.filter((m) => m.content?.trim()).map((m) => m.content!.trim())
+  const avgMsgLen = contactTexts.length > 0
+    ? Math.round(contactTexts.reduce((s, t) => s + t.length, 0) / contactTexts.length)
+    : 0
+
+  const allText = messages.map((m) => m.content || '').join(' ').toLowerCase()
+  const deScore = (allText.match(/\b(ich|und|der|die|das|nicht|auch|wenn|aber|oder|noch|schon|kann|habe|wird|haben|wir|sie|mir|mein)\b/g) ?? []).length
+  const esScore = (allText.match(/\b(que|para|con|los|las|una|pero|como|por|esta|este|todo|mas|muy|bien|hola|tengo|puede|hacer|donde)\b/g) ?? []).length
+  const enScore = (allText.match(/\b(the|and|you|that|have|for|with|this|your|from|are|was|but|not|can|just|will|what|when|would|know)\b/g) ?? []).length
+  const langs = [
+    { lang: locale === 'es' ? 'Ingles' : 'English', s: enScore },
+    { lang: locale === 'es' ? 'Aleman' : 'German', s: deScore },
+    { lang: locale === 'es' ? 'Espanol' : 'Spanish', s: esScore },
+  ].filter((l) => l.s > 0).sort((a, b) => b.s - a.s)
+  const language = langs.length > 1
+    ? `${langs[0].lang} / ${langs[1].lang}`
+    : langs[0]?.lang || (locale === 'es' ? 'No detectado' : 'Not detected')
+
+  const hourBuckets = new Map<number, number>()
+  for (const m of messages) { const h = new Date(m.created_at).getHours(); hourBuckets.set(h, (hourBuckets.get(h) ?? 0) + 1) }
+  const peakEntry = [...hourBuckets.entries()].sort((a, b) => b[1] - a[1])[0]
+  const peakTime = peakEntry ? `${String(peakEntry[0]).padStart(2, '0')}:00` : '--'
+
+  const qCount = (allText.match(/\?/g) ?? []).length
+  const exCount = (allText.match(/!/g) ?? []).length
+  const emojiCount = (allText.match(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{2600}-\u{26FF}]/gu) ?? []).length
+  const signals: string[] = []
+  if (qCount > 1) signals.push(locale === 'es' ? 'Curioso' : 'Curious')
+  if (exCount > 1) signals.push(locale === 'es' ? 'Energetico' : 'Energetic')
+  if (emojiCount > 0) signals.push(locale === 'es' ? 'Expresivo' : 'Expressive')
+  if (voiceCount > textCount && voiceCount > 0) signals.push(locale === 'es' ? 'Prefiere voz' : 'Voice-first')
+  if (imageCount + videoCount > 0) signals.push(locale === 'es' ? 'Visual' : 'Visual')
+  if (signals.length === 0) signals.push(locale === 'es' ? 'Neutral' : 'Neutral')
+
+  // Media-type mix for bar chart
+  const mediaBreakdown = [
+    { label: locale === 'es' ? 'Texto' : 'Text', count: textCount, color: '#00a884' },
+    { label: locale === 'es' ? 'Voz' : 'Voice', count: voiceCount, color: '#53d0ff' },
+    { label: locale === 'es' ? 'Imagen' : 'Image', count: imageCount, color: '#a78bfa' },
+    { label: 'Video', count: videoCount, color: '#f472b6' },
+  ].filter((b) => b.count > 0)
+  const maxMedia = Math.max(1, ...mediaBreakdown.map((b) => b.count))
+
+  return {
+    contactMessages: contactMsgs.length,
+    avatarMessages: avatarMsgs.length,
+    total,
+    durationLabel,
+    voiceMinutes,
+    avgResponseLabel,
+    avgResponseSec,
+    engagementPct,
+    avgMsgLen,
+    language,
+    peakTime,
+    signals,
+    mediaBreakdown,
+    maxMedia,
+  }
 }
 
 export default function Dashboard() {
@@ -296,28 +368,10 @@ export default function Dashboard() {
       .sort((left, right) => right.message_count - left.message_count)[0]
   }, [conversations, L])
 
-  const selectedInsights = useMemo(() => {
-    const contactMessages = selectedMessages.filter((message) => message.sender === 'contact').length
-    const avatarMessages = selectedMessages.filter((message) => message.sender === 'avatar').length
-    const first = selectedMessages[0]?.created_at
-    const last = selectedMessages[selectedMessages.length - 1]?.created_at
-    const durationHours =
-      first && last
-        ? Math.max(0, (new Date(last).getTime() - new Date(first).getTime()) / (1000 * 60 * 60))
-        : 0
-
-    return {
-      contactMessages,
-      avatarMessages,
-      durationLabel:
-        durationHours >= 24
-          ? `${Math.round(durationHours / 24)}d`
-          : durationHours >= 1
-            ? `${Math.round(durationHours * 10) / 10}h`
-            : `${Math.max(1, Math.round(durationHours * 60))}m`,
-      topics: summarizeTopics(selectedMessages),
-    }
-  }, [selectedMessages])
+  const selectedInsights = useMemo(
+    () => computeConversationInsights(selectedMessages, locale),
+    [selectedMessages, locale]
+  )
 
   const handleGenerate = async () => {
     if (!ownerId || inviteBusy) return
@@ -760,49 +814,87 @@ export default function Dashboard() {
 
             <div className="flex-1 overflow-y-auto px-4 py-4">
               {selectedConversation ? (
-                <div className="space-y-4">
-                  <div className="brand-inset rounded-[24px] p-4">
-                    <p className="text-[11px] uppercase tracking-[0.24em] text-white/40">{L('summary')}</p>
-                    <p className="mt-3 text-sm leading-7 text-white/72">
-                      {selectedInsights.topics.length > 0
-                        ? `${L('mainTopics')}: ${selectedInsights.topics.join(', ')}.`
-                        : L('topicExtractionNote')}
-                    </p>
-                  </div>
-
-                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
-                    <div className="brand-inset rounded-[24px] p-4">
-                      <p className="text-[11px] uppercase tracking-[0.24em] text-white/40">{L('breakdown')}</p>
-                      <div className="mt-4 space-y-3 text-sm text-white/72">
-                        <div className="flex items-center justify-between">
-                          <span>{L('contactMessages')}</span>
-                          <span className="font-semibold text-white">{selectedInsights.contactMessages}</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span>{L('avatarReplies')}</span>
-                          <span className="font-semibold text-white">{selectedInsights.avatarMessages}</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span>{L('conversationDuration')}</span>
-                          <span className="font-semibold text-white">{selectedInsights.durationLabel}</span>
-                        </div>
-                      </div>
+                <div className="space-y-3">
+                  {/* Key Metrics Grid */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="brand-inset rounded-[20px] p-3.5">
+                      <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">{L('totalMessages')}</p>
+                      <p className="mt-1.5 text-2xl font-bold text-white">{selectedInsights.total}</p>
+                      <p className="mt-0.5 text-[11px] text-white/45">{selectedInsights.contactMessages} {L('inbound')} · {selectedInsights.avatarMessages} {L('outbound')}</p>
                     </div>
-
-                    <div className="brand-inset rounded-[24px] p-4">
-                      <p className="text-[11px] uppercase tracking-[0.24em] text-white/40">{L('perceptionPreview')}</p>
-                      <div className="mt-4 rounded-[20px] border border-white/6 bg-black/14 p-4">
-                        <div className="mb-3 h-2 w-24 rounded-full bg-[#00a884]/45" />
-                        <div className="space-y-2">
-                          <div className="h-2 rounded-full bg-white/10" />
-                          <div className="h-2 w-5/6 rounded-full bg-white/10" />
-                          <div className="h-2 w-2/3 rounded-full bg-white/10" />
-                        </div>
-                        <p className="mt-4 text-sm text-white/62">{L('perceptionComingSoon')}</p>
-                      </div>
+                    <div className="brand-inset rounded-[20px] p-3.5">
+                      <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">{L('responseTime')}</p>
+                      <p className="mt-1.5 text-2xl font-bold text-[#00a884]">{selectedInsights.avgResponseLabel}</p>
+                      <p className="mt-0.5 text-[11px] text-white/45">{L('avgResponse')}</p>
+                    </div>
+                    <div className="brand-inset rounded-[20px] p-3.5">
+                      <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">{L('engagement')}</p>
+                      <p className="mt-1.5 text-2xl font-bold text-white">{selectedInsights.engagementPct}%</p>
+                      <p className="mt-0.5 text-[11px] text-white/45">{L('contactInitiated')}</p>
+                    </div>
+                    <div className="brand-inset rounded-[20px] p-3.5">
+                      <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">{L('duration')}</p>
+                      <p className="mt-1.5 text-2xl font-bold text-white">{selectedInsights.durationLabel}</p>
+                      <p className="mt-0.5 text-[11px] text-white/45">{L('peakAt')} {selectedInsights.peakTime}</p>
                     </div>
                   </div>
 
+                  {/* Media Mix */}
+                  <div className="brand-inset rounded-[20px] p-4">
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">{L('mediaMix')}</p>
+                    <div className="mt-3 space-y-2">
+                      {selectedInsights.mediaBreakdown.map((bar) => (
+                        <div key={bar.label} className="flex items-center gap-2.5">
+                          <span className="w-12 text-right text-[11px] text-white/55">{bar.label}</span>
+                          <div className="flex-1">
+                            <div
+                              className="h-[18px] rounded-full"
+                              style={{
+                                width: `${Math.max(8, (bar.count / selectedInsights.maxMedia) * 100)}%`,
+                                backgroundColor: bar.color,
+                                opacity: 0.7,
+                              }}
+                            />
+                          </div>
+                          <span className="w-6 text-right text-xs font-semibold text-white">{bar.count}</span>
+                        </div>
+                      ))}
+                    </div>
+                    {selectedInsights.voiceMinutes > 0 && (
+                      <p className="mt-2.5 text-[11px] text-white/45">{selectedInsights.voiceMinutes} min {L('voiceAudio')}</p>
+                    )}
+                  </div>
+
+                  {/* Behavioral Signals */}
+                  <div className="brand-inset rounded-[20px] p-4">
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">{L('behavioralSignals')}</p>
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {selectedInsights.signals.map((signal) => (
+                        <span key={signal} className="rounded-full border border-[#00a884]/25 bg-[#00a884]/10 px-2.5 py-1 text-[11px] font-medium text-[#00a884]">
+                          {signal}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Contact Profile */}
+                  <div className="brand-inset rounded-[20px] p-4">
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">{L('contactProfile')}</p>
+                    <div className="mt-3 space-y-2.5 text-[12px] text-white/60">
+                      <div className="flex items-center justify-between">
+                        <span>{L('languageDetected')}</span>
+                        <span className="font-medium text-white/80">{selectedInsights.language}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>{L('avgMessageLength')}</span>
+                        <span className="font-medium text-white/80">{selectedInsights.avgMsgLen} {L('chars')}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>{L('peakActivity')}</span>
+                        <span className="font-medium text-white/80">{selectedInsights.peakTime}</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               ) : (
                 <div className="flex h-full items-center justify-center text-center text-sm text-white/56">
