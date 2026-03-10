@@ -76,7 +76,8 @@ function isOnline(dateStr?: string | null) {
 }
 
 function computeConversationInsights(messages: MessageRow[], locale: Locale) {
-  const contactMsgs = messages.filter((m) => m.sender === 'contact')
+  const en = locale !== 'es'
+  const studentMsgs = messages.filter((m) => m.sender === 'contact')
   const avatarMsgs = messages.filter((m) => m.sender === 'avatar')
   const total = messages.length
 
@@ -84,7 +85,6 @@ function computeConversationInsights(messages: MessageRow[], locale: Locale) {
   const textCount = messages.filter((m) => m.type === 'text').length
   const imageCount = messages.filter((m) => m.type === 'image').length
   const videoCount = messages.filter((m) => m.type === 'video').length
-
   const totalVoiceSec = messages.reduce((sum, m) => sum + (m.duration_sec ?? 0), 0)
   const voiceMinutes = Math.round(totalVoiceSec / 60 * 10) / 10
 
@@ -96,97 +96,153 @@ function computeConversationInsights(messages: MessageRow[], locale: Locale) {
     ? `${Math.round(durationHours / 24)}d`
     : durationHours >= 1 ? `${Math.round(durationHours * 10) / 10}h` : `${Math.max(1, Math.round(durationHours * 60))}m`
 
-  let totalResponseMs = 0
-  let responseCount = 0
-  for (let i = 1; i < messages.length; i++) {
-    if (messages[i].sender === 'avatar' && messages[i - 1].sender === 'contact') {
-      const diff = new Date(messages[i].created_at).getTime() - new Date(messages[i - 1].created_at).getTime()
-      if (diff > 0 && diff < 24 * 60 * 60 * 1000) { totalResponseMs += diff; responseCount++ }
-    }
-  }
-  const avgResponseSec = responseCount > 0 ? Math.round(totalResponseMs / responseCount / 1000) : 0
-  const avgResponseLabel = avgResponseSec < 60 ? `${avgResponseSec}s`
-    : avgResponseSec < 3600 ? `${Math.floor(avgResponseSec / 60)}m ${avgResponseSec % 60}s` : `${Math.round(avgResponseSec / 3600)}h`
+  // Student text analysis
+  const studentTexts = studentMsgs.filter((m) => m.content?.trim()).map((m) => m.content!.trim())
+  const allStudentText = studentTexts.join(' ')
+  const allStudentLower = allStudentText.toLowerCase()
 
-  const engagementPct = total > 0 ? Math.round((contactMsgs.length / total) * 100) : 0
+  // Vocabulary richness
+  const studentWords = allStudentLower.replace(/[^a-z\u00e0-\u00ff\s]/g, ' ').split(/\s+/).filter((w) => w.length > 2)
+  const uniqueWords = new Set(studentWords)
+  const vocabDiversity = studentWords.length > 0 ? Math.round((uniqueWords.size / studentWords.length) * 100) : 0
+  const totalWordCount = studentWords.length
 
-  const contactTexts = contactMsgs.filter((m) => m.content?.trim()).map((m) => m.content!.trim())
-  const avgMsgLen = contactTexts.length > 0
-    ? Math.round(contactTexts.reduce((s, t) => s + t.length, 0) / contactTexts.length)
+  // Average sentence length (as words per message)
+  const avgWordsPerMsg = studentTexts.length > 0
+    ? Math.round(studentWords.length / studentTexts.length * 10) / 10
     : 0
 
+  // Average message length in chars
+  const avgMsgLen = studentTexts.length > 0
+    ? Math.round(studentTexts.reduce((s, t) => s + t.length, 0) / studentTexts.length)
+    : 0
+
+  // Question analysis (student curiosity)
+  const studentQs = studentTexts.filter((t) => t.includes('?')).length
+  const questionRatio = studentTexts.length > 0 ? Math.round((studentQs / studentTexts.length) * 100) : 0
+
+  // Language detection
   const allText = messages.map((m) => m.content || '').join(' ').toLowerCase()
-  const deScore = (allText.match(/\b(ich|und|der|die|das|nicht|auch|wenn|aber|oder|noch|schon|kann|habe|wird|haben|wir|sie|mir|mein)\b/g) ?? []).length
-  const esScore = (allText.match(/\b(que|para|con|los|las|una|pero|como|por|esta|este|todo|mas|muy|bien|hola|tengo|puede|hacer|donde)\b/g) ?? []).length
+  const deScore = (allText.match(/\b(ich|und|der|die|das|nicht|auch|wenn|aber|oder|noch|schon|kann|habe|wird|haben|wir|sie|mir|mein|denn|dass|sein|sehr|hier)\b/g) ?? []).length
+  const esScore = (allText.match(/\b(que|para|con|los|las|una|pero|como|por|esta|este|todo|mas|muy|bien|hola|tengo|puede|hacer|donde|creo)\b/g) ?? []).length
   const enScore = (allText.match(/\b(the|and|you|that|have|for|with|this|your|from|are|was|but|not|can|just|will|what|when|would|know)\b/g) ?? []).length
   const langs = [
-    { lang: locale === 'es' ? 'Ingles' : 'English', s: enScore },
-    { lang: locale === 'es' ? 'Aleman' : 'German', s: deScore },
-    { lang: locale === 'es' ? 'Espanol' : 'Spanish', s: esScore },
+    { lang: en ? 'English' : 'Ingles', s: enScore },
+    { lang: en ? 'German' : 'Aleman', s: deScore },
+    { lang: en ? 'Spanish' : 'Espanol', s: esScore },
   ].filter((l) => l.s > 0).sort((a, b) => b.s - a.s)
   const language = langs.length > 1
     ? `${langs[0].lang} / ${langs[1].lang}`
-    : langs[0]?.lang || (locale === 'es' ? 'No detectado' : 'Not detected')
+    : langs[0]?.lang || (en ? 'Not detected' : 'No detectado')
 
+  // Peak hour
   const hourBuckets = new Map<number, number>()
-  for (const m of messages) { const h = new Date(m.created_at).getHours(); hourBuckets.set(h, (hourBuckets.get(h) ?? 0) + 1) }
+  for (const m of studentMsgs) { const h = new Date(m.created_at).getHours(); hourBuckets.set(h, (hourBuckets.get(h) ?? 0) + 1) }
   const peakEntry = [...hourBuckets.entries()].sort((a, b) => b[1] - a[1])[0]
   const peakTime = peakEntry ? `${String(peakEntry[0]).padStart(2, '0')}:00` : '--'
 
-  const en = locale !== 'es'
-  const qCount = (allText.match(/\?/g) ?? []).length
-  const exCount = (allText.match(/!/g) ?? []).length
-  const emojiCount = (allText.match(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{2600}-\u{26FF}]/gu) ?? []).length
+  // Engagement score (0-100)
+  let engagementScore = 0
+  if (total > 0) engagementScore += Math.min(25, studentMsgs.length * 5)
+  if (voiceCount > 0) engagementScore += 15
+  if (imageCount + videoCount > 0) engagementScore += 10
+  if (avgMsgLen > 50) engagementScore += 15
+  else if (avgMsgLen > 20) engagementScore += 8
+  if (studentQs > 0) engagementScore += 15
+  if (durationHours > 0.5) engagementScore += 10
+  if (vocabDiversity > 60) engagementScore += 10
+  engagementScore = Math.min(100, engagementScore)
 
-  // Behavioral signals with icon + description
-  const signals: { label: string; icon: string; desc: string; color: string }[] = []
-  if (qCount > 1) signals.push({
-    label: en ? 'Curious' : 'Curioso',
-    icon: '?',
-    desc: en ? `${qCount} questions asked \u2014 actively seeking information` : `${qCount} preguntas \u2014 busca informacion activamente`,
-    color: '#53d0ff',
+  // Engagement level label
+  const engagementLevel = engagementScore >= 80
+    ? { label: en ? 'Very high' : 'Muy alto', color: '#00a884' }
+    : engagementScore >= 55
+      ? { label: en ? 'Good' : 'Bueno', color: '#53d0ff' }
+      : engagementScore >= 30
+        ? { label: en ? 'Moderate' : 'Moderado', color: '#f59e0b' }
+        : { label: en ? 'Low' : 'Bajo', color: '#ef4444' }
+
+  // Communication confidence
+  const avgSentenceLen = avgWordsPerMsg
+  const usesMultipleTypes = (voiceCount > 0 ? 1 : 0) + (textCount > 0 ? 1 : 0) + (imageCount > 0 ? 1 : 0) > 1
+  const confidenceIndicators: string[] = []
+  if (avgSentenceLen >= 8) confidenceIndicators.push(en ? 'Elaborated responses' : 'Respuestas elaboradas')
+  if (avgSentenceLen > 0 && avgSentenceLen < 4) confidenceIndicators.push(en ? 'Brief responses' : 'Respuestas breves')
+  if (usesMultipleTypes) confidenceIndicators.push(en ? 'Uses multiple media types' : 'Usa multiples medios')
+  if (voiceCount > textCount && voiceCount > 0) confidenceIndicators.push(en ? 'Prefers voice communication' : 'Prefiere comunicacion por voz')
+  if (studentQs > 2) confidenceIndicators.push(en ? 'Asks many questions' : 'Hace muchas preguntas')
+
+  // Strengths (education-focused)
+  const strengths: { label: string; detail: string }[] = []
+  if (vocabDiversity > 65) strengths.push({
+    label: en ? 'Rich vocabulary' : 'Vocabulario rico',
+    detail: en ? `${vocabDiversity}% unique words \u2014 strong expressive range` : `${vocabDiversity}% palabras unicas \u2014 amplio rango expresivo`,
   })
-  if (exCount > 1) signals.push({
-    label: en ? 'Energetic' : 'Energetico',
-    icon: '!',
-    desc: en ? `${exCount} exclamations \u2014 high emotional involvement` : `${exCount} exclamaciones \u2014 alta implicacion emocional`,
-    color: '#f59e0b',
+  if (studentQs >= 2) strengths.push({
+    label: en ? 'Intellectual curiosity' : 'Curiosidad intelectual',
+    detail: en ? `${studentQs} questions asked \u2014 actively exploring topics` : `${studentQs} preguntas realizadas \u2014 explora temas activamente`,
   })
-  if (emojiCount > 0) signals.push({
-    label: en ? 'Expressive' : 'Expresivo',
-    icon: '\u{1F60A}',
-    desc: en ? `Uses emojis (${emojiCount}x) \u2014 communicates with emotional nuance` : `Usa emojis (${emojiCount}x) \u2014 comunica con matiz emocional`,
-    color: '#f472b6',
+  if (avgWordsPerMsg >= 8) strengths.push({
+    label: en ? 'Strong self-expression' : 'Buena autoexpresion',
+    detail: en ? `Avg. ${avgWordsPerMsg} words/message \u2014 articulates thoughts clearly` : `Prom. ${avgWordsPerMsg} palabras/mensaje \u2014 articula ideas con claridad`,
   })
-  if (voiceCount > textCount && voiceCount > 0) signals.push({
-    label: en ? 'Voice-first' : 'Prefiere voz',
-    icon: '\u{1F3A4}',
-    desc: en ? `${voiceCount} voice vs ${textCount} text \u2014 prefers speaking over typing` : `${voiceCount} voz vs ${textCount} texto \u2014 prefiere hablar`,
-    color: '#a78bfa',
+  if (total >= 5) strengths.push({
+    label: en ? 'Active participation' : 'Participacion activa',
+    detail: en ? `${studentMsgs.length} messages contributed over ${durationLabel}` : `${studentMsgs.length} mensajes enviados en ${durationLabel}`,
   })
-  if (imageCount + videoCount > 0) signals.push({
-    label: 'Visual',
-    icon: '\u{1F4F7}',
-    desc: en ? `${imageCount + videoCount} media shared \u2014 visually expressive` : `${imageCount + videoCount} medios compartidos \u2014 comunicador visual`,
-    color: '#34d399',
+  if (voiceCount > 0) strengths.push({
+    label: en ? 'Oral communication skills' : 'Habilidades de comunicacion oral',
+    detail: en ? `${voiceCount} voice messages (${voiceMinutes} min) \u2014 practices spoken language` : `${voiceCount} mensajes de voz (${voiceMinutes} min) \u2014 practica el lenguaje hablado`,
   })
-  if (avgMsgLen > 100) signals.push({
-    label: en ? 'Detailed' : 'Detallista',
-    icon: '\u{1F4DD}',
-    desc: en ? `Avg. ${avgMsgLen} chars/msg \u2014 thorough, detailed responses` : `Prom. ${avgMsgLen} car./msg \u2014 respuestas detalladas`,
-    color: '#60a5fa',
+
+  // Areas for improvement
+  const improvements: { label: string; detail: string }[] = []
+  if (vocabDiversity > 0 && vocabDiversity < 40) improvements.push({
+    label: en ? 'Vocabulary expansion needed' : 'Ampliar vocabulario',
+    detail: en ? `${vocabDiversity}% unique words \u2014 encourage use of varied expressions` : `${vocabDiversity}% palabras unicas \u2014 fomentar uso de expresiones variadas`,
   })
-  if (avgMsgLen > 0 && avgMsgLen <= 30) signals.push({
-    label: en ? 'Concise' : 'Conciso',
-    icon: '\u{26A1}',
-    desc: en ? `Avg. ${avgMsgLen} chars/msg \u2014 direct and to the point` : `Prom. ${avgMsgLen} car./msg \u2014 directo al punto`,
-    color: '#fbbf24',
+  if (avgWordsPerMsg > 0 && avgWordsPerMsg < 4) improvements.push({
+    label: en ? 'Encourage deeper responses' : 'Fomentar respuestas mas profundas',
+    detail: en ? `Avg. ${avgWordsPerMsg} words/message \u2014 could elaborate more on ideas` : `Prom. ${avgWordsPerMsg} palabras/mensaje \u2014 podria desarrollar mas sus ideas`,
   })
-  if (signals.length === 0) signals.push({
-    label: en ? 'Neutral' : 'Neutral',
-    icon: '\u{1F4AC}',
-    desc: en ? 'Balanced style \u2014 no strong patterns detected yet' : 'Estilo equilibrado \u2014 sin patrones fuertes aun',
-    color: '#94a3b8',
+  if (studentQs === 0 && studentTexts.length > 2) improvements.push({
+    label: en ? 'Encourage questioning' : 'Fomentar preguntas',
+    detail: en ? 'No questions asked yet \u2014 promote critical thinking and inquiry' : 'Sin preguntas aun \u2014 promover pensamiento critico e indagacion',
+  })
+  if (total <= 2) improvements.push({
+    label: en ? 'More interaction needed' : 'Se necesita mas interaccion',
+    detail: en ? 'Very early stage \u2014 encourage continued engagement with the avatar' : 'Fase muy temprana \u2014 fomentar la continuidad de interaccion con el avatar',
+  })
+
+  // Teacher recommendations
+  const recommendations: { text: string; priority: 'high' | 'medium' | 'low' }[] = []
+  if (total <= 2) recommendations.push({
+    text: en ? 'Student has barely started \u2014 check if they need onboarding help or motivation' : 'El alumno apenas ha comenzado \u2014 verificar si necesita ayuda o motivacion',
+    priority: 'high',
+  })
+  if (avgWordsPerMsg > 0 && avgWordsPerMsg < 4 && studentTexts.length >= 3) recommendations.push({
+    text: en ? 'Responses are very short \u2014 suggest open-ended prompts to encourage elaboration' : 'Respuestas muy cortas \u2014 sugerir preguntas abiertas para fomentar la elaboracion',
+    priority: 'high',
+  })
+  if (studentQs >= 3) recommendations.push({
+    text: en ? 'Highly curious student \u2014 consider advanced content or deeper challenges' : 'Alumno muy curioso \u2014 considerar contenido avanzado o desafios mas profundos',
+    priority: 'medium',
+  })
+  if (vocabDiversity > 0 && vocabDiversity < 40) recommendations.push({
+    text: en ? 'Assign vocabulary-building exercises to expand expressive range' : 'Asignar ejercicios de vocabulario para ampliar el rango expresivo',
+    priority: 'medium',
+  })
+  if (voiceCount > textCount * 2 && voiceCount > 1) recommendations.push({
+    text: en ? 'Student prefers voice \u2014 balance with written exercises for literacy development' : 'El alumno prefiere voz \u2014 equilibrar con ejercicios escritos para desarrollo de lectoescritura',
+    priority: 'medium',
+  })
+  if (engagementScore >= 70 && total >= 5) recommendations.push({
+    text: en ? 'Excellent engagement \u2014 this student could mentor peers or take on leadership roles' : 'Excelente participacion \u2014 este alumno podria ser mentor o asumir roles de liderazgo',
+    priority: 'low',
+  })
+  if (recommendations.length === 0) recommendations.push({
+    text: en ? 'Interaction progressing normally \u2014 continue monitoring for patterns' : 'Interaccion progresando normalmente \u2014 seguir monitoreando patrones',
+    priority: 'low',
   })
 
   // Media breakdown
@@ -198,91 +254,29 @@ function computeConversationInsights(messages: MessageRow[], locale: Locale) {
   ].filter((b) => b.count > 0)
   const maxMedia = Math.max(1, ...mediaBreakdown.map((b) => b.count))
 
-  // Strengths & Weaknesses
-  const strengths: { label: string; detail: string }[] = []
-  const weaknesses: { label: string; detail: string }[] = []
-
-  if (avgResponseSec > 0 && avgResponseSec < 30) strengths.push({
-    label: en ? 'Lightning-fast responses' : 'Respuestas ultrarapidas',
-    detail: en ? `Avatar responds in ${avgResponseLabel} on average` : `El avatar responde en ${avgResponseLabel} de media`,
-  })
-  else if (avgResponseSec >= 30) weaknesses.push({
-    label: en ? 'Response time could improve' : 'Tiempo de respuesta mejorable',
-    detail: en ? `${avgResponseLabel} avg \u2014 consider optimizing` : `${avgResponseLabel} prom. \u2014 considerar optimizar`,
-  })
-
-  if (engagementPct >= 40 && engagementPct <= 65) strengths.push({
-    label: en ? 'Balanced dialogue' : 'Dialogo equilibrado',
-    detail: en ? `${engagementPct}% contact-initiated \u2014 healthy back-and-forth` : `${engagementPct}% iniciado por contacto \u2014 dinamica saludable`,
-  })
-  else if (engagementPct > 75) weaknesses.push({
-    label: en ? 'One-sided conversation' : 'Conversacion unilateral',
-    detail: en ? `${engagementPct}% contact-initiated \u2014 avatar needs more proactivity` : `${engagementPct}% del contacto \u2014 el avatar necesita mas proactividad`,
-  })
-  else if (engagementPct < 25 && total > 2) weaknesses.push({
-    label: en ? 'Low contact engagement' : 'Baja participacion',
-    detail: en ? `Only ${engagementPct}% from contact \u2014 may indicate low interest` : `Solo ${engagementPct}% del contacto \u2014 puede indicar bajo interes`,
-  })
-
-  if (voiceCount > 0 && textCount > 0) strengths.push({
-    label: en ? 'Multi-modal interaction' : 'Interaccion multimodal',
-    detail: en ? 'Uses both voice and text \u2014 rich communication' : 'Usa voz y texto \u2014 comunicacion rica',
-  })
-
-  if (total >= 5 && durationHours > 0) strengths.push({
-    label: en ? 'Active conversation' : 'Conversacion activa',
-    detail: en ? `${total} messages over ${durationLabel} \u2014 sustained engagement` : `${total} mensajes en ${durationLabel} \u2014 compromiso sostenido`,
-  })
-  else if (total <= 2) weaknesses.push({
-    label: en ? 'Early stage' : 'Fase inicial',
-    detail: en ? 'Very few messages \u2014 conversation just getting started' : 'Pocos mensajes \u2014 la conversacion recien comienza',
-  })
-
-  // Recommendations
-  const recommendations: { text: string; priority: 'high' | 'medium' | 'low' }[] = []
-  if (total <= 2) recommendations.push({
-    text: en ? 'Send a follow-up to re-engage and keep momentum' : 'Enviar seguimiento para reactivar al contacto',
-    priority: 'high',
-  })
-  if (engagementPct > 75) recommendations.push({
-    text: en ? 'Adjust avatar to be more proactive and conversational' : 'Ajustar avatar para ser mas proactivo y conversacional',
-    priority: 'high',
-  })
-  if (voiceCount > textCount * 2 && voiceCount > 0) recommendations.push({
-    text: en ? 'Contact prefers voice \u2014 consider voice-optimized strategies' : 'El contacto prefiere voz \u2014 optimizar estrategia de respuesta',
-    priority: 'medium',
-  })
-  if (avgMsgLen > 150) recommendations.push({
-    text: en ? 'Contact writes long messages \u2014 match depth in replies' : 'Mensajes largos del contacto \u2014 igualar profundidad en respuestas',
-    priority: 'medium',
-  })
-  if (qCount > 2) recommendations.push({
-    text: en ? 'High question frequency \u2014 ensure thorough answers' : 'Alta frecuencia de preguntas \u2014 asegurar respuestas completas',
-    priority: 'medium',
-  })
-  if (recommendations.length === 0) recommendations.push({
-    text: en ? 'Conversation progressing well \u2014 no urgent actions needed' : 'Conversacion progresa bien \u2014 sin acciones urgentes',
-    priority: 'low',
-  })
-
   return {
-    contactMessages: contactMsgs.length,
+    studentMessages: studentMsgs.length,
     avatarMessages: avatarMsgs.length,
     total,
     durationLabel,
     voiceMinutes,
-    avgResponseLabel,
-    avgResponseSec,
-    engagementPct,
+    engagementScore,
+    engagementLevel,
+    vocabDiversity,
+    uniqueWords: uniqueWords.size,
+    totalWordCount,
+    avgWordsPerMsg,
     avgMsgLen,
+    questionRatio,
+    studentQs,
     language,
     peakTime,
-    signals,
+    confidenceIndicators,
+    strengths,
+    improvements,
+    recommendations,
     mediaBreakdown,
     maxMedia,
-    strengths,
-    weaknesses,
-    recommendations,
   }
 }
 
@@ -949,86 +943,118 @@ export default function Dashboard() {
           <aside className="brand-panel flex h-[calc(100vh-200px)] flex-col overflow-hidden rounded-[32px]">
             <div className="border-b border-white/8 px-5 pb-4 pt-5">
               <p className="brand-kicker text-[10px] text-white/40">{L('insights')}</p>
-              <h2 className="mt-2 text-2xl font-semibold text-white">{L('conversationIntelligence')}</h2>
-              <p className="mt-2 text-sm text-white/55">{L('operationalVisibility')}</p>
+              <h2 className="mt-2 text-2xl font-semibold text-white">{L('studentAnalysis')}</h2>
+              <p className="mt-2 text-sm text-white/55">{L('learningInsightsDesc')}</p>
             </div>
 
             <div className="flex-1 overflow-y-auto px-4 py-4">
               {selectedConversation ? (
                 <div className="space-y-3">
-                  {/* Key Metrics Grid */}
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="brand-inset rounded-[20px] p-3.5">
-                      <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">{L('totalMessages')}</p>
-                      <p className="mt-1.5 text-2xl font-bold text-white">{selectedInsights.total}</p>
-                      <p className="mt-0.5 text-[11px] text-white/45">{selectedInsights.contactMessages} {L('inbound')} · {selectedInsights.avatarMessages} {L('outbound')}</p>
-                    </div>
-                    <div className="brand-inset rounded-[20px] p-3.5">
-                      <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">{L('responseTime')}</p>
-                      <p className="mt-1.5 text-2xl font-bold text-[#00a884]">{selectedInsights.avgResponseLabel}</p>
-                      <p className="mt-0.5 text-[11px] text-white/45">{L('avgResponse')}</p>
-                    </div>
-                    <div className="brand-inset rounded-[20px] p-3.5">
-                      <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">{L('engagement')}</p>
-                      <p className="mt-1.5 text-2xl font-bold text-white">{selectedInsights.engagementPct}%</p>
-                      <p className="mt-0.5 text-[11px] text-white/45">{L('contactInitiated')}</p>
-                    </div>
-                    <div className="brand-inset rounded-[20px] p-3.5">
-                      <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">{L('duration')}</p>
-                      <p className="mt-1.5 text-2xl font-bold text-white">{selectedInsights.durationLabel}</p>
-                      <p className="mt-0.5 text-[11px] text-white/45">{L('peakAt')} {selectedInsights.peakTime}</p>
+                  {/* Engagement Score Hero */}
+                  <div className="brand-inset rounded-[20px] p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">{L('engagementScore')}</p>
+                        <div className="mt-2 flex items-baseline gap-2">
+                          <span className="text-4xl font-bold" style={{ color: selectedInsights.engagementLevel.color }}>{selectedInsights.engagementScore}</span>
+                          <span className="text-lg text-white/30">/100</span>
+                        </div>
+                        <p className="mt-1 text-[12px] font-medium" style={{ color: selectedInsights.engagementLevel.color }}>{selectedInsights.engagementLevel.label}</p>
+                      </div>
+                      <div className="relative h-16 w-16">
+                        <svg className="h-16 w-16 -rotate-90" viewBox="0 0 64 64">
+                          <circle cx="32" cy="32" r="28" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="5" />
+                          <circle cx="32" cy="32" r="28" fill="none" stroke={selectedInsights.engagementLevel.color} strokeWidth="5" strokeLinecap="round"
+                            strokeDasharray={`${selectedInsights.engagementScore * 1.76} 176`} />
+                        </svg>
+                      </div>
                     </div>
                   </div>
 
-                  {/* Media Mix */}
+                  {/* Key Metrics Grid */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="brand-inset rounded-[20px] p-3">
+                      <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">{L('totalInteractions')}</p>
+                      <p className="mt-1 text-xl font-bold text-white">{selectedInsights.total}</p>
+                      <p className="mt-0.5 text-[10px] text-white/40">{selectedInsights.studentMessages} {L('studentMsgs')} · {selectedInsights.avatarMessages} {L('avatarMsgs')}</p>
+                    </div>
+                    <div className="brand-inset rounded-[20px] p-3">
+                      <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">{L('sessionDuration')}</p>
+                      <p className="mt-1 text-xl font-bold text-white">{selectedInsights.durationLabel}</p>
+                      <p className="mt-0.5 text-[10px] text-white/40">{L('peakAt')} {selectedInsights.peakTime}</p>
+                    </div>
+                  </div>
+
+                  {/* Communication Skills */}
                   <div className="brand-inset rounded-[20px] p-4">
-                    <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">{L('mediaMix')}</p>
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">{L('communicationSkills')}</p>
+                    <div className="mt-3 space-y-3">
+                      {/* Vocabulary Diversity Bar */}
+                      <div>
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="text-white/55">{L('vocabDiversity')}</span>
+                          <span className="font-semibold text-white">{selectedInsights.vocabDiversity}%</span>
+                        </div>
+                        <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-white/[0.06]">
+                          <div className="h-full rounded-full bg-gradient-to-r from-[#00a884] to-[#53d0ff] transition-all" style={{ width: `${selectedInsights.vocabDiversity}%` }} />
+                        </div>
+                        <p className="mt-1 text-[10px] text-white/30">{selectedInsights.uniqueWords} {L('uniqueWordsOf')} {selectedInsights.totalWordCount}</p>
+                      </div>
+                      {/* Expression Depth */}
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-white/55">{L('expressionDepth')}</span>
+                        <span className="font-semibold text-white">{selectedInsights.avgWordsPerMsg} {L('wordsPerMsg')}</span>
+                      </div>
+                      {/* Curiosity Index */}
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-white/55">{L('curiosityIndex')}</span>
+                        <span className="font-semibold text-white">{selectedInsights.questionRatio}% <span className="font-normal text-white/35">({selectedInsights.studentQs} {L('questions')})</span></span>
+                      </div>
+                      {/* Language */}
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-white/55">{L('languageDetected')}</span>
+                        <span className="font-semibold text-white">{selectedInsights.language}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Communication style indicators */}
+                  {selectedInsights.confidenceIndicators.length > 0 && (
+                    <div className="brand-inset rounded-[20px] p-4">
+                      <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">{L('communicationStyle')}</p>
+                      <div className="mt-3 flex flex-wrap gap-1.5">
+                        {selectedInsights.confidenceIndicators.map((indicator) => (
+                          <span key={indicator} className="rounded-full border border-[#53d0ff]/20 bg-[#53d0ff]/8 px-2.5 py-1 text-[11px] text-[#53d0ff]">
+                            {indicator}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Media Usage */}
+                  <div className="brand-inset rounded-[20px] p-4">
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">{L('mediaUsage')}</p>
                     <div className="mt-3 space-y-2">
                       {selectedInsights.mediaBreakdown.map((bar) => (
                         <div key={bar.label} className="flex items-center gap-2.5">
-                          <span className="w-12 text-right text-[11px] text-white/55">{bar.label}</span>
+                          <span className="w-11 text-right text-[11px] text-white/50">{bar.label}</span>
                           <div className="flex-1">
-                            <div
-                              className="h-[18px] rounded-full"
-                              style={{
-                                width: `${Math.max(8, (bar.count / selectedInsights.maxMedia) * 100)}%`,
-                                backgroundColor: bar.color,
-                                opacity: 0.7,
-                              }}
-                            />
+                            <div className="h-[14px] rounded-full" style={{ width: `${Math.max(10, (bar.count / selectedInsights.maxMedia) * 100)}%`, backgroundColor: bar.color, opacity: 0.65 }} />
                           </div>
-                          <span className="w-6 text-right text-xs font-semibold text-white">{bar.count}</span>
+                          <span className="w-5 text-right text-[11px] font-semibold text-white">{bar.count}</span>
                         </div>
                       ))}
                     </div>
                     {selectedInsights.voiceMinutes > 0 && (
-                      <p className="mt-2.5 text-[11px] text-white/45">{selectedInsights.voiceMinutes} min {L('voiceAudio')}</p>
+                      <p className="mt-2 text-[10px] text-white/35">{selectedInsights.voiceMinutes} min {L('spokenAudio')}</p>
                     )}
                   </div>
 
-                  {/* Behavioral Signals */}
-                  <div className="brand-inset rounded-[20px] p-4">
-                    <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">{L('behavioralSignals')}</p>
-                    <div className="mt-3 space-y-2">
-                      {selectedInsights.signals.map((signal) => (
-                        <div key={signal.label} className="flex items-start gap-2.5 rounded-[14px] border border-white/5 bg-white/[0.03] px-3 py-2.5">
-                          <span
-                            className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold"
-                            style={{ backgroundColor: `${signal.color}20`, color: signal.color }}
-                          >{signal.icon}</span>
-                          <div className="min-w-0">
-                            <p className="text-[12px] font-semibold" style={{ color: signal.color }}>{signal.label}</p>
-                            <p className="mt-0.5 text-[11px] leading-4 text-white/50">{signal.desc}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Strengths & Weaknesses */}
-                  {(selectedInsights.strengths.length > 0 || selectedInsights.weaknesses.length > 0) && (
+                  {/* Strengths */}
+                  {selectedInsights.strengths.length > 0 && (
                     <div className="brand-inset rounded-[20px] p-4">
-                      <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">{L('assessment')}</p>
+                      <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">{L('strengths')}</p>
                       <div className="mt-3 space-y-2">
                         {selectedInsights.strengths.map((s) => (
                           <div key={s.label} className="flex items-start gap-2.5">
@@ -1039,12 +1065,21 @@ export default function Dashboard() {
                             </div>
                           </div>
                         ))}
-                        {selectedInsights.weaknesses.map((w) => (
-                          <div key={w.label} className="flex items-start gap-2.5">
-                            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-400/15 text-[10px] text-amber-400">{'\u26A0'}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Areas for Improvement */}
+                  {selectedInsights.improvements.length > 0 && (
+                    <div className="brand-inset rounded-[20px] p-4">
+                      <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">{L('areasForImprovement')}</p>
+                      <div className="mt-3 space-y-2">
+                        {selectedInsights.improvements.map((item) => (
+                          <div key={item.label} className="flex items-start gap-2.5">
+                            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-400/15 text-[10px] text-amber-400">{'\u2197'}</span>
                             <div>
-                              <p className="text-[12px] font-medium text-amber-400">{w.label}</p>
-                              <p className="text-[11px] leading-4 text-white/45">{w.detail}</p>
+                              <p className="text-[12px] font-medium text-amber-400">{item.label}</p>
+                              <p className="text-[11px] leading-4 text-white/45">{item.detail}</p>
                             </div>
                           </div>
                         ))}
@@ -1052,37 +1087,18 @@ export default function Dashboard() {
                     </div>
                   )}
 
-                  {/* Recommendations */}
+                  {/* Teacher Recommendations */}
                   <div className="brand-inset rounded-[20px] p-4">
-                    <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">{L('recommendations')}</p>
-                    <div className="mt-3 space-y-2">
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">{L('teacherRecommendations')}</p>
+                    <div className="mt-3 space-y-2.5">
                       {selectedInsights.recommendations.map((rec) => (
-                        <div key={rec.text} className="flex items-start gap-2.5">
-                          <span className={`mt-0.5 h-2 w-2 shrink-0 rounded-full ${
+                        <div key={rec.text} className="flex items-start gap-2.5 rounded-[12px] border border-white/[0.04] bg-white/[0.02] px-3 py-2.5">
+                          <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${
                             rec.priority === 'high' ? 'bg-red-400' : rec.priority === 'medium' ? 'bg-amber-400' : 'bg-[#00a884]'
                           }`} />
                           <p className="text-[12px] leading-5 text-white/65">{rec.text}</p>
                         </div>
                       ))}
-                    </div>
-                  </div>
-
-                  {/* Contact Profile */}
-                  <div className="brand-inset rounded-[20px] p-4">
-                    <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">{L('contactProfile')}</p>
-                    <div className="mt-3 space-y-2.5 text-[12px] text-white/60">
-                      <div className="flex items-center justify-between">
-                        <span>{L('languageDetected')}</span>
-                        <span className="font-medium text-white/80">{selectedInsights.language}</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span>{L('avgMessageLength')}</span>
-                        <span className="font-medium text-white/80">{selectedInsights.avgMsgLen} {L('chars')}</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span>{L('peakActivity')}</span>
-                        <span className="font-medium text-white/80">{selectedInsights.peakTime}</span>
-                      </div>
                     </div>
                   </div>
                 </div>
