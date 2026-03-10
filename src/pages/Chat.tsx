@@ -469,7 +469,7 @@ export default function Chat() {
     return items
   }, [messages])
 
-  async function uploadAudioToStorage(audioBase64: string, mimeType: string) {
+  async function uploadAudioToStorage(audioBase64: string, _mimeType: string) {
     if (!conversation) return null
 
     const response = await fetch('/api/upload-audio', {
@@ -478,32 +478,32 @@ export default function Chat() {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        audio_base64: audioBase64,
-        owner_id: conversation.owner_id,
-        conversation_id: conversation.id,
-        mime_type: mimeType,
+        audio: audioBase64,
+        conversationId: conversation.id,
       }),
     })
 
     const data = await response.json().catch(() => ({}))
-    return typeof data.audio_url === 'string' ? data.audio_url : null
+    return typeof data.url === 'string' ? data.url : null
   }
 
   async function uploadMediaToStorage(file: File, mediaType: 'image' | 'video') {
     if (!conversation) return null
 
     const mediaBase64 = await blobToBase64(file)
+    const storageBucket = mediaType === 'image' ? 'image-uploads' : 'voice-messages'
+    const ext = file.name?.split('.').pop() || (mediaType === 'image' ? 'jpg' : 'mp4')
     const response = await fetch('/api/upload-media', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        media_base64: mediaBase64,
-        owner_id: conversation.owner_id,
-        conversation_id: conversation.id,
-        mime_type: file.type,
-        media_type: mediaType,
+        file: mediaBase64,
+        conversationId: conversation.id,
+        filename: `${mediaType}-${Date.now()}.${ext}`,
+        contentType: file.type || (mediaType === 'image' ? 'image/jpeg' : 'video/mp4'),
+        bucket: storageBucket,
       }),
     })
 
@@ -555,9 +555,11 @@ export default function Chat() {
       })
 
       let replyText = ''
+      const chatData = await chatResponse.json().catch(() => ({}))
       if (chatResponse.ok) {
-        const chatData = await chatResponse.json()
         replyText = typeof chatData?.content === 'string' ? chatData.content.trim() : ''
+      } else {
+        console.error('[getAvatarReply] Chat API error:', chatData?.error || chatResponse.status)
       }
       if (!replyText) {
         replyText = 'Honestly? Give me the interesting part first.'
@@ -584,12 +586,12 @@ export default function Chat() {
         }
       }
 
-      const data = await response.json().catch(() => ({}))
-      const audioBase64 = typeof data.audio === 'string' ? data.audio : ''
+      const audioBlob = await response.blob()
+      const audioBase64 = await blobToBase64(audioBlob)
       if (!audioBase64) {
         return { content: replyText, mediaUrl: null }
       }
-      const uploadedUrl = await uploadAudioToStorage(audioBase64, data.content_type || 'audio/mpeg')
+      const uploadedUrl = await uploadAudioToStorage(audioBase64, 'audio/mpeg')
 
       return {
         content: replyText,
@@ -652,9 +654,9 @@ export default function Chat() {
       const message = await sendMessage(conversationId, 'contact', 'text', content)
       setMessages((current) => [...current, message as Message])
       await sendAvatarReply(content, { useVoice: false })
-    } catch (sendError) {
+    } catch (sendError: any) {
       console.error(sendError)
-      setError('Unable to send your message.')
+      setError(sendError?.message || 'Unable to send your message.')
     } finally {
       setSending(false)
     }
