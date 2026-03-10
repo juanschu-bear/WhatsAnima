@@ -18,6 +18,8 @@ export default async function handler(req: any, res: any) {
     const name = filename || `voice-${Date.now()}.webm`;
     const path = `${conversationId || 'general'}/${name}`;
 
+    await supabase.storage.createBucket('voice-messages', { public: true }).catch(() => undefined);
+
     const { data, error } = await supabase.storage
       .from('voice-messages')
       .upload(path, buffer, { contentType: 'audio/webm', upsert: true });

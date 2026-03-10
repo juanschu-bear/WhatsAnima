@@ -52,6 +52,42 @@ interface ConversationRow {
     | null
 }
 
+export async function listAllOwners() {
+  const { data, error } = await supabase
+    .from('wa_owners')
+    .select('id, display_name, avatar_url, voice_id, system_prompt, tavus_replica_id')
+    .order('display_name', { ascending: true })
+  if (error) throw error
+  return data ?? []
+}
+
+export async function findOrCreateConversation(ownerId: string, contactId: string) {
+  const { data: existing } = await supabase
+    .from('wa_conversations')
+    .select('id')
+    .eq('owner_id', ownerId)
+    .eq('contact_id', contactId)
+    .maybeSingle()
+  if (existing) return existing.id
+
+  const id = crypto.randomUUID()
+  const { error } = await supabase
+    .from('wa_conversations')
+    .insert({ id, owner_id: ownerId, contact_id: contactId })
+  if (error) throw error
+  return id
+}
+
+export async function findContactByEmail(email: string) {
+  const { data } = await supabase
+    .from('wa_contacts')
+    .select('id, owner_id, display_name, email')
+    .eq('email', email)
+    .limit(1)
+    .maybeSingle()
+  return data
+}
+
 export async function getOwnerByUserId(userId: string) {
   const { data, error } = await supabase
     .from('wa_owners')

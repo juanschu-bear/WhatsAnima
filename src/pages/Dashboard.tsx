@@ -333,8 +333,8 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="brand-scene min-h-screen px-4 py-4 text-white sm:px-6 sm:py-6">
-      <div className="relative z-10 mx-auto flex min-h-[calc(100vh-2rem)] max-w-[1680px] flex-col gap-4 lg:min-h-[calc(100vh-3rem)]">
+    <div className="brand-scene h-screen overflow-hidden px-4 py-4 text-white sm:px-6 sm:py-6">
+      <div className="relative z-10 mx-auto flex h-full max-w-[1680px] flex-col gap-4">
         <header className="brand-panel rounded-[34px] p-4 sm:p-5">
           <div className="grid gap-4 xl:grid-cols-[1.2fr_2fr_auto] xl:items-center">
             <div className="flex items-center gap-4">
@@ -409,7 +409,7 @@ export default function Dashboard() {
 
         <div className="grid flex-1 gap-4 xl:grid-cols-[360px_minmax(0,1fr)_320px]">
           <aside
-            className={`brand-panel flex min-h-[760px] flex-col overflow-hidden rounded-[32px] transition duration-300 ${
+            className={`brand-panel flex h-[calc(100vh-200px)] flex-col overflow-hidden rounded-[32px] transition duration-300 ${
               isMobileConversationOpen ? 'hidden xl:flex' : 'flex'
             }`}
           >
@@ -554,7 +554,7 @@ export default function Dashboard() {
           </aside>
 
           <section
-            className={`brand-panel min-h-[760px] overflow-hidden rounded-[32px] ${
+            className={`brand-panel h-[calc(100vh-200px)] overflow-hidden rounded-[32px] ${
               isMobileConversationOpen ? 'flex' : 'hidden xl:flex'
             } flex-col`}
           >
@@ -656,7 +656,7 @@ export default function Dashboard() {
             )}
           </section>
 
-          <aside className="brand-panel flex min-h-[760px] flex-col overflow-hidden rounded-[32px]">
+          <aside className="brand-panel flex h-[calc(100vh-200px)] flex-col overflow-hidden rounded-[32px]">
             <div className="border-b border-white/8 px-5 pb-4 pt-5">
               <p className="brand-kicker text-[10px] text-white/40">Insights</p>
               <h2 className="mt-2 text-2xl font-semibold text-white">Conversation intelligence</h2>

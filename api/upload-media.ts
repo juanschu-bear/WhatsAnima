@@ -19,6 +19,8 @@ export default async function handler(req: any, res: any) {
     const name = filename || `media-${Date.now()}`;
     const path = `${conversationId || 'general'}/${name}`;
 
+    await supabase.storage.createBucket(storageBucket, { public: true }).catch(() => undefined);
+
     const { data, error } = await supabase.storage
       .from(storageBucket)
       .upload(path, buffer, { contentType: contentType || 'application/octet-stream', upsert: true });

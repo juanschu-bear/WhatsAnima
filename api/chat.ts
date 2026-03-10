@@ -52,7 +52,7 @@ export default async function handler(req: any, res: any) {
     if (history && Array.isArray(history)) {
       for (const h of history.slice(-10)) {
         messages.push({
-          role: h.sender === 'contact' ? 'user' : 'assistant',
+          role: h.role === 'user' || h.sender === 'contact' ? 'user' : 'assistant',
           content: h.content || ''
         });
       }
