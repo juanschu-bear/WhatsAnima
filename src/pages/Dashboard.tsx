@@ -181,8 +181,8 @@ export default function Dashboard() {
         setSelectedConversationId((current) => current ?? conversationData[0]?.id ?? null)
       })
       .catch((loadError) => {
-        console.error('Dashboard load error:', loadError)
-        setError('Unable to load the owner dashboard.')
+        console.error('Dashboard load error:', loadError?.message ?? loadError?.code ?? loadError)
+        setError(`Unable to load the owner dashboard: ${loadError?.message || 'unknown error'}`)
       })
       .finally(() => setLoading(false))
   }, [userEmail, user])
