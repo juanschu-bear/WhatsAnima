@@ -84,6 +84,14 @@ const translations = {
     switchOwner: 'Switch owner view',
     viewing: 'Viewing',
 
+    // Avatar status
+    isListening: 'is listening to your message',
+    isWatching: 'is watching your video',
+    isLooking: 'is looking at your image',
+    isThinking: 'is thinking',
+    isWriting: 'is writing',
+    isRecording: 'is recording a voice note',
+
     // Message actions
     forward: 'Forward',
     forwardMessage: 'Forward message',
@@ -204,6 +212,14 @@ const translations = {
     switchOwner: 'Cambiar vista de owner',
     viewing: 'Viendo',
 
+    // Avatar status
+    isListening: 'est\u00e1 escuchando tu mensaje',
+    isWatching: 'est\u00e1 viendo tu video',
+    isLooking: 'est\u00e1 mirando tu imagen',
+    isThinking: 'est\u00e1 pensando',
+    isWriting: 'est\u00e1 escribiendo',
+    isRecording: 'est\u00e1 grabando una nota de voz',
+
     // Message actions
     forward: 'Reenviar',
     forwardMessage: 'Reenviar mensaje',
@@ -323,6 +339,14 @@ const translations = {
     allOwners: 'Alle Owners',
     switchOwner: 'Owner-Ansicht wechseln',
     viewing: 'Anzeige',
+
+    // Avatar status
+    isListening: 'h\u00f6rt sich deine Nachricht an',
+    isWatching: 'schaut sich dein Video an',
+    isLooking: 'schaut sich dein Bild an',
+    isThinking: 'denkt nach',
+    isWriting: 'schreibt',
+    isRecording: 'nimmt eine Sprachnachricht auf',
 
     // Message actions
     forward: 'Weiterleiten',

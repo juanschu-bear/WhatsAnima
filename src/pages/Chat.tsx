@@ -356,7 +356,8 @@ export default function Chat() {
   const [text, setText] = useState('')
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
-  const [avatarTyping, setAvatarTyping] = useState(false)
+  type AvatarStatus = null | 'listening' | 'watching' | 'looking' | 'thinking' | 'writing' | 'recording'
+  const [avatarStatus, setAvatarStatus] = useState<AvatarStatus>(null)
   const [recordingMode, setRecordingMode] = useState<RecordingMode>('idle')
   const [captureKind, setCaptureKind] = useState<CaptureKind>('none')
   const [recordingSeconds, setRecordingSeconds] = useState(0)
@@ -611,7 +612,7 @@ export default function Chat() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, avatarTyping])
+  }, [messages, avatarStatus])
 
   useEffect(() => {
     const closeMenu = () => setMediaMenuOpen(false)
@@ -913,6 +914,7 @@ export default function Chat() {
         }))
         .filter((message) => message.content.length > 0)
 
+      setAvatarStatus('writing')
       const chatResponse = await fetch('/api/chat', {
         method: 'POST',
         headers: {
@@ -945,6 +947,7 @@ export default function Chat() {
         return { content: replyText, mediaUrl: null }
       }
 
+      setAvatarStatus('recording')
       const ownerVoiceId = conversation?.wa_owners?.voice_id
       const response = await fetch('/api/tts', {
         method: 'POST',
@@ -998,9 +1001,15 @@ export default function Chat() {
     }
   ) {
     if (!conversationId) return
-    setAvatarTyping(true)
+    // Set initial status based on context
+    if (options?.isVoice) setAvatarStatus('listening')
+    else if (options?.isVideo) setAvatarStatus('watching')
+    else if (options?.isImage) setAvatarStatus('looking')
+    else setAvatarStatus('thinking')
+
     try {
       const useVoice = options?.useVoice ?? true
+      setAvatarStatus('thinking')
       const replyPayload = await getAvatarReply(seedText, options)
       const hasAudio = useVoice && !!replyPayload.mediaUrl
       const msgType = hasAudio ? 'voice' : 'text'
@@ -1021,7 +1030,7 @@ export default function Chat() {
     } catch (err) {
       console.error('Avatar reply failed:', err)
     } finally {
-      setAvatarTyping(false)
+      setAvatarStatus(null)
     }
   }
 
@@ -2000,7 +2009,7 @@ export default function Chat() {
             </div>
             <div className="min-w-0 flex-1">
               <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em] text-white">{owner.display_name}</h1>
-              <p className="text-xs text-[#00d4a1]/80">{avatarTyping ? 'typing...' : 'online'}</p>
+              <p className="text-xs text-[#00d4a1]/80">{avatarStatus ? 'online' : 'online'}</p>
             </div>
             {/* Export full chat button */}
             <div className="relative">
@@ -2099,14 +2108,25 @@ export default function Chat() {
             )
           })}
 
-          {avatarTyping ? (
+          {avatarStatus ? (
             <div className="flex justify-start">
-              <div className="rounded-[20px] rounded-tl-[6px] border border-white/[0.06] bg-[#1a2332] px-5 py-3.5 shadow-[0_2px_8px_rgba(0,0,0,0.12)]">
-                <div className="flex gap-1.5">
-                  <span className="h-2 w-2 animate-bounce rounded-full bg-[#00d4a1]/60" style={{ animationDelay: '0ms' }} />
-                  <span className="h-2 w-2 animate-bounce rounded-full bg-[#00d4a1]/60" style={{ animationDelay: '150ms' }} />
-                  <span className="h-2 w-2 animate-bounce rounded-full bg-[#00d4a1]/60" style={{ animationDelay: '300ms' }} />
+              <div className="flex items-center gap-2.5 rounded-[20px] rounded-tl-[6px] border border-white/[0.06] bg-[#1a2332] px-4 py-3 shadow-[0_2px_8px_rgba(0,0,0,0.12)]">
+                <div className="flex gap-1">
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#00d4a1]" style={{ animationDelay: '0ms' }} />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#00d4a1]" style={{ animationDelay: '150ms' }} />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#00d4a1]" style={{ animationDelay: '300ms' }} />
                 </div>
+                <span className="text-[13px] text-white/50">
+                  <span className="font-medium text-white/70">{owner.display_name}</span>
+                  {' '}
+                  {avatarStatus === 'listening' ? t(locale, 'isListening')
+                    : avatarStatus === 'watching' ? t(locale, 'isWatching')
+                    : avatarStatus === 'looking' ? t(locale, 'isLooking')
+                    : avatarStatus === 'thinking' ? t(locale, 'isThinking')
+                    : avatarStatus === 'writing' ? t(locale, 'isWriting')
+                    : avatarStatus === 'recording' ? t(locale, 'isRecording')
+                    : t(locale, 'isWriting')}
+                </span>
               </div>
             </div>
           ) : null}
