@@ -524,6 +524,157 @@ export default function Chat() {
     return typeof data.url === 'string' ? data.url : null
   }
 
+  async function getOpmConfig() {
+    const response = await fetch('/api/config')
+    const data = await response.json().catch(() => ({}))
+    return {
+      opm_api_url: typeof data.opm_api_url === 'string' ? data.opm_api_url : null,
+      opm_preset: typeof data.opm_preset === 'string' ? data.opm_preset : 'celebrity_ceo',
+    }
+  }
+
+  function delay(ms: number) {
+    return new Promise((resolve) => window.setTimeout(resolve, ms))
+  }
+
+  function normalizeOpmResponse(raw: any) {
+    const unwrapped = raw?.result || raw?.data || raw
+    const echoAnalysis = unwrapped?.echo_analysis || null
+    const standardAnalysis = unwrapped?.standard_analysis || null
+
+    if (echoAnalysis || standardAnalysis) {
+      const isEcho = !!echoAnalysis
+      const analysis = echoAnalysis || standardAnalysis
+      const audioFeatures = analysis.audio_features || {}
+      const firedRules = analysis.fired_rules || []
+      const transcript = audioFeatures.transcript || analysis.transcript || ''
+      const sessionObj = unwrapped.session || null
+      const lucidText =
+        sessionObj?.lucid_interpretation?.interpretation ||
+        sessionObj?.session_interpretation?.interpretation ||
+        ''
+      const sessionPatterns = sessionObj?.session_analysis?.session_patterns || []
+
+      return {
+        transcript,
+        perception: {
+          primary_emotion: audioFeatures.primary_emotion || null,
+          secondary_emotion: audioFeatures.secondary_emotion || null,
+          valence: audioFeatures.valence ?? null,
+          arousal: audioFeatures.arousal ?? null,
+          confidence: audioFeatures.confidence ?? null,
+          behavioral_summary: lucidText || null,
+          session_patterns: sessionPatterns,
+          transcript,
+        },
+        interpretation: {
+          behavioral_summary: lucidText || '',
+          conversation_hooks: sessionPatterns.map((pattern: any) =>
+            typeof pattern === 'string' ? pattern : pattern?.pattern || pattern?.description || JSON.stringify(pattern)
+          ),
+          lucid_raw: Boolean(lucidText),
+        },
+        session: sessionObj,
+        analysisType: isEcho ? 'echo' : 'standard',
+        duration_sec: analysis.duration_sec || null,
+        processing_ms: analysis.processing_ms || null,
+        skipped_reason: analysis.skipped_reason || null,
+        prosodic_summary: audioFeatures.prosodic_summary || null,
+        fired_rules: firedRules,
+      }
+    }
+
+    return {
+      transcript: unwrapped?.transcript || '',
+      perception: unwrapped?.perception || {},
+      interpretation: unwrapped?.interpretation || {},
+      session: unwrapped?.session || null,
+      analysisType: 'legacy',
+      fired_rules: [],
+    }
+  }
+
+  async function callOpmApi(
+    mediaBlob: Blob,
+    mediaType: 'audio' | 'video',
+    opts?: { orientation?: number }
+  ) {
+    const config = await getOpmConfig()
+    const opmUrl = config.opm_api_url
+    const preset = mediaType === 'audio' ? 'echo' : config.opm_preset || 'celebrity_ceo'
+    const blobType = (mediaBlob.type || '').toLowerCase()
+    let ext = 'webm'
+    if (blobType.includes('aac')) ext = 'aac'
+    else if (blobType.includes('m4a')) ext = 'm4a'
+    else if (blobType.includes('mp4')) ext = 'mp4'
+    else if (blobType.includes('ogg')) ext = 'ogg'
+    const fileName = `capture.${ext}`
+
+    if (!opmUrl) {
+      const submitRes = await fetch('/api/perception', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: conversation?.contact_id || 'guest' }),
+      })
+      const submitData = await submitRes.json()
+      await delay(1200)
+      const resultsRes = await fetch(`/api/perception?action=results&job_id=${submitData.job_id}`)
+      const mockResults = await resultsRes.json()
+      return normalizeOpmResponse(mockResults)
+    }
+
+    const useProxy = mediaType === 'video' && Boolean(opts?.orientation)
+    const uploadUrl = useProxy ? '/api/ingest-video' : `${opmUrl}/analyze`
+    const formData = new FormData()
+    formData.append('video', mediaBlob, fileName)
+    formData.append('user_id', conversation?.contact_id || 'guest')
+    formData.append('preset', preset)
+    if (opts?.orientation) formData.append('orientation', String(opts.orientation))
+
+    const submitRes = await fetch(uploadUrl, {
+      method: 'POST',
+      body: formData,
+    })
+
+    if (!submitRes.ok) {
+      const errData = await submitRes.json().catch(() => ({}))
+      throw new Error(errData.error || 'processing_error')
+    }
+
+    const submitData = await submitRes.json()
+    const jobId = submitData.job_id
+    const startTime = Date.now()
+    let jobComplete = false
+
+    while (Date.now() - startTime < 180000) {
+      await delay(3000)
+      const statusRes = await fetch(`${opmUrl}/status/${jobId}`)
+      if (!statusRes.ok) continue
+      const statusData = await statusRes.json()
+      const jobStatus = String(statusData.status || '').toLowerCase()
+
+      if (jobStatus === 'complete' || jobStatus === 'completed' || jobStatus === 'done') {
+        jobComplete = true
+        break
+      }
+      if (jobStatus === 'failed' || jobStatus === 'error') {
+        throw new Error(statusData.error || 'processing_error')
+      }
+    }
+
+    if (!jobComplete) {
+      throw new Error('processing_timeout')
+    }
+
+    const resultsRes = await fetch(`${opmUrl}/results/${jobId}`)
+    if (!resultsRes.ok) {
+      throw new Error('processing_error')
+    }
+
+    const rawResults = await resultsRes.json()
+    return normalizeOpmResponse(rawResults)
+  }
+
   async function getAvatarReply(
     userMessage: string,
     options?: {
@@ -532,6 +683,7 @@ export default function Chat() {
       isImage?: boolean
       isVideo?: boolean
       isVoice?: boolean
+      perception?: any
     }
   ): Promise<{ content: string; mediaUrl: string | null }> {
     try {
@@ -541,6 +693,7 @@ export default function Chat() {
         isImage = false,
         isVideo = false,
         isVoice = false,
+        perception,
       } = options ?? {}
 
       const history = messages
@@ -564,6 +717,7 @@ export default function Chat() {
           isImage,
           isVideo,
           isVoice,
+          perception,
         }),
       })
 
@@ -626,6 +780,7 @@ export default function Chat() {
       isImage?: boolean
       isVideo?: boolean
       isVoice?: boolean
+      perception?: any
     }
   ) {
     if (!conversationId) return
@@ -675,20 +830,6 @@ export default function Chat() {
     }
   }
 
-  function sendToOpm(audioBase64: string, convId: string, contId: string, fname: string, cType: string) {
-    fetch('/api/opm-process', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        audio: audioBase64,
-        conversationId: convId,
-        contactId: contId,
-        filename: fname,
-        contentType: cType,
-      }),
-    }).catch((err) => console.warn('[OPM] background send failed:', err))
-  }
-
   async function sendVoiceMessage(blob: Blob, transcript: string, durationSeconds: number) {
     if (!conversationId || !conversation) return
 
@@ -700,37 +841,43 @@ export default function Chat() {
     setError(null)
     try {
       const audioBase64 = await blobToBase64(file)
-      const mediaUrl = await uploadAudioToStorage(audioBase64, file.type || 'audio/webm')
+      const [mediaUrl, opmResponse] = await Promise.all([
+        uploadAudioToStorage(audioBase64, file.type || 'audio/webm'),
+        callOpmApi(file, 'audio').catch((error) => {
+          console.error('[Voice] OPM voice analysis failed:', error)
+          return null
+        }),
+      ])
       if (!mediaUrl) throw new Error('upload failed')
+      const finalTranscript = opmResponse?.transcript?.trim() || transcript || '[Voice message]'
 
       const message = (await sendMessage(
         conversationId,
         'contact',
         'voice',
-        transcript || '[Voice message]',
+        finalTranscript,
         mediaUrl,
         durationSeconds
       )) as Message
 
       setMessages((current) => [...current, message])
 
-      if (transcript) {
+      if (finalTranscript) {
         await createPerceptionLog({
           messageId: message.id,
           conversationId: conversation.id,
           contactId: conversation.contact_id,
           ownerId: conversation.owner_id,
-          transcript,
+          transcript: finalTranscript,
           audioDurationSec: durationSeconds,
         })
-        setTranscriptMap((current) => ({ ...current, [message.id]: transcript }))
+        setTranscriptMap((current) => ({ ...current, [message.id]: finalTranscript }))
       }
 
-      // Send to OPM in background
-      sendToOpm(audioBase64, conversation.id, conversation.contact_id, file.name, (file.type || 'audio/webm').split(';')[0])
-
-      // Send transcript to LLM so avatar can respond to what was said
-      await sendAvatarReply(transcript || 'The user sent a voice message but transcription was unavailable.', { isVoice: true })
+      await sendAvatarReply(finalTranscript || 'a voice message', {
+        isVoice: true,
+        perception: opmResponse,
+      })
     } catch (recordingError) {
       console.error(recordingError)
       setError('Unable to send this voice note.')
@@ -969,11 +1116,15 @@ export default function Chat() {
         : new File([videoDraftBlobRef.current], `recorded-video.${getFileExtension(videoDraftBlobRef.current, 'webm')}`, {
             type: videoDraftBlobRef.current.type || 'video/webm',
           })
-      const transcript = videoDraftTranscriptRef.current
-      videoDraftTranscriptRef.current = ''
-
-      const mediaUrl = await uploadMediaToStorage(file, 'video')
+      const [mediaUrl, opmResponse] = await Promise.all([
+        uploadMediaToStorage(file, 'video'),
+        callOpmApi(file, 'video').catch((error) => {
+          console.error('[Video] OPM recorded video analysis failed:', error)
+          return null
+        }),
+      ])
       if (!mediaUrl) throw new Error('upload failed')
+      const transcript = opmResponse?.transcript?.trim() || ''
 
       const contentText = transcript || '[Recorded video]'
       const message = (await sendMessage(
@@ -990,14 +1141,12 @@ export default function Chat() {
         setTranscriptMap((current) => ({ ...current, [message.id]: transcript }))
       }
 
-      // Send audio to OPM in background
-      try {
-        const audioBase64 = await blobToBase64(file)
-        sendToOpm(audioBase64, conversation.id, conversation.contact_id, file.name, (file.type || 'video/webm').split(';')[0])
-      } catch {}
-
       closeVideoOverlay()
-      await sendAvatarReply(transcript || 'The user sent a video message but transcription was unavailable.', { isVideo: true })
+      await sendAvatarReply(transcript || 'a recorded video', {
+        useVoice: false,
+        isVideo: true,
+        perception: opmResponse,
+      })
     } catch (videoSendError) {
       console.error(videoSendError)
       setError('Unable to send this recorded video.')
@@ -1382,7 +1531,13 @@ export default function Chat() {
 
       const rotatedFile = await correctVideoOrientation(file)
       const metadata = await readVideoMetadata(rotatedFile)
-      const mediaUrl = await uploadMediaToStorage(rotatedFile, 'video')
+      const [mediaUrl, opmResponse] = await Promise.all([
+        uploadMediaToStorage(rotatedFile, 'video'),
+        callOpmApi(rotatedFile, 'video').catch((error) => {
+          console.error('[Video] OPM uploaded video analysis failed:', error)
+          return null
+        }),
+      ])
       if (!mediaUrl) throw new Error('upload failed')
       const message = await sendMessage(
         conversationId,
@@ -1393,7 +1548,15 @@ export default function Chat() {
         metadata.duration || null || undefined
       )
       setMessages((current) => [...current, message as Message])
-      await sendAvatarReply(caption || 'The user uploaded a video.', { isVideo: true })
+      const transcript = opmResponse?.transcript?.trim() || ''
+      const videoMessageText = caption
+        ? (transcript ? `${caption}\n\n[Transcribed from video]: ${transcript}` : caption)
+        : transcript || 'an uploaded video'
+      await sendAvatarReply(videoMessageText, {
+        useVoice: false,
+        isVideo: true,
+        perception: opmResponse,
+      })
     } catch (draftError) {
       console.error(draftError)
       setError(`Unable to send this ${kind}.`)
