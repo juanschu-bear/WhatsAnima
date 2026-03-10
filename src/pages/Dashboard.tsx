@@ -15,6 +15,7 @@ import {
   type MessageType,
   type OwnerDashboardStats,
 } from '../lib/api'
+import { resolveAvatarUrl } from '../lib/avatars'
 import { type Locale, getStoredLocale, setStoredLocale, t } from '../lib/i18n'
 
 interface InvitationLink {
@@ -67,11 +68,6 @@ function formatMessagePreview(content: string | null, type: MessageType) {
 function getContactName(conversation: ConversationListItem) {
   const contact = conversation.wa_contacts
   return contact?.display_name || contact?.email || 'Guest'
-}
-
-function getInitials(name: string) {
-  const parts = name.split(/\s+/).filter(Boolean)
-  return (parts[0]?.[0] || '') + (parts[1]?.[0] || '')
 }
 
 function isOnline(dateStr?: string | null) {
@@ -390,9 +386,11 @@ export default function Dashboard() {
           <div className="grid gap-4 xl:grid-cols-[1.2fr_2fr_auto] xl:items-center">
             <div className="flex items-center gap-4">
               <div className="relative">
-                <div className="flex h-16 w-16 items-center justify-center rounded-[22px] bg-[linear-gradient(135deg,#0e8f74,#153f43)] text-xl font-semibold text-white shadow-[0_0_28px_rgba(0,168,132,0.25)]">
-                  {getInitials(ownerName) || 'WA'}
-                </div>
+                <img
+                  src={resolveAvatarUrl(ownerName)}
+                  alt={ownerName}
+                  className="h-16 w-16 rounded-[22px] object-cover shadow-[0_0_28px_rgba(0,168,132,0.25)]"
+                />
                 {/* Owner switcher dropdown trigger */}
                 {allOwners.length > 1 ? (
                   <button
@@ -421,9 +419,11 @@ export default function Dashboard() {
                             : 'border border-transparent text-white hover:bg-white/5'
                         }`}
                       >
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(135deg,#0e8f74,#153f43)] text-sm font-semibold text-white">
-                          {getInitials(o.display_name || '')}
-                        </div>
+                        <img
+                          src={resolveAvatarUrl(o.display_name)}
+                          alt={o.display_name || 'Owner'}
+                          className="h-9 w-9 shrink-0 rounded-full object-cover"
+                        />
                         <span className="truncate text-sm font-medium">{o.display_name || 'Unnamed'}</span>
                         {o.id === ownerId ? (
                           <svg className="ml-auto h-4 w-4 shrink-0 text-[#00a884]" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
