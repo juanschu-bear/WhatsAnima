@@ -102,23 +102,30 @@ export default async function handler(req: any, res: any) {
     return res.status(503).json({ error: 'Storage not configured' })
   }
 
-  const { media_base64, owner_id, conversation_id, mime_type, media_type } = req.body ?? {}
-  const preferredBucket = media_type === 'image' ? 'image-uploads' : 'voice-messages'
+  // Accept both old field names (media_base64, owner_id, conversation_id) and
+  // new field names (media, conversationId, filename) for backwards compat
+  const body = req.body ?? {}
+  const mediaData = body.media || body.media_base64
+  const convId = body.conversationId || body.conversation_id || 'general'
+  const ownerId = body.owner_id || 'shared'
+  const mimeType = body.mime_type || body.contentType
+  const mediaType = body.media_type || body.mediaType || 'image'
+  const preferredBucket = mediaType === 'image' ? 'image-uploads' : 'voice-messages'
   const fallbackBucket = 'voice-messages'
 
-  if (!media_base64 || !owner_id || !conversation_id) {
-    return res.status(400).json({ error: 'Missing required fields: media_base64, owner_id, conversation_id' })
+  if (!mediaData) {
+    return res.status(400).json({ error: 'Media data is required (send as "media" or "media_base64")' })
   }
 
   try {
-    let buffer = Buffer.from(media_base64, 'base64')
+    let buffer = Buffer.from(mediaData, 'base64')
 
-    if (media_type === 'video') {
-      const mimeExt = String(mime_type || '').includes('quicktime')
+    if (mediaType === 'video') {
+      const mimeExt = String(mimeType || '').includes('quicktime')
         ? 'mov'
-        : String(mime_type || '').includes('mp4')
+        : String(mimeType || '').includes('mp4')
           ? 'mp4'
-          : String(mime_type || '').includes('webm')
+          : String(mimeType || '').includes('webm')
             ? 'webm'
             : 'mp4'
       try {
@@ -145,13 +152,13 @@ export default async function handler(req: any, res: any) {
       'video/x-matroska': 'mkv',
     }
 
-    const ext = mimeMap[mime_type] || (media_type === 'video' ? 'mp4' : 'jpg')
-    const contentType = mime_type || (media_type === 'video' ? 'video/mp4' : 'image/jpeg')
+    const ext = mimeMap[mimeType] || (mediaType === 'video' ? 'mp4' : 'jpg')
+    const contentType = mimeType || (mediaType === 'video' ? 'video/mp4' : 'image/jpeg')
     const bucketsToTry = preferredBucket === fallbackBucket ? [preferredBucket] : [preferredBucket, fallbackBucket]
 
     for (const bucket of bucketsToTry) {
-      const prefix = bucket === fallbackBucket && media_type === 'image' ? 'images/' : ''
-      const fileName = `${prefix}${owner_id}/${conversation_id}/${Date.now()}-${crypto.randomBytes(4).toString('hex')}.${ext}`
+      const prefix = bucket === fallbackBucket && mediaType === 'image' ? 'images/' : ''
+      const fileName = `${prefix}${ownerId}/${convId}/${Date.now()}-${crypto.randomBytes(4).toString('hex')}.${ext}`
 
       if (bucket === preferredBucket) {
         const { error: bucketError } = await supabase.storage.createBucket(bucket, {

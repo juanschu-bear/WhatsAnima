@@ -10,7 +10,6 @@ interface InviteData {
   wa_owners: {
     id: string
     display_name: string
-    avatar_url: string | null
     voice_id: string | null
     tavus_replica_id: string | null
     system_prompt?: string | null
@@ -43,7 +42,7 @@ export default function Invite() {
 
   const [emailSent, setEmailSent] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [welcomeData, setWelcomeData] = useState<{ ownerName: string; avatarUrl: string | null; chatId: string } | null>(null)
+  const [welcomeData, setWelcomeData] = useState<{ ownerName: string; chatId: string } | null>(null)
 
   // --- validate token ---
   useEffect(() => {
@@ -85,7 +84,6 @@ export default function Invite() {
       localStorage.removeItem(PENDING_KEY)
       setWelcomeData({
         ownerName: ownerInfo.display_name,
-        avatarUrl: ownerInfo.avatar_url,
         chatId: conversation.id,
       })
     } catch (err) {
@@ -211,17 +209,9 @@ export default function Invite() {
     return (
       <div className="brand-scene flex min-h-screen flex-col items-center justify-center px-4 text-center">
         <div className="brand-panel relative z-10 w-full max-w-md rounded-[30px] p-8">
-          {welcomeData.avatarUrl ? (
-            <img
-              src={welcomeData.avatarUrl}
-              alt={welcomeData.ownerName}
-              className="mx-auto mb-4 h-24 w-24 rounded-full object-cover ring-4 ring-[#00a884]/30 shadow-[0_0_40px_rgba(0,168,132,0.3)]"
-            />
-          ) : (
-            <div className="mx-auto mb-4 flex h-24 w-24 items-center justify-center rounded-full bg-[linear-gradient(135deg,#0e8f74,#153f43)] text-2xl font-bold text-white ring-4 ring-[#00a884]/30 shadow-[0_0_40px_rgba(0,168,132,0.3)]">
-              {initials}
-            </div>
-          )}
+          <div className="mx-auto mb-4 flex h-24 w-24 items-center justify-center rounded-full bg-[linear-gradient(135deg,#0e8f74,#153f43)] text-2xl font-bold text-white ring-4 ring-[#00a884]/30 shadow-[0_0_40px_rgba(0,168,132,0.3)]">
+            {initials}
+          </div>
           <h1 className="text-2xl font-bold text-white">You're now connected with</h1>
           <p className="mt-2 text-xl font-semibold text-[#00a884]">{welcomeData.ownerName}</p>
           <p className="mt-4 text-sm text-white/60">Starting your conversation...</p>
@@ -255,14 +245,6 @@ export default function Invite() {
   return (
     <div className="brand-scene flex min-h-screen flex-col items-center justify-center px-4 text-center">
       <div className="brand-panel relative z-10 w-full max-w-md rounded-[30px] p-8">
-        {owner.avatar_url && (
-          <img
-            src={owner.avatar_url}
-            alt={owner.display_name}
-            className="mx-auto mb-4 h-20 w-20 rounded-full object-cover ring-4 ring-white/20"
-          />
-        )}
-
         <h1 className="text-2xl font-bold text-white">{owner.display_name}</h1>
         <p className="mt-2 text-white/60">has invited you to start a conversation</p>
 

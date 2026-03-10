@@ -36,9 +36,6 @@ interface MessageRow {
 interface OwnerProfile {
   id: string
   display_name: string | null
-  first_name: string | null
-  last_name: string | null
-  avatar_url: string | null
 }
 
 function formatTimestamp(dateStr?: string | null) {
@@ -127,11 +124,8 @@ export default function Dashboard() {
   })
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
 
-  const firstName = String(user?.user_metadata?.first_name ?? 'Juan').trim()
-  const lastName = String(user?.user_metadata?.last_name ?? 'Schubert').trim()
-  const phoneNumber = String(user?.phone ?? user?.user_metadata?.phone_number ?? '').trim()
   const userEmail = String(user?.email ?? '').trim()
-  const ownerName = owner?.display_name || [owner?.first_name || firstName, owner?.last_name || lastName].filter(Boolean).join(' ') || userEmail || 'Juan Schubert'
+  const ownerName = owner?.display_name || userEmail || 'Owner'
 
   useEffect(() => {
     if (!user) {
@@ -143,9 +137,6 @@ export default function Dashboard() {
     setError(null)
     createOwnerIfNeeded({
       userId: user.id,
-      firstName,
-      lastName,
-      phoneNumber,
       email: userEmail,
     })
       .then(async (ownerRow) => {
@@ -153,9 +144,6 @@ export default function Dashboard() {
         setOwner({
           id: ownerRow.id,
           display_name: ownerRow.display_name ?? null,
-          first_name: ownerRow.first_name ?? null,
-          last_name: ownerRow.last_name ?? null,
-          avatar_url: ownerRow.avatar_url ?? null,
         })
 
         const [conversationResult, linkResult, statsResult] = await Promise.allSettled([
@@ -197,7 +185,7 @@ export default function Dashboard() {
         setError('Unable to load the owner dashboard.')
       })
       .finally(() => setLoading(false))
-  }, [firstName, lastName, phoneNumber, userEmail, user])
+  }, [userEmail, user])
 
   useEffect(() => {
     if (!selectedConversationId) {
@@ -338,17 +326,9 @@ export default function Dashboard() {
         <header className="brand-panel rounded-[34px] p-4 sm:p-5">
           <div className="grid gap-4 xl:grid-cols-[1.2fr_2fr_auto] xl:items-center">
             <div className="flex items-center gap-4">
-              {owner?.avatar_url ? (
-                <img
-                  src={owner.avatar_url}
-                  alt={ownerName}
-                  className="h-16 w-16 rounded-[22px] object-cover shadow-[0_0_28px_rgba(0,168,132,0.25)]"
-                />
-              ) : (
-                <div className="flex h-16 w-16 items-center justify-center rounded-[22px] bg-[linear-gradient(135deg,#0e8f74,#153f43)] text-xl font-semibold text-white shadow-[0_0_28px_rgba(0,168,132,0.25)]">
-                  {getInitials(ownerName) || 'JS'}
-                </div>
-              )}
+              <div className="flex h-16 w-16 items-center justify-center rounded-[22px] bg-[linear-gradient(135deg,#0e8f74,#153f43)] text-xl font-semibold text-white shadow-[0_0_28px_rgba(0,168,132,0.25)]">
+                {getInitials(ownerName) || 'WA'}
+              </div>
               <div>
                 <p className="brand-kicker text-[10px] text-white/38">Owner Console</p>
                 <h1 className="mt-2 text-3xl font-bold text-white">{ownerName}</h1>
