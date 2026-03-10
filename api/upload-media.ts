@@ -105,12 +105,16 @@ export default async function handler(req: any, res: any) {
   // Accept both old field names (media_base64, owner_id, conversation_id) and
   // new field names (media, conversationId, filename) for backwards compat
   const body = req.body ?? {}
-  const mediaData = body.media || body.media_base64
+  const mediaData = body.media || body.media_base64 || body.file
   const convId = body.conversationId || body.conversation_id || 'general'
   const ownerId = body.owner_id || 'shared'
   const mimeType = body.mime_type || body.contentType
   const mediaType = body.media_type || body.mediaType || 'image'
-  const preferredBucket = mediaType === 'image' ? 'image-uploads' : 'voice-messages'
+
+  // Use explicit bucket from client, or derive from media type
+  // Buckets: image-uploads, video-uploads, video-messages, voice-messages
+  const preferredBucket = body.bucket
+    || (mediaType === 'image' ? 'image-uploads' : mediaType === 'video' ? 'video-uploads' : 'voice-messages')
   const fallbackBucket = 'voice-messages'
 
   if (!mediaData) {
