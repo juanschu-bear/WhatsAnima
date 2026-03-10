@@ -5,8 +5,11 @@ export default async function handler(req: any, res: any) {
     const { text, voiceId } = req.body;
     if (!text) return res.status(400).json({ error: 'Text is required' });
 
-    const apiKey = process.env.ELEVENLABS_API_KEY;
-    if (!apiKey) return res.status(500).json({ error: 'ElevenLabs API key not configured' });
+    const apiKey = process.env.ELEVENLABS_API_KEY || process.env.VITE_ELEVENLABS_API_KEY;
+    if (!apiKey) {
+      console.error('[tts] FATAL: No ElevenLabs API key. Set ELEVENLABS_API_KEY env var.');
+      return res.status(500).json({ error: 'Missing ELEVENLABS_API_KEY env var' });
+    }
 
     const voice = voiceId || 'lx8LAX2EUAKftVz0Dk5z';
     const url = `https://api.elevenlabs.io/v1/text-to-speech/${voice}`;
