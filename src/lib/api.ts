@@ -503,6 +503,38 @@ export async function createPerceptionLog(payload: {
   return data
 }
 
+export async function createContactForOwner(payload: {
+  ownerId: string
+  firstName: string
+  lastName: string
+  email: string
+}) {
+  const displayName = [payload.firstName.trim(), payload.lastName.trim()].filter(Boolean).join(' ').trim() || payload.email.trim()
+
+  // Check if contact already exists for this owner+email
+  const { data: existing } = await supabase
+    .from('wa_contacts')
+    .select('id, owner_id, display_name, email')
+    .eq('owner_id', payload.ownerId)
+    .eq('email', payload.email.trim())
+    .maybeSingle()
+
+  if (existing) return existing
+
+  const contactId = crypto.randomUUID()
+  const { error } = await supabase
+    .from('wa_contacts')
+    .insert({
+      id: contactId,
+      owner_id: payload.ownerId,
+      display_name: displayName,
+      email: payload.email.trim(),
+    })
+  if (error) throw error
+
+  return { id: contactId, owner_id: payload.ownerId, display_name: displayName, email: payload.email.trim() }
+}
+
 export async function sendMessage(
   conversationId: string,
   sender: 'contact' | 'avatar',
