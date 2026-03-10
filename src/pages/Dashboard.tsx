@@ -70,11 +70,6 @@ function getContactName(conversation: ConversationListItem) {
   return contact?.display_name || contact?.email || 'Guest'
 }
 
-function getInitials(name: string) {
-  const parts = name.split(/\s+/).filter(Boolean)
-  return (parts[0]?.[0] || '') + (parts[1]?.[0] || '')
-}
-
 function isOnline(dateStr?: string | null) {
   if (!dateStr) return false
   return Date.now() - new Date(dateStr).getTime() < 5 * 60 * 1000

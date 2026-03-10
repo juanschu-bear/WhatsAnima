@@ -9,15 +9,6 @@ interface OwnerOption {
   display_name: string
 }
 
-function getInitials(name: string) {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((w) => w.charAt(0).toUpperCase())
-    .join('')
-    .slice(0, 2)
-}
-
 export default function AvatarSelect() {
   const { user, signOut } = useAuth()
   const navigate = useNavigate()
