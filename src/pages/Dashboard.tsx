@@ -133,25 +133,137 @@ function computeConversationInsights(messages: MessageRow[], locale: Locale) {
   const peakEntry = [...hourBuckets.entries()].sort((a, b) => b[1] - a[1])[0]
   const peakTime = peakEntry ? `${String(peakEntry[0]).padStart(2, '0')}:00` : '--'
 
+  const en = locale !== 'es'
   const qCount = (allText.match(/\?/g) ?? []).length
   const exCount = (allText.match(/!/g) ?? []).length
   const emojiCount = (allText.match(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{2600}-\u{26FF}]/gu) ?? []).length
-  const signals: string[] = []
-  if (qCount > 1) signals.push(locale === 'es' ? 'Curioso' : 'Curious')
-  if (exCount > 1) signals.push(locale === 'es' ? 'Energetico' : 'Energetic')
-  if (emojiCount > 0) signals.push(locale === 'es' ? 'Expresivo' : 'Expressive')
-  if (voiceCount > textCount && voiceCount > 0) signals.push(locale === 'es' ? 'Prefiere voz' : 'Voice-first')
-  if (imageCount + videoCount > 0) signals.push(locale === 'es' ? 'Visual' : 'Visual')
-  if (signals.length === 0) signals.push(locale === 'es' ? 'Neutral' : 'Neutral')
 
-  // Media-type mix for bar chart
+  // Behavioral signals with icon + description
+  const signals: { label: string; icon: string; desc: string; color: string }[] = []
+  if (qCount > 1) signals.push({
+    label: en ? 'Curious' : 'Curioso',
+    icon: '?',
+    desc: en ? `${qCount} questions asked \u2014 actively seeking information` : `${qCount} preguntas \u2014 busca informacion activamente`,
+    color: '#53d0ff',
+  })
+  if (exCount > 1) signals.push({
+    label: en ? 'Energetic' : 'Energetico',
+    icon: '!',
+    desc: en ? `${exCount} exclamations \u2014 high emotional involvement` : `${exCount} exclamaciones \u2014 alta implicacion emocional`,
+    color: '#f59e0b',
+  })
+  if (emojiCount > 0) signals.push({
+    label: en ? 'Expressive' : 'Expresivo',
+    icon: '\u{1F60A}',
+    desc: en ? `Uses emojis (${emojiCount}x) \u2014 communicates with emotional nuance` : `Usa emojis (${emojiCount}x) \u2014 comunica con matiz emocional`,
+    color: '#f472b6',
+  })
+  if (voiceCount > textCount && voiceCount > 0) signals.push({
+    label: en ? 'Voice-first' : 'Prefiere voz',
+    icon: '\u{1F3A4}',
+    desc: en ? `${voiceCount} voice vs ${textCount} text \u2014 prefers speaking over typing` : `${voiceCount} voz vs ${textCount} texto \u2014 prefiere hablar`,
+    color: '#a78bfa',
+  })
+  if (imageCount + videoCount > 0) signals.push({
+    label: 'Visual',
+    icon: '\u{1F4F7}',
+    desc: en ? `${imageCount + videoCount} media shared \u2014 visually expressive` : `${imageCount + videoCount} medios compartidos \u2014 comunicador visual`,
+    color: '#34d399',
+  })
+  if (avgMsgLen > 100) signals.push({
+    label: en ? 'Detailed' : 'Detallista',
+    icon: '\u{1F4DD}',
+    desc: en ? `Avg. ${avgMsgLen} chars/msg \u2014 thorough, detailed responses` : `Prom. ${avgMsgLen} car./msg \u2014 respuestas detalladas`,
+    color: '#60a5fa',
+  })
+  if (avgMsgLen > 0 && avgMsgLen <= 30) signals.push({
+    label: en ? 'Concise' : 'Conciso',
+    icon: '\u{26A1}',
+    desc: en ? `Avg. ${avgMsgLen} chars/msg \u2014 direct and to the point` : `Prom. ${avgMsgLen} car./msg \u2014 directo al punto`,
+    color: '#fbbf24',
+  })
+  if (signals.length === 0) signals.push({
+    label: en ? 'Neutral' : 'Neutral',
+    icon: '\u{1F4AC}',
+    desc: en ? 'Balanced style \u2014 no strong patterns detected yet' : 'Estilo equilibrado \u2014 sin patrones fuertes aun',
+    color: '#94a3b8',
+  })
+
+  // Media breakdown
   const mediaBreakdown = [
-    { label: locale === 'es' ? 'Texto' : 'Text', count: textCount, color: '#00a884' },
-    { label: locale === 'es' ? 'Voz' : 'Voice', count: voiceCount, color: '#53d0ff' },
-    { label: locale === 'es' ? 'Imagen' : 'Image', count: imageCount, color: '#a78bfa' },
+    { label: en ? 'Text' : 'Texto', count: textCount, color: '#00a884' },
+    { label: en ? 'Voice' : 'Voz', count: voiceCount, color: '#53d0ff' },
+    { label: en ? 'Image' : 'Imagen', count: imageCount, color: '#a78bfa' },
     { label: 'Video', count: videoCount, color: '#f472b6' },
   ].filter((b) => b.count > 0)
   const maxMedia = Math.max(1, ...mediaBreakdown.map((b) => b.count))
+
+  // Strengths & Weaknesses
+  const strengths: { label: string; detail: string }[] = []
+  const weaknesses: { label: string; detail: string }[] = []
+
+  if (avgResponseSec > 0 && avgResponseSec < 30) strengths.push({
+    label: en ? 'Lightning-fast responses' : 'Respuestas ultrarapidas',
+    detail: en ? `Avatar responds in ${avgResponseLabel} on average` : `El avatar responde en ${avgResponseLabel} de media`,
+  })
+  else if (avgResponseSec >= 30) weaknesses.push({
+    label: en ? 'Response time could improve' : 'Tiempo de respuesta mejorable',
+    detail: en ? `${avgResponseLabel} avg \u2014 consider optimizing` : `${avgResponseLabel} prom. \u2014 considerar optimizar`,
+  })
+
+  if (engagementPct >= 40 && engagementPct <= 65) strengths.push({
+    label: en ? 'Balanced dialogue' : 'Dialogo equilibrado',
+    detail: en ? `${engagementPct}% contact-initiated \u2014 healthy back-and-forth` : `${engagementPct}% iniciado por contacto \u2014 dinamica saludable`,
+  })
+  else if (engagementPct > 75) weaknesses.push({
+    label: en ? 'One-sided conversation' : 'Conversacion unilateral',
+    detail: en ? `${engagementPct}% contact-initiated \u2014 avatar needs more proactivity` : `${engagementPct}% del contacto \u2014 el avatar necesita mas proactividad`,
+  })
+  else if (engagementPct < 25 && total > 2) weaknesses.push({
+    label: en ? 'Low contact engagement' : 'Baja participacion',
+    detail: en ? `Only ${engagementPct}% from contact \u2014 may indicate low interest` : `Solo ${engagementPct}% del contacto \u2014 puede indicar bajo interes`,
+  })
+
+  if (voiceCount > 0 && textCount > 0) strengths.push({
+    label: en ? 'Multi-modal interaction' : 'Interaccion multimodal',
+    detail: en ? 'Uses both voice and text \u2014 rich communication' : 'Usa voz y texto \u2014 comunicacion rica',
+  })
+
+  if (total >= 5 && durationHours > 0) strengths.push({
+    label: en ? 'Active conversation' : 'Conversacion activa',
+    detail: en ? `${total} messages over ${durationLabel} \u2014 sustained engagement` : `${total} mensajes en ${durationLabel} \u2014 compromiso sostenido`,
+  })
+  else if (total <= 2) weaknesses.push({
+    label: en ? 'Early stage' : 'Fase inicial',
+    detail: en ? 'Very few messages \u2014 conversation just getting started' : 'Pocos mensajes \u2014 la conversacion recien comienza',
+  })
+
+  // Recommendations
+  const recommendations: { text: string; priority: 'high' | 'medium' | 'low' }[] = []
+  if (total <= 2) recommendations.push({
+    text: en ? 'Send a follow-up to re-engage and keep momentum' : 'Enviar seguimiento para reactivar al contacto',
+    priority: 'high',
+  })
+  if (engagementPct > 75) recommendations.push({
+    text: en ? 'Adjust avatar to be more proactive and conversational' : 'Ajustar avatar para ser mas proactivo y conversacional',
+    priority: 'high',
+  })
+  if (voiceCount > textCount * 2 && voiceCount > 0) recommendations.push({
+    text: en ? 'Contact prefers voice \u2014 consider voice-optimized strategies' : 'El contacto prefiere voz \u2014 optimizar estrategia de respuesta',
+    priority: 'medium',
+  })
+  if (avgMsgLen > 150) recommendations.push({
+    text: en ? 'Contact writes long messages \u2014 match depth in replies' : 'Mensajes largos del contacto \u2014 igualar profundidad en respuestas',
+    priority: 'medium',
+  })
+  if (qCount > 2) recommendations.push({
+    text: en ? 'High question frequency \u2014 ensure thorough answers' : 'Alta frecuencia de preguntas \u2014 asegurar respuestas completas',
+    priority: 'medium',
+  })
+  if (recommendations.length === 0) recommendations.push({
+    text: en ? 'Conversation progressing well \u2014 no urgent actions needed' : 'Conversacion progresa bien \u2014 sin acciones urgentes',
+    priority: 'low',
+  })
 
   return {
     contactMessages: contactMsgs.length,
@@ -168,6 +280,9 @@ function computeConversationInsights(messages: MessageRow[], locale: Locale) {
     signals,
     mediaBreakdown,
     maxMedia,
+    strengths,
+    weaknesses,
+    recommendations,
   }
 }
 
@@ -748,36 +863,62 @@ export default function Dashboard() {
                       {L('noMessagesYet')}
                     </div>
                   ) : (
-                    <div className="space-y-3">
-                      {selectedMessages.map((message) => {
-                        const isContactMessage = message.sender === 'contact'
+                    <div className="space-y-4">
+                      {selectedMessages.map((message, idx) => {
+                        const isContact = message.sender === 'contact'
+                        const isFirst = idx === 0 || selectedMessages[idx - 1].sender !== message.sender
                         return (
-                          <div key={message.id} className={`flex ${isContactMessage ? 'justify-start' : 'justify-end'}`}>
+                          <div key={message.id} className={`flex ${isContact ? 'justify-start' : 'justify-end'} ${isFirst ? '' : '-mt-1.5'}`}>
                             <div
-                              className={`max-w-[90%] rounded-[26px] border px-4 py-3 shadow-[0_18px_50px_rgba(0,0,0,0.18)] ${
-                                isContactMessage
-                                  ? 'rounded-tl-md border-white/8 bg-[linear-gradient(180deg,rgba(22,34,51,0.9),rgba(12,24,39,0.95))]'
-                                  : 'rounded-tr-md border-[#00a884]/20 bg-[linear-gradient(180deg,rgba(8,118,100,0.88),rgba(5,86,79,0.94))]'
+                              className={`group relative max-w-[85%] rounded-[22px] border px-4 py-3 transition-all duration-200 hover:scale-[1.01] ${
+                                isContact
+                                  ? 'rounded-tl-md border-white/[0.07] bg-[linear-gradient(135deg,rgba(22,34,51,0.92),rgba(15,25,40,0.96))] shadow-[0_8px_32px_rgba(0,0,0,0.25),inset_0_1px_0_rgba(255,255,255,0.04)]'
+                                  : 'rounded-tr-md border-[#00a884]/15 bg-[linear-gradient(135deg,rgba(0,168,132,0.18),rgba(0,140,110,0.22))] shadow-[0_8px_32px_rgba(0,168,132,0.12),inset_0_1px_0_rgba(0,168,132,0.15)]'
                               }`}
                             >
-                              <p className="mb-2 text-[11px] uppercase tracking-[0.2em] text-white/42">
-                                {isContactMessage ? L('contact') : L('avatar')}
-                              </p>
-                              {message.media_url && message.type === 'image' ? (
-                                <img src={message.media_url} alt="Shared media" className="max-h-80 rounded-[18px] object-cover" />
-                              ) : null}
-                              {message.media_url && message.type === 'video' ? (
-                                <video src={message.media_url} controls playsInline className="max-h-96 rounded-[18px]" />
-                              ) : null}
-                              {message.media_url && message.type === 'voice' ? (
-                                <audio src={message.media_url} controls className="w-full min-w-[240px]" />
-                              ) : null}
-                              <p className={`whitespace-pre-wrap text-sm leading-6 text-white ${message.media_url ? 'mt-3' : ''}`}>
-                                {formatMessagePreview(message.content, message.type)}
-                              </p>
-                              <div className="mt-3 flex items-center justify-between gap-4 text-[11px] text-white/42">
-                                <span className="capitalize">{message.type}</span>
-                                <span>{formatMessageTime(message.created_at)}</span>
+                              {/* Subtle glow for avatar messages */}
+                              {!isContact && (
+                                <div className="pointer-events-none absolute -inset-[1px] rounded-[22px] bg-[radial-gradient(ellipse_at_top_right,rgba(0,168,132,0.08),transparent_60%)]" />
+                              )}
+                              <div className="relative">
+                                <div className="mb-1.5 flex items-center gap-2">
+                                  <span className={`flex h-[18px] items-center rounded-full px-2 text-[9px] font-bold uppercase tracking-[0.15em] ${
+                                    isContact
+                                      ? 'bg-white/[0.06] text-white/50'
+                                      : 'bg-[#00a884]/15 text-[#00a884]/80'
+                                  }`}>
+                                    {isContact ? L('contact') : L('avatar')}
+                                  </span>
+                                  {message.type !== 'text' && (
+                                    <span className={`flex h-[18px] items-center rounded-full px-2 text-[9px] uppercase tracking-wider ${
+                                      isContact ? 'bg-white/[0.04] text-white/35' : 'bg-[#00a884]/8 text-[#00a884]/50'
+                                    }`}>
+                                      {message.type === 'voice' ? '\u{1F3A4}' : message.type === 'image' ? '\u{1F4F7}' : '\u{1F3AC}'} {message.type}
+                                    </span>
+                                  )}
+                                </div>
+                                {message.media_url && message.type === 'image' ? (
+                                  <img src={message.media_url} alt="Shared media" className="mt-1.5 max-h-80 rounded-[16px] object-cover shadow-[0_4px_20px_rgba(0,0,0,0.3)]" />
+                                ) : null}
+                                {message.media_url && message.type === 'video' ? (
+                                  <video src={message.media_url} controls playsInline className="mt-1.5 max-h-96 rounded-[16px] shadow-[0_4px_20px_rgba(0,0,0,0.3)]" />
+                                ) : null}
+                                {message.media_url && message.type === 'voice' ? (
+                                  <div className="mt-1.5 overflow-hidden rounded-[14px] bg-black/20 p-1">
+                                    <audio src={message.media_url} controls className="w-full min-w-[220px]" />
+                                  </div>
+                                ) : null}
+                                <p className={`whitespace-pre-wrap text-[13.5px] leading-[1.65] text-white/90 ${message.media_url ? 'mt-2.5' : ''}`}>
+                                  {formatMessagePreview(message.content, message.type)}
+                                </p>
+                                {message.duration_sec != null && message.duration_sec > 0 && (
+                                  <span className="mt-1 inline-block text-[10px] text-white/30">
+                                    {Math.floor(message.duration_sec / 60)}:{String(message.duration_sec % 60).padStart(2, '0')}
+                                  </span>
+                                )}
+                                <div className="mt-2 flex items-center justify-end gap-2 text-[10px] text-white/30">
+                                  <span>{formatMessageTime(message.created_at)}</span>
+                                </div>
                               </div>
                             </div>
                           </div>
@@ -868,11 +1009,60 @@ export default function Dashboard() {
                   {/* Behavioral Signals */}
                   <div className="brand-inset rounded-[20px] p-4">
                     <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">{L('behavioralSignals')}</p>
-                    <div className="mt-3 flex flex-wrap gap-1.5">
+                    <div className="mt-3 space-y-2">
                       {selectedInsights.signals.map((signal) => (
-                        <span key={signal} className="rounded-full border border-[#00a884]/25 bg-[#00a884]/10 px-2.5 py-1 text-[11px] font-medium text-[#00a884]">
-                          {signal}
-                        </span>
+                        <div key={signal.label} className="flex items-start gap-2.5 rounded-[14px] border border-white/5 bg-white/[0.03] px-3 py-2.5">
+                          <span
+                            className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold"
+                            style={{ backgroundColor: `${signal.color}20`, color: signal.color }}
+                          >{signal.icon}</span>
+                          <div className="min-w-0">
+                            <p className="text-[12px] font-semibold" style={{ color: signal.color }}>{signal.label}</p>
+                            <p className="mt-0.5 text-[11px] leading-4 text-white/50">{signal.desc}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Strengths & Weaknesses */}
+                  {(selectedInsights.strengths.length > 0 || selectedInsights.weaknesses.length > 0) && (
+                    <div className="brand-inset rounded-[20px] p-4">
+                      <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">{L('assessment')}</p>
+                      <div className="mt-3 space-y-2">
+                        {selectedInsights.strengths.map((s) => (
+                          <div key={s.label} className="flex items-start gap-2.5">
+                            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#00a884]/15 text-[10px] text-[#00a884]">{'\u2713'}</span>
+                            <div>
+                              <p className="text-[12px] font-medium text-[#00a884]">{s.label}</p>
+                              <p className="text-[11px] leading-4 text-white/45">{s.detail}</p>
+                            </div>
+                          </div>
+                        ))}
+                        {selectedInsights.weaknesses.map((w) => (
+                          <div key={w.label} className="flex items-start gap-2.5">
+                            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-400/15 text-[10px] text-amber-400">{'\u26A0'}</span>
+                            <div>
+                              <p className="text-[12px] font-medium text-amber-400">{w.label}</p>
+                              <p className="text-[11px] leading-4 text-white/45">{w.detail}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Recommendations */}
+                  <div className="brand-inset rounded-[20px] p-4">
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">{L('recommendations')}</p>
+                    <div className="mt-3 space-y-2">
+                      {selectedInsights.recommendations.map((rec) => (
+                        <div key={rec.text} className="flex items-start gap-2.5">
+                          <span className={`mt-0.5 h-2 w-2 shrink-0 rounded-full ${
+                            rec.priority === 'high' ? 'bg-red-400' : rec.priority === 'medium' ? 'bg-amber-400' : 'bg-[#00a884]'
+                          }`} />
+                          <p className="text-[12px] leading-5 text-white/65">{rec.text}</p>
+                        </div>
                       ))}
                     </div>
                   </div>
