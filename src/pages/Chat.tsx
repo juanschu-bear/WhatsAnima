@@ -784,6 +784,7 @@ export default function Chat() {
         return { content: replyText, mediaUrl: null }
       }
 
+      const ownerVoiceId = conversation?.wa_owners?.voice_id
       const response = await fetch('/api/tts', {
         method: 'POST',
         headers: {
@@ -791,10 +792,13 @@ export default function Chat() {
         },
         body: JSON.stringify({
           text: replyText,
+          ...(ownerVoiceId ? { voiceId: ownerVoiceId } : {}),
         }),
       })
 
       if (!response.ok) {
+        const errData = await response.json().catch(() => ({}))
+        console.error('[getAvatarReply] TTS failed:', errData?.error || response.status)
         return {
           content: replyText,
           mediaUrl: null,
@@ -1689,7 +1693,7 @@ export default function Chat() {
     if (liveCallState !== 'idle') return
     setLiveCallState('starting')
     try {
-      // Sync persona
+      // Sync persona – include layers config so Tavus enables microphone input
       await fetch(`${BOARDROOM_API_BASE}/api/tavus/personas/sync`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1698,6 +1702,18 @@ export default function Chat() {
           persona_name: `${owner.display_name} Live`,
           default_replica_id: owner.tavus_replica_id || LIVE_CALL_REPLICA_ID,
           system_prompt: owner.system_prompt?.trim() || `You are ${owner.display_name} in a live WhatsAnima video call. Stay conversational and present.`,
+          layers: {
+            transport: {
+              input_settings: {
+                microphone: 'enabled',
+              },
+            },
+            tts: {
+              tts_engine: 'elevenlabs',
+              voice_id: owner.voice_id || 'lx8LAX2EUAKftVz0Dk5z',
+              model_id: 'eleven_multilingual_v2',
+            },
+          },
         }),
       })
 
@@ -1709,6 +1725,11 @@ export default function Chat() {
         body: JSON.stringify({
           persona_id: LIVE_CALL_PERSONA_ID,
           replica_id: owner.tavus_replica_id || LIVE_CALL_REPLICA_ID,
+          properties: {
+            enable_recording: false,
+            apply_greenscreen: false,
+            language: 'multi',
+          },
         }),
       })
 
