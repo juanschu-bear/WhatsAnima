@@ -1036,7 +1036,31 @@ export default function Chat() {
     }
   }
 
-  async function sendVoiceMessage(blob: Blob, transcript: string, durationSeconds: number) {
+  async function transcribeServerSide(audioBase64: string, contentType: string): Promise<string> {
+    try {
+      const langMap: Record<string, string> = { en: 'eng', de: 'deu', es: 'spa' }
+      const response = await fetch('/api/transcribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          audio: audioBase64,
+          contentType,
+          languageCode: langMap[locale] || null,
+        }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        console.warn('[transcribe] Server STT failed:', data.error)
+        return ''
+      }
+      return (data.transcript || '').trim()
+    } catch (err) {
+      console.warn('[transcribe] Request failed:', err)
+      return ''
+    }
+  }
+
+  async function sendVoiceMessage(blob: Blob, browserTranscript: string, durationSeconds: number) {
     if (!conversationId || !conversation) return
 
     const file = new File([blob], `voice-note.${getFileExtension(blob, 'webm')}`, {
@@ -1047,15 +1071,31 @@ export default function Chat() {
     setError(null)
     try {
       const audioBase64 = await blobToBase64(file)
-      const [mediaUrl, opmResponse] = await Promise.all([
-        uploadAudioToStorage(audioBase64, file.type || 'audio/webm'),
+      const contentType = file.type || 'audio/webm'
+
+      // Run upload, server-side STT, and OPM analysis in parallel
+      const [mediaUrl, serverTranscript, opmResponse] = await Promise.all([
+        uploadAudioToStorage(audioBase64, contentType),
+        transcribeServerSide(audioBase64, contentType),
         callOpmApi(file, 'audio').catch((error) => {
           console.error('[Voice] OPM voice analysis failed:', error)
           return null
         }),
       ])
       if (!mediaUrl) throw new Error('upload failed')
-      const finalTranscript = opmResponse?.transcript?.trim() || transcript || '[Voice message]'
+
+      // Priority: server STT > OPM transcript > browser SpeechRecognition > fallback
+      const finalTranscript = serverTranscript
+        || opmResponse?.transcript?.trim()
+        || browserTranscript
+        || '[Voice message]'
+
+      console.log('[sendVoiceMessage] transcript sources:', {
+        server: serverTranscript?.slice(0, 60) || '(empty)',
+        opm: opmResponse?.transcript?.slice(0, 60) || '(empty)',
+        browser: browserTranscript?.slice(0, 60) || '(empty)',
+        final: finalTranscript.slice(0, 60),
+      })
 
       const message = (await sendMessage(
         conversationId,
@@ -1068,7 +1108,7 @@ export default function Chat() {
 
       setMessages((current) => [...current, message])
 
-      if (finalTranscript) {
+      if (finalTranscript && finalTranscript !== '[Voice message]') {
         createPerceptionLog({
           messageId: message.id,
           conversationId: conversation.id,
@@ -1080,7 +1120,7 @@ export default function Chat() {
         setTranscriptMap((current) => ({ ...current, [message.id]: finalTranscript }))
       }
 
-      await sendAvatarReply(finalTranscript || 'a voice message', {
+      await sendAvatarReply(finalTranscript !== '[Voice message]' ? finalTranscript : 'a voice message', {
         isVoice: true,
         perception: opmResponse,
       })
@@ -1108,7 +1148,7 @@ export default function Chat() {
       const recognition = new SpeechRecognitionCtor()
       recognition.continuous = true
       recognition.interimResults = false
-      recognition.lang = 'en-US'
+      recognition.lang = locale === 'de' ? 'de-DE' : locale === 'es' ? 'es-ES' : 'en-US'
       recognition.onresult = (event: BrowserSpeechRecognitionEvent) => {
         let nextTranscript = browserTranscriptRef.current
         for (let index = event.resultIndex; index < event.results.length; index += 1) {
