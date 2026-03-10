@@ -55,7 +55,7 @@ interface ConversationRow {
 export async function listAllOwners() {
   const { data, error } = await supabase
     .from('wa_owners')
-    .select('id, display_name, avatar_url, voice_id, system_prompt, tavus_replica_id')
+    .select('id, display_name, voice_id, system_prompt, tavus_replica_id')
     .order('display_name', { ascending: true })
   if (error) throw error
   return data ?? []
@@ -100,10 +100,8 @@ export async function getOwnerByUserId(userId: string) {
 
 export async function createOwnerIfNeeded(payload: {
   userId: string
-  firstName: string
-  lastName: string
-  phoneNumber: string
   email: string
+  displayName?: string
 }) {
   // 1. Try matching by auth user_id (primary key link)
   const { data: existing, error: existingError } = await supabase
@@ -136,15 +134,11 @@ export async function createOwnerIfNeeded(payload: {
   }
 
   // 4. No existing owner — create a new one
-  const displayName = `${payload.firstName} ${payload.lastName}`.trim() || 'Juan Schubert'
   const { data, error } = await supabase
     .from('wa_owners')
     .insert({
       user_id: payload.userId,
-      display_name: displayName || payload.email || payload.phoneNumber,
-      first_name: payload.firstName,
-      last_name: payload.lastName,
-      phone_number: payload.phoneNumber,
+      display_name: payload.displayName || payload.email,
       email: payload.email,
     })
     .select()
@@ -209,7 +203,7 @@ export async function validateInvitationToken(token: string) {
 
   const { data: owner } = await supabase
     .from('wa_owners')
-    .select('id, display_name, avatar_url, voice_id, tavus_replica_id, system_prompt')
+    .select('id, display_name, voice_id, tavus_replica_id, system_prompt')
     .eq('id', data.owner_id)
     .maybeSingle()
 
@@ -218,7 +212,6 @@ export async function validateInvitationToken(token: string) {
     wa_owners: owner ?? {
       id: data.owner_id,
       display_name: 'Avatar',
-      avatar_url: null,
       voice_id: null,
       tavus_replica_id: null,
       system_prompt: null,
@@ -431,7 +424,7 @@ export async function getConversation(conversationId: string) {
   const [{ data: owner }, { data: contact }] = await Promise.all([
     supabase
       .from('wa_owners')
-      .select('id, display_name, avatar_url, voice_id, tavus_replica_id, system_prompt')
+      .select('id, display_name, voice_id, tavus_replica_id, system_prompt')
       .eq('id', conversation.owner_id)
       .maybeSingle(),
     supabase
@@ -446,7 +439,6 @@ export async function getConversation(conversationId: string) {
     wa_owners: owner ?? {
       id: conversation.owner_id,
       display_name: 'Avatar',
-      avatar_url: null,
       voice_id: null,
       tavus_replica_id: null,
       system_prompt: null,

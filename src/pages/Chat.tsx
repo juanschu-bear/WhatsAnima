@@ -28,7 +28,6 @@ interface ConversationData {
   wa_owners: {
     id?: string
     display_name: string
-    avatar_url: string | null
     voice_id: string | null
     system_prompt?: string | null
     tavus_replica_id: string | null
@@ -160,8 +159,7 @@ const LOCAL_AVATAR_MAP: Record<string, string> = {
   'professor brian cox': '/brian-cox-512.jpg',
 }
 
-function resolveAvatarUrl(displayName: string, avatarUrl: string | null): string | null {
-  if (avatarUrl) return avatarUrl
+function resolveAvatarUrl(displayName: string): string | null {
   return LOCAL_AVATAR_MAP[displayName.toLowerCase()] ?? null
 }
 
@@ -1703,8 +1701,8 @@ export default function Chat() {
       <div className="pointer-events-none absolute inset-x-0 top-0 h-44 bg-[radial-gradient(circle_at_top,_rgba(83,208,255,0.32),_transparent_58%)] blur-3xl" />
       <div className={`relative z-10 flex min-h-0 flex-1 flex-col ${isDesktopLayout ? 'mx-auto my-5 w-[min(1400px,calc(100vw-48px))] rounded-[32px] border border-white/10 bg-[#07121ccc] shadow-[0_30px_120px_rgba(0,0,0,0.42)] backdrop-blur-2xl' : ''}`}>
       <header className="relative z-10 flex items-center gap-3 border-b border-white/8 bg-[#0d1826]/72 px-4 py-3 shadow-[0_12px_40px_rgba(0,0,0,0.24)] backdrop-blur-2xl">
-        {resolveAvatarUrl(owner.display_name, owner.avatar_url) ? (
-          <img src={resolveAvatarUrl(owner.display_name, owner.avatar_url)!} alt={owner.display_name} className="h-10 w-10 rounded-full object-cover" />
+        {resolveAvatarUrl(owner.display_name) ? (
+          <img src={resolveAvatarUrl(owner.display_name)!} alt={owner.display_name} className="h-10 w-10 rounded-full object-cover" />
         ) : (
           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-[#4bd8ff] via-[#17c8a4] to-[#067b72] text-sm font-bold text-white shadow-[0_0_24px_rgba(38,218,200,0.35)]">
             {owner.display_name.split(/\s+/).map(w => w.charAt(0).toUpperCase()).join('').slice(0, 2)}
