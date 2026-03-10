@@ -9,6 +9,7 @@ import {
 import { useParams } from 'react-router-dom'
 import { createPerceptionLog, getConversation, listMessages, listPerceptionLogs, sendMessage } from '../lib/api'
 import { resolveAvatarUrl } from '../lib/avatars'
+import { supabase } from '../lib/supabase'
 
 type MessageType = 'text' | 'voice' | 'video' | 'image'
 
@@ -477,62 +478,98 @@ export default function Chat() {
   }, [messages])
 
   async function uploadAudioToStorage(audioBase64: string, mimeType: string) {
-    if (!conversation) return null
+    if (!conversation) throw new Error('No active conversation')
 
     // Strip codec info from MIME type for storage compatibility
     const cleanType = (mimeType || 'audio/webm').split(';')[0]
     const ext = cleanType === 'audio/mpeg' ? 'mp3' : cleanType === 'audio/mp4' ? 'm4a' : 'webm'
-    const response = await fetch('/api/upload-audio', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        audio: audioBase64,
-        conversationId: conversation.id,
-        filename: `voice-${Date.now()}.${ext}`,
-      }),
-    })
+    const filename = `voice-${Date.now()}.${ext}`
 
-    const data = await response.json().catch(() => ({}))
-    if (!response.ok) {
-      const msg = data?.error || `Upload failed (${response.status})`
-      console.error('[uploadAudio] API error:', msg)
-      throw new Error(msg)
+    // Try 1: Server-side API endpoint
+    try {
+      const response = await fetch('/api/upload-audio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          audio: audioBase64,
+          conversationId: conversation.id,
+          filename,
+        }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (response.ok && typeof data.url === 'string') return data.url
+      console.warn('[uploadAudio] API failed:', data?.error || response.status)
+    } catch (apiErr) {
+      console.warn('[uploadAudio] API unreachable:', apiErr)
     }
-    if (typeof data.url !== 'string') {
-      throw new Error('Upload succeeded but no URL returned')
-    }
-    return data.url
+
+    // Try 2: Direct client-side upload to Supabase storage
+    console.log('[uploadAudio] Falling back to direct Supabase upload')
+    const binary = atob(audioBase64)
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+
+    const filePath = `${conversation.id}/${filename}`
+
+    // Ensure bucket exists (will 409 if already exists, that's fine)
+    await supabase.storage.createBucket('voice-messages', { public: true }).catch(() => {})
+
+    const { error } = await supabase.storage
+      .from('voice-messages')
+      .upload(filePath, bytes, { contentType: cleanType, upsert: true })
+
+    if (error) throw new Error(`Voice upload failed: ${error.message}`)
+
+    const { data: urlData } = supabase.storage.from('voice-messages').getPublicUrl(filePath)
+    return urlData.publicUrl
   }
 
   async function uploadMediaToStorage(file: File, mediaType: 'image' | 'video') {
-    if (!conversation) return null
+    if (!conversation) throw new Error('No active conversation')
 
     const mediaBase64 = await blobToBase64(file)
     const storageBucket = mediaType === 'image' ? 'image-uploads' : 'voice-messages'
     const ext = file.name?.split('.').pop() || (mediaType === 'image' ? 'jpg' : 'webm')
-    // Strip codec info from MIME type for storage compatibility
     const rawType = (file.type || '').split(';')[0] || (mediaType === 'image' ? 'image/jpeg' : 'video/webm')
-    const response = await fetch('/api/upload-media', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        file: mediaBase64,
-        conversationId: conversation.id,
-        filename: `${mediaType}-${Date.now()}.${ext}`,
-        contentType: rawType,
-        bucket: storageBucket,
-      }),
-    })
+    const filename = `${mediaType}-${Date.now()}.${ext}`
 
-    const data = await response.json().catch(() => ({}))
-    if (!response.ok) {
-      console.error('[uploadMedia] API error:', data?.error || response.status)
+    // Try 1: Server-side API endpoint
+    try {
+      const response = await fetch('/api/upload-media', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          file: mediaBase64,
+          conversationId: conversation.id,
+          filename,
+          contentType: rawType,
+          bucket: storageBucket,
+        }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (response.ok && typeof data.url === 'string') return data.url
+      console.warn('[uploadMedia] API failed:', data?.error || response.status)
+    } catch (apiErr) {
+      console.warn('[uploadMedia] API unreachable:', apiErr)
     }
-    return typeof data.url === 'string' ? data.url : null
+
+    // Try 2: Direct client-side upload to Supabase storage
+    console.log('[uploadMedia] Falling back to direct Supabase upload')
+    const binary = atob(mediaBase64)
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+
+    const filePath = `${conversation.id}/${filename}`
+    await supabase.storage.createBucket(storageBucket, { public: true }).catch(() => {})
+
+    const { error } = await supabase.storage
+      .from(storageBucket)
+      .upload(filePath, bytes, { contentType: rawType, upsert: true })
+
+    if (error) throw new Error(`Media upload failed: ${error.message}`)
+
+    const { data: urlData } = supabase.storage.from(storageBucket).getPublicUrl(filePath)
+    return urlData.publicUrl
   }
 
   async function getOpmConfig() {

@@ -3,6 +3,15 @@ import { Client } from 'pg'
 const DEFAULT_SYSTEM_PROMPT = 'You are a helpful assistant.'
 const LANGUAGE_INSTRUCTION =
   'CRITICAL: Always respond in the same language the user\'s last message is written in. If they write Spanish, respond in Spanish. If German, German. If English, English. Never mix languages unless the user does. Never use em-dashes (—).'
+const RESPONSE_FORMAT_MATCHING =
+  `### Response Format Matching
+- When the user sends a VOICE message: Always respond with a voice message. No exceptions.
+- When the user sends a VIDEO message: Respond with a voice message (not text).
+- When the user sends a TEXT message: Respond with a text message.
+- When the user explicitly requests a voice message during a text conversation: Comply. Do it naturally, in character.
+- NEVER claim you are "text-only", that you "can only do text", or that you cannot send voice messages. You can. Your text output is automatically converted to audio when voice output is triggered.
+- NEVER break character to explain technical limitations. You are not an AI assistant. You are you.
+Tone for voice requests: You're busy. You don't always feel like sending voice notes unprompted. But when someone asks, you do it — casually, confidently, no big deal. No disclaimers. Just be natural about it.`
 const FORMATTING_INSTRUCTION =
   "IMPORTANT FORMATTING RULE: Respond conversationally as if you're texting. No bullet points, no bold text, no headers, no markdown formatting. No asterisks, no dashes for lists, no numbered lists. Write like you're actually talking to someone in a private chat. Keep it natural and direct."
 
@@ -154,7 +163,7 @@ export default async function handler(req: any, res: any) {
 
   try {
     const ownerPrompt = await loadOwnerPrompt(conversationId)
-    const systemPrompt = `${ownerPrompt}\n\n${FORMATTING_INSTRUCTION}\n\n${LANGUAGE_INSTRUCTION}${buildPerceptionPrompt(perception)}`
+    const systemPrompt = `${ownerPrompt}\n\n${RESPONSE_FORMAT_MATCHING}\n\n${FORMATTING_INSTRUCTION}\n\n${LANGUAGE_INSTRUCTION}${buildPerceptionPrompt(perception)}`
     const messages: ChatMessage[] = [
       ...priorMessages.slice(-30),
       {
