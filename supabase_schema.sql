@@ -303,42 +303,50 @@ CREATE POLICY "owners_claim_orphan" ON public.wa_owners
   WITH CHECK (auth.uid() = user_id);
 
 -- =============================================================
--- Canon: Personal Voice Baseline (Cygnus Echo Calibration)
+-- Canon: Personal Voice Baseline (5-Tier Calibration System)
 -- =============================================================
 -- Stores the calibrated personal audio baseline per contact+owner pair.
--- Once cumulative audio reaches 60s, prosodic averages are computed
--- and locked as the personal "center". All subsequent analysis
--- measures delta from this baseline instead of population averages.
+-- Baseline is recalculated from ALL data at each tier advancement.
+--
+-- Tier 0: building       (< 60s)       — collecting, no baseline
+-- Tier 1: snapshot       (≥ 60s)       — first glimpse, ~15% confidence
+-- Tier 2: session        (≥ 30min)     — session stability, ~40% confidence
+-- Tier 3: short_term     (≥ 60min)     — daily pattern, ~60% confidence
+-- Tier 4: established    (≥ 180min)    — real tendency, ~80% confidence
+-- Tier 5: deep           (≥ 600min)    — long-term profile, ~95% confidence
 
 CREATE TABLE IF NOT EXISTS public.wa_voice_baseline (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   contact_id UUID REFERENCES public.wa_contacts(id) ON DELETE CASCADE,
   owner_id UUID REFERENCES public.wa_owners(id) ON DELETE CASCADE,
+  current_tier INTEGER NOT NULL DEFAULT 0,
+  tier_name TEXT NOT NULL DEFAULT 'building',
+  confidence FLOAT NOT NULL DEFAULT 0,
   cumulative_audio_sec FLOAT NOT NULL DEFAULT 0,
   baseline_data JSONB NOT NULL DEFAULT '{}'::jsonb,
   -- baseline_data structure:
   -- {
   --   "prosodic_center": {
-  --     "mean_pitch": 185.2,
-  --     "pitch_range": 45.3,
-  --     "pitch_variability": 12.1,
-  --     "speaking_rate": 4.2,
-  --     "articulation_rate": 5.1,
-  --     "pause_count": 3.5,
-  --     "mean_pause_duration": 0.42,
-  --     "pause_ratio": 0.18,
-  --     "volume_mean": -22.5,
-  --     "volume_range": 15.3,
-  --     "volume_variability": 4.2,
-  --     "jitter": 0.012,
-  --     "shimmer": 0.034,
-  --     "harmonic_to_noise_ratio": 18.5
+  --     "mean_pitch": 185.2,       -- Hz, avg fundamental frequency
+  --     "pitch_range": 45.3,       -- Hz, high-low difference
+  --     "pitch_variability": 12.1, -- Hz, std deviation
+  --     "speaking_rate": 4.2,      -- words/sec
+  --     "articulation_rate": 5.1,  -- syllables/sec (excl. pauses)
+  --     "pause_count": 3.5,        -- avg pauses per message
+  --     "mean_pause_duration": 0.42,-- seconds
+  --     "pause_ratio": 0.18,       -- proportion silence
+  --     "volume_mean": -22.5,      -- dB, avg loudness
+  --     "volume_range": 15.3,      -- dB, dynamic range
+  --     "volume_variability": 4.2, -- dB, std deviation
+  --     "jitter": 0.012,           -- pitch cycle variation
+  --     "shimmer": 0.034,          -- amplitude cycle variation
+  --     "harmonic_to_noise_ratio": 18.5 -- dB, voice clarity
   --   },
   --   "emotion_distribution": {
   --     "engaged": 0.45,
   --     "calm": 0.30,
   --     "amused": 0.15,
-  --     "neutral": 0.10
+  --     "contemplative": 0.10
   --   },
   --   "sample_count": 5,
   --   "prosodic_sample_count": 4

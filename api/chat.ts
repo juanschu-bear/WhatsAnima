@@ -49,7 +49,7 @@ function buildPerceptionPrompt(perception: any) {
   const primary = emotionSource.primary_emotion
   if (primary) {
     const lowerPrimary = primary.toLowerCase()
-    if (lowerPrimary === 'neutral' && canon?.phase === 'analyzing_delta') {
+    if (lowerPrimary === 'neutral' && canon?.tier >= 1) {
       lines.push('Primary emotion: at personal center (baseline state)')
     } else if (lowerPrimary === 'neutral' && canon?.phase === 'building') {
       lines.push('Primary emotion: baseline still calibrating — treat as personal resting state')
@@ -61,36 +61,55 @@ function buildPerceptionPrompt(perception: any) {
     lines.push(`Secondary emotion: ${emotionSource.secondary_emotion}`)
   }
 
-  // Canon delta context
-  if (canon?.phase === 'analyzing_delta' && canon.delta) {
+  // Canon tier + delta context
+  if (canon?.phase === 'building') {
+    const nt = canon.next_tier
+    lines.push(`[CANON: Collecting audio for calibration — ${nt?.progress ?? 0}% to ${nt?.label ?? 'first baseline'} (${canon.cumulative_sec}s / ${nt?.threshold_sec ?? 60}s)]`)
+  } else if (canon?.phase === 'tier_advanced') {
+    lines.push(`[CANON: Baseline recalibrated — now at "${canon.tier_label}" (Tier ${canon.tier}/5, ${Math.round(canon.confidence * 100)}% confidence)]`)
+  } else if ((canon?.phase === 'analyzing_delta' || canon?.phase === 'tier_advanced') && canon?.tier >= 1) {
+    lines.push(`[CANON: ${canon.tier_label} active (Tier ${canon.tier}/5, ${Math.round(canon.confidence * 100)}% confidence)]`)
+  }
+
+  // Delta details — only show if we have a baseline
+  if (canon?.delta && canon?.tier >= 1) {
     const pd = canon.delta.prosodic_delta || {}
     const ed = canon.delta.emotion_delta
+    const conf = canon.confidence || 0
+
+    // Higher confidence = lower threshold for reporting deltas
+    // Tier 1 (15%): only report >25% changes (noisy data)
+    // Tier 4 (80%): report >10% changes (reliable data)
+    // Tier 5 (95%): report >8% changes (highly reliable)
+    const speedThreshold = conf >= 0.8 ? 0.10 : conf >= 0.6 ? 0.12 : conf >= 0.4 ? 0.15 : 0.25
+    const pauseThreshold = conf >= 0.8 ? 0.12 : conf >= 0.6 ? 0.15 : conf >= 0.4 ? 0.20 : 0.30
+    const volumeThreshold = conf >= 0.8 ? 0.10 : conf >= 0.6 ? 0.12 : conf >= 0.4 ? 0.15 : 0.25
+    const pitchThreshold = conf >= 0.8 ? 0.10 : conf >= 0.6 ? 0.12 : conf >= 0.4 ? 0.15 : 0.25
+
+    // Certainty qualifier based on tier
+    const qualifier = conf >= 0.8 ? '' : conf >= 0.6 ? 'likely ' : conf >= 0.4 ? 'possibly ' : 'tentatively '
 
     const deltaLines: string[] = []
-    if (typeof pd.speaking_rate === 'number' && Math.abs(pd.speaking_rate) > 0.15) {
-      deltaLines.push(`Speaking ${pd.speaking_rate > 0 ? 'faster' : 'slower'} than their personal norm (${Math.round(Math.abs(pd.speaking_rate) * 100)}% change)`)
+    if (typeof pd.speaking_rate === 'number' && Math.abs(pd.speaking_rate) > speedThreshold) {
+      deltaLines.push(`${qualifier}Speaking ${pd.speaking_rate > 0 ? 'faster' : 'slower'} than their personal norm (${Math.round(Math.abs(pd.speaking_rate) * 100)}% change)`)
     }
-    if (typeof pd.mean_pause_duration === 'number' && Math.abs(pd.mean_pause_duration) > 0.2) {
-      deltaLines.push(`Pauses ${pd.mean_pause_duration > 0 ? 'longer' : 'shorter'} than their personal norm (${Math.round(Math.abs(pd.mean_pause_duration) * 100)}% change)`)
+    if (typeof pd.mean_pause_duration === 'number' && Math.abs(pd.mean_pause_duration) > pauseThreshold) {
+      deltaLines.push(`${qualifier}Pauses ${pd.mean_pause_duration > 0 ? 'longer' : 'shorter'} than their personal norm (${Math.round(Math.abs(pd.mean_pause_duration) * 100)}% change)`)
     }
-    if (typeof pd.volume_mean === 'number' && Math.abs(pd.volume_mean) > 0.15) {
-      deltaLines.push(`Speaking ${pd.volume_mean > 0 ? 'louder' : 'quieter'} than their personal norm (${Math.round(Math.abs(pd.volume_mean) * 100)}% change)`)
+    if (typeof pd.volume_mean === 'number' && Math.abs(pd.volume_mean) > volumeThreshold) {
+      deltaLines.push(`${qualifier}Speaking ${pd.volume_mean > 0 ? 'louder' : 'quieter'} than their personal norm (${Math.round(Math.abs(pd.volume_mean) * 100)}% change)`)
     }
-    if (typeof pd.mean_pitch === 'number' && Math.abs(pd.mean_pitch) > 0.15) {
-      deltaLines.push(`Pitch ${pd.mean_pitch > 0 ? 'higher' : 'lower'} than their personal norm (${Math.round(Math.abs(pd.mean_pitch) * 100)}% change)`)
+    if (typeof pd.mean_pitch === 'number' && Math.abs(pd.mean_pitch) > pitchThreshold) {
+      deltaLines.push(`${qualifier}Pitch ${pd.mean_pitch > 0 ? 'higher' : 'lower'} than their personal norm (${Math.round(Math.abs(pd.mean_pitch) * 100)}% change)`)
     }
     if (ed?.is_unusual) {
-      deltaLines.push(`Emotion "${ed.emotion}" is unusual for this person (only ${Math.round(ed.personal_frequency * 100)}% of the time)`)
+      deltaLines.push(`${qualifier}Emotion "${ed.emotion}" is unusual for this person (only ${Math.round(ed.personal_frequency * 100)}% of the time)`)
     }
 
     if (deltaLines.length > 0) {
-      lines.push('[PERSONAL DELTA — changes relative to this person\'s calibrated baseline]')
+      lines.push(`[PERSONAL DELTA — changes relative to calibrated baseline (${Math.round(conf * 100)}% confidence)]`)
       deltaLines.forEach((l) => lines.push(`- ${l}`))
     }
-  } else if (canon?.phase === 'building') {
-    lines.push(`[CANON: Calibrating personal baseline — ${canon.progress}% complete (${canon.cumulative_sec}s / ${canon.threshold_sec}s)]`)
-  } else if (canon?.phase === 'baseline_locked') {
-    lines.push('[CANON: Personal baseline just locked — first calibrated reading]')
   }
 
   if (interpretation.behavioral_summary) {

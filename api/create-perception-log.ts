@@ -11,11 +11,66 @@ function getSupabaseAdmin() {
   return { client: createClient(url, key), missing: null }
 }
 
-const BASELINE_THRESHOLD_SEC = 60
+/**
+ * Canon 5-Tier Baseline System
+ *
+ * Each tier recalibrates the entire baseline from ALL collected data.
+ * Higher tiers = more data = higher confidence = more reliable deltas.
+ *
+ * Tier 0: building       (< 60s)       — collecting, no baseline yet
+ * Tier 1: snapshot       (≥ 60s)       — first glimpse, ~15% confidence
+ * Tier 2: session        (≥ 30min)     — session-level stability, ~40% confidence
+ * Tier 3: short_term     (≥ 60min)     — daily pattern emerges, ~60% confidence
+ * Tier 4: established    (≥ 180min)    — real personal tendency, ~80% confidence
+ * Tier 5: deep           (≥ 600min)    — long-term profile, ~95% confidence
+ */
+const CANON_TIERS = [
+  { tier: 1, name: 'snapshot',    threshold_sec: 60,      confidence: 0.15, label: 'Initial Snapshot' },
+  { tier: 2, name: 'session',     threshold_sec: 1800,    confidence: 0.40, label: 'Session Baseline' },
+  { tier: 3, name: 'short_term',  threshold_sec: 3600,    confidence: 0.60, label: 'Short-Term Baseline' },
+  { tier: 4, name: 'established', threshold_sec: 10800,   confidence: 0.80, label: 'Established Baseline' },
+  { tier: 5, name: 'deep',        threshold_sec: 36000,   confidence: 0.95, label: 'Deep Profile' },
+] as const
+
+type TierName = typeof CANON_TIERS[number]['name']
+
+const PROSODIC_KEYS = [
+  'mean_pitch', 'pitch_range', 'pitch_variability',
+  'speaking_rate', 'articulation_rate',
+  'pause_count', 'mean_pause_duration', 'pause_ratio',
+  'volume_mean', 'volume_range', 'volume_variability',
+  'jitter', 'shimmer', 'harmonic_to_noise_ratio',
+]
 
 /**
- * Compute personal baseline from all perception logs collected so far.
- * Returns averaged prosodic features as the "personal center".
+ * Determine which tier the cumulative seconds qualify for.
+ * Returns the highest tier reached, or null if below 60s.
+ */
+function getCurrentTier(cumulativeSec: number) {
+  let reached = null
+  for (const tier of CANON_TIERS) {
+    if (cumulativeSec >= tier.threshold_sec) {
+      reached = tier
+    }
+  }
+  return reached
+}
+
+/**
+ * Get the next tier the user hasn't reached yet.
+ */
+function getNextTier(cumulativeSec: number) {
+  for (const tier of CANON_TIERS) {
+    if (cumulativeSec < tier.threshold_sec) {
+      return tier
+    }
+  }
+  return null // all tiers completed
+}
+
+/**
+ * Compute personal baseline from ALL perception logs.
+ * Full recalculation every time a new tier is reached.
  */
 function computeBaseline(logs: any[]) {
   const withProsody = logs.filter((l) => l.prosodic_summary)
@@ -23,17 +78,10 @@ function computeBaseline(logs: any[]) {
 
   const sums: Record<string, number> = {}
   const counts: Record<string, number> = {}
-  const prosodicKeys = [
-    'mean_pitch', 'pitch_range', 'pitch_variability',
-    'speaking_rate', 'articulation_rate',
-    'pause_count', 'mean_pause_duration', 'pause_ratio',
-    'volume_mean', 'volume_range', 'volume_variability',
-    'jitter', 'shimmer', 'harmonic_to_noise_ratio',
-  ]
 
   for (const log of withProsody) {
     const p = log.prosodic_summary
-    for (const key of prosodicKeys) {
+    for (const key of PROSODIC_KEYS) {
       const val = typeof p[key] === 'number' ? p[key] : parseFloat(p[key])
       if (!isNaN(val)) {
         sums[key] = (sums[key] || 0) + val
@@ -47,7 +95,7 @@ function computeBaseline(logs: any[]) {
     baseline[key] = Math.round((sums[key] / counts[key]) * 1000) / 1000
   }
 
-  // Collect emotion distribution
+  // Emotion distribution across all logs
   const emotionCounts: Record<string, number> = {}
   let totalEmotionLogs = 0
   for (const log of logs) {
@@ -71,7 +119,7 @@ function computeBaseline(logs: any[]) {
 }
 
 /**
- * Compute delta between current message features and personal baseline.
+ * Compute delta between current message and personal baseline.
  */
 function computeDelta(current: any, baseline: any) {
   if (!current || !baseline?.prosodic_center) return null
@@ -86,7 +134,6 @@ function computeDelta(current: any, baseline: any) {
     }
   }
 
-  // Emotion delta: is current emotion common or unusual for this person?
   let emotionDelta = null
   if (current.primary_emotion && baseline.emotion_distribution) {
     const emotion = current.primary_emotion.toLowerCase()
@@ -120,7 +167,6 @@ export default async function handler(req: any, res: any) {
     ownerId,
     transcript,
     audioDurationSec,
-    // OPM fields
     primaryEmotion,
     secondaryEmotion,
     firedRules,
@@ -135,7 +181,7 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    // 1. Insert the perception log with ALL data (OPM + message reference)
+    // 1. Insert perception log with ALL data
     const { data: log, error: insertError } = await supabase
       .from('wa_perception_logs')
       .insert({
@@ -160,7 +206,7 @@ export default async function handler(req: any, res: any) {
       return res.status(500).json({ error: insertError.message })
     }
 
-    // 2. Canon: check cumulative audio duration for this contact+owner pair
+    // 2. Canon: get cumulative audio for this contact+owner
     const { data: durationData } = await supabase
       .from('wa_perception_logs')
       .select('audio_duration_sec')
@@ -173,68 +219,131 @@ export default async function handler(req: any, res: any) {
       0
     )
 
-    // 3. Canon: check if baseline already exists
+    // 3. Canon: determine current tier
+    const currentTier = getCurrentTier(cumulativeSec)
+    const nextTier = getNextTier(cumulativeSec)
+
+    if (!currentTier) {
+      // Below 60s — still building, no baseline yet
+      const firstTier = CANON_TIERS[0]
+      return res.status(200).json({
+        log,
+        canon: {
+          phase: 'building',
+          tier: 0,
+          tier_name: 'building',
+          tier_label: 'Collecting Audio',
+          confidence: 0,
+          cumulative_sec: Math.round(cumulativeSec * 10) / 10,
+          next_tier: {
+            name: firstTier.name,
+            label: firstTier.label,
+            threshold_sec: firstTier.threshold_sec,
+            remaining_sec: Math.round((firstTier.threshold_sec - cumulativeSec) * 10) / 10,
+            progress: Math.min(Math.round((cumulativeSec / firstTier.threshold_sec) * 100), 99),
+          },
+          baseline: null,
+          delta: null,
+        },
+      })
+    }
+
+    // 4. Canon: check existing baseline and its tier
     const { data: existingBaseline } = await supabase
       .from('wa_voice_baseline')
-      .select('id, locked_at, baseline_data')
+      .select('id, current_tier, baseline_data, cumulative_audio_sec')
       .eq('contact_id', contactId)
       .eq('owner_id', ownerId)
       .maybeSingle()
 
-    let canonPhase: 'building' | 'baseline_locked' | 'analyzing_delta' = 'building'
+    const existingTier = existingBaseline?.current_tier ?? 0
+    const needsRecalibration = currentTier.tier > existingTier
     let baselineData = existingBaseline?.baseline_data ?? null
-    let delta = null
+    let tierJustAdvanced = false
 
-    if (existingBaseline) {
-      // Baseline exists — compute delta against it
-      canonPhase = 'analyzing_delta'
-      delta = computeDelta(
-        { prosodic_summary: prosodicSummary, primary_emotion: primaryEmotion },
-        baselineData
-      )
-    } else if (cumulativeSec >= BASELINE_THRESHOLD_SEC) {
-      // Threshold reached — lock baseline now
+    if (needsRecalibration) {
+      // New tier reached — full recalculation from ALL logs
       const { data: allLogs } = await supabase
         .from('wa_perception_logs')
         .select('prosodic_summary, primary_emotion, audio_duration_sec')
         .eq('contact_id', contactId)
         .eq('owner_id', ownerId)
 
-      baselineData = computeBaseline(allLogs || [])
+      const newBaseline = computeBaseline(allLogs || [])
 
-      if (baselineData) {
-        const { error: baselineError } = await supabase
-          .from('wa_voice_baseline')
-          .insert({
-            contact_id: contactId,
-            owner_id: ownerId,
-            cumulative_audio_sec: cumulativeSec,
-            baseline_data: baselineData,
-            sample_count: baselineData.sample_count,
-          })
+      if (newBaseline) {
+        baselineData = newBaseline
+        tierJustAdvanced = true
 
-        if (baselineError) {
-          console.warn('[canon] Baseline insert error:', baselineError.message)
+        if (existingBaseline) {
+          // Update existing baseline row
+          await supabase
+            .from('wa_voice_baseline')
+            .update({
+              current_tier: currentTier.tier,
+              tier_name: currentTier.name,
+              confidence: currentTier.confidence,
+              cumulative_audio_sec: cumulativeSec,
+              baseline_data: newBaseline,
+              sample_count: newBaseline.sample_count,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', existingBaseline.id)
         } else {
-          canonPhase = 'baseline_locked'
-          // Compute delta for THIS message against the just-locked baseline
-          delta = computeDelta(
-            { prosodic_summary: prosodicSummary, primary_emotion: primaryEmotion },
-            baselineData
-          )
+          // First baseline ever — insert
+          const { error: baselineError } = await supabase
+            .from('wa_voice_baseline')
+            .insert({
+              contact_id: contactId,
+              owner_id: ownerId,
+              current_tier: currentTier.tier,
+              tier_name: currentTier.name,
+              confidence: currentTier.confidence,
+              cumulative_audio_sec: cumulativeSec,
+              baseline_data: newBaseline,
+              sample_count: newBaseline.sample_count,
+            })
+
+          if (baselineError) {
+            console.warn('[canon] Baseline insert error:', baselineError.message)
+          }
         }
       }
     }
 
+    // 5. Compute delta against baseline (current or just-recalibrated)
+    let delta = null
+    if (baselineData) {
+      delta = computeDelta(
+        { prosodic_summary: prosodicSummary, primary_emotion: primaryEmotion },
+        baselineData
+      )
+    }
+
+    const phase = tierJustAdvanced
+      ? 'tier_advanced'
+      : baselineData
+        ? 'analyzing_delta'
+        : 'building'
+
     return res.status(200).json({
       log,
       canon: {
-        phase: canonPhase,
+        phase,
+        tier: currentTier.tier,
+        tier_name: currentTier.name,
+        tier_label: currentTier.label,
+        confidence: currentTier.confidence,
         cumulative_sec: Math.round(cumulativeSec * 10) / 10,
-        threshold_sec: BASELINE_THRESHOLD_SEC,
-        progress: canonPhase === 'building'
-          ? Math.min(Math.round((cumulativeSec / BASELINE_THRESHOLD_SEC) * 100), 99)
-          : 100,
+        next_tier: nextTier
+          ? {
+              name: nextTier.name,
+              label: nextTier.label,
+              threshold_sec: nextTier.threshold_sec,
+              remaining_sec: Math.round((nextTier.threshold_sec - cumulativeSec) * 10) / 10,
+              progress: Math.min(Math.round((cumulativeSec / nextTier.threshold_sec) * 100), 99),
+            }
+          : null,
         baseline: baselineData,
         delta,
       },
