@@ -192,6 +192,41 @@ CREATE POLICY "perception_owner_select" ON public.wa_perception_logs
 CREATE POLICY "perception_insert" ON public.wa_perception_logs
   FOR INSERT WITH CHECK (TRUE);
 
+-- Reactions: emoji reactions on messages
+CREATE TABLE IF NOT EXISTS public.wa_reactions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  message_id UUID REFERENCES public.wa_messages(id) ON DELETE CASCADE,
+  emoji TEXT NOT NULL,
+  reactor TEXT NOT NULL CHECK (reactor IN ('contact', 'avatar')),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(message_id, reactor)
+);
+
+ALTER TABLE public.wa_reactions ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "reactions_select" ON public.wa_reactions FOR SELECT USING (TRUE);
+CREATE POLICY "reactions_insert" ON public.wa_reactions FOR INSERT WITH CHECK (TRUE);
+CREATE POLICY "reactions_update" ON public.wa_reactions FOR UPDATE USING (TRUE);
+CREATE POLICY "reactions_delete" ON public.wa_reactions FOR DELETE USING (TRUE);
+
+-- Message read status
+ALTER TABLE public.wa_messages ADD COLUMN IF NOT EXISTS read_at TIMESTAMPTZ;
+
+-- Conversation memory: cross-session avatar memory
+CREATE TABLE IF NOT EXISTS public.wa_conversation_memory (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  conversation_id UUID REFERENCES public.wa_conversations(id) ON DELETE CASCADE UNIQUE,
+  summary TEXT NOT NULL DEFAULT '',
+  key_facts JSONB DEFAULT '[]'::jsonb,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.wa_conversation_memory ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "memory_select" ON public.wa_conversation_memory FOR SELECT USING (TRUE);
+CREATE POLICY "memory_insert" ON public.wa_conversation_memory FOR INSERT WITH CHECK (TRUE);
+CREATE POLICY "memory_update" ON public.wa_conversation_memory FOR UPDATE USING (TRUE);
+
 -- Notify PostgREST to reload schema
 NOTIFY pgrst, 'reload schema';
 

@@ -21,6 +21,7 @@ interface Message {
   media_url: string | null
   duration_sec: number | null
   created_at: string
+  read_at?: string | null
 }
 
 interface ConversationData {
@@ -172,10 +173,12 @@ const VoiceMessageBubble = memo(function VoiceMessageBubble({
   isContact,
   message,
   transcript,
+  isRead,
 }: {
   isContact: boolean
   message: Message
   transcript?: string
+  isRead?: boolean
 }) {
   const [isTranscriptOpen, setIsTranscriptOpen] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
@@ -350,9 +353,23 @@ const VoiceMessageBubble = memo(function VoiceMessageBubble({
         </button>
       ) : null}
       {hasTranscript && isTranscriptOpen ? (
-        <div className="mt-2 rounded-2xl bg-black/15 px-3 py-2 text-sm text-white/84">{transcript}</div>
+        <div className="mt-2 rounded-2xl bg-black/15 px-3 py-2.5 text-[13px] leading-[1.55] text-white/80">
+          {transcript!.split(/(?<=[.!?])\s+/).filter(Boolean).map((sentence, i) => (
+            <p key={i} className={i > 0 ? 'mt-1.5' : ''}>{sentence}</p>
+          ))}
+        </div>
       ) : null}
-      <span className={`mt-1 flex justify-end text-[10px] ${isContact ? 'text-white/40' : 'text-white/30'}`}>{formatMessageTime(message.created_at)}</span>
+      <span className={`mt-1 flex items-center justify-end gap-0.5 text-[10px] ${isContact ? 'text-white/40' : 'text-white/30'}`}>
+        {formatMessageTime(message.created_at)}
+        {isContact && (
+          <span className="ml-0.5 inline-flex items-center">
+            <svg className={`h-[14px] w-[14px] ${isRead ? 'text-[#53bdeb]' : 'text-white/30'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M2 12.5l5.5 5.5L18 7" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M7 12.5l5.5 5.5L23 7" />
+            </svg>
+          </span>
+        )}
+      </span>
     </div>
   )
 })
@@ -360,14 +377,23 @@ const VoiceMessageBubble = memo(function VoiceMessageBubble({
 const MediaMessageBubble = memo(function MediaMessageBubble({
   isContact,
   message,
+  isRead,
 }: {
   isContact: boolean
   message: Message
+  isRead?: boolean
 }) {
   if (!message.media_url) return null
 
+  const checkmark = isContact ? (
+    <svg className={`ml-0.5 inline-block h-[14px] w-[14px] ${isRead ? 'text-[#53bdeb]' : 'text-white/30'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M2 12.5l5.5 5.5L18 7" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M7 12.5l5.5 5.5L23 7" />
+    </svg>
+  ) : null
+
   const commonMeta = (
-    <span className={`mt-1 flex justify-end text-[10px] ${isContact ? 'text-white/40' : 'text-white/30'}`}>{formatMessageTime(message.created_at)}</span>
+    <span className={`mt-1 flex items-center justify-end gap-0.5 text-[10px] ${isContact ? 'text-white/40' : 'text-white/30'}`}>{formatMessageTime(message.created_at)}{checkmark}</span>
   )
 
   if (message.type === 'image') {
@@ -470,6 +496,15 @@ export default function Chat() {
   const videoInputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
 
+  // Reactions state
+  const [reactionsMap, setReactionsMap] = useState<Record<string, { contact?: string; avatar?: string }>>({})
+  const [emojiPickerMessageId, setEmojiPickerMessageId] = useState<string | null>(null)
+  const doubleTapRef = useRef<{ id: string; time: number } | null>(null)
+
+  // Read receipts state
+  const [readAtMap, setReadAtMap] = useState<Record<string, string | null>>({})
+  const [avatarAwayStatus, setAvatarAwayStatus] = useState<string | null>(null)
+
   // Message selection & forward/export state
   const locale = getStoredLocale()
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -520,6 +555,130 @@ export default function Chat() {
 
   function getSelectedMessages(): Message[] {
     return messages.filter((m) => selectedIds.has(m.id))
+  }
+
+  // --- Emoji Reactions ---
+  const QUICK_EMOJIS = ['\u{1F44D}', '\u{2764}\u{FE0F}', '\u{1F602}', '\u{1F62E}', '\u{1F622}', '\u{1F64F}']
+
+  async function addReaction(messageId: string, emoji: string) {
+    setReactionsMap((prev) => ({
+      ...prev,
+      [messageId]: { ...prev[messageId], contact: emoji },
+    }))
+    setEmojiPickerMessageId(null)
+    try {
+      await fetch('/api/react-message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageId, emoji, reactor: 'contact' }),
+      })
+    } catch (err) {
+      console.error('[Reaction] Failed:', err)
+    }
+  }
+
+  async function removeReaction(messageId: string) {
+    setReactionsMap((prev) => {
+      const updated = { ...prev }
+      if (updated[messageId]) {
+        const { contact: _, ...rest } = updated[messageId]
+        updated[messageId] = rest
+      }
+      return updated
+    })
+    try {
+      await fetch('/api/react-message', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageId, reactor: 'contact' }),
+      })
+    } catch (err) {
+      console.error('[Reaction] Remove failed:', err)
+    }
+  }
+
+  function handleDoubleTap(messageId: string) {
+    if (selectionMode) return
+    const now = Date.now()
+    if (doubleTapRef.current?.id === messageId && now - doubleTapRef.current.time < 350) {
+      // Double-tap detected — toggle emoji picker
+      doubleTapRef.current = null
+      if (reactionsMap[messageId]?.contact) {
+        removeReaction(messageId)
+      } else {
+        setEmojiPickerMessageId((prev) => prev === messageId ? null : messageId)
+      }
+    } else {
+      doubleTapRef.current = { id: messageId, time: now }
+    }
+  }
+
+  // Avatar auto-react to contact messages (occasionally)
+  function maybeAvatarReact(messageId: string) {
+    // ~25% chance to react
+    if (Math.random() > 0.25) return
+    const delay = 1500 + Math.random() * 4000
+    const emoji = QUICK_EMOJIS[Math.floor(Math.random() * QUICK_EMOJIS.length)]
+    setTimeout(() => {
+      setReactionsMap((prev) => ({
+        ...prev,
+        [messageId]: { ...prev[messageId], avatar: emoji },
+      }))
+      fetch('/api/react-message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageId, emoji, reactor: 'avatar' }),
+      }).catch(() => {})
+    }, delay)
+  }
+
+  // --- Read Receipts ---
+  const AWAY_STATUSES: Array<'avatarAtLunch' | 'avatarOnPhone' | 'avatarInMeeting' | 'avatarOnToilet' | 'avatarGettingCoffee' | 'avatarTakingNap' | 'avatarWalkingDog' | 'avatarAtGym'> = [
+    'avatarAtLunch', 'avatarOnPhone', 'avatarInMeeting', 'avatarOnToilet',
+    'avatarGettingCoffee', 'avatarTakingNap', 'avatarWalkingDog', 'avatarAtGym',
+  ]
+
+  function simulateAvatarRead(messageId: string) {
+    // 20% chance of a fun "away" delay, otherwise instant read
+    const willBeAway = Math.random() < 0.2
+    if (willBeAway) {
+      const status = AWAY_STATUSES[Math.floor(Math.random() * AWAY_STATUSES.length)]
+      const awayDuration = 3000 + Math.random() * 5000
+      setAvatarAwayStatus(status)
+      setTimeout(() => {
+        setAvatarAwayStatus(null)
+        markMessageRead(messageId)
+      }, awayDuration)
+    } else {
+      // Instant or near-instant read (200-1500ms)
+      const delay = 200 + Math.random() * 1300
+      setTimeout(() => markMessageRead(messageId), delay)
+    }
+  }
+
+  function markMessageRead(messageId: string) {
+    const now = new Date().toISOString()
+    setReadAtMap((prev) => ({ ...prev, [messageId]: now }))
+    fetch('/api/mark-read', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messageIds: [messageId] }),
+    }).catch(() => {})
+  }
+
+  // --- Memory Update (fire-and-forget after avatar replies) ---
+  function triggerMemoryUpdate() {
+    if (!conversationId) return
+    const recent = messages.slice(-20).map((m) => ({
+      role: m.sender === 'contact' ? 'user' : 'assistant',
+      content: (m.content || '').trim(),
+    })).filter((m) => m.content.length > 0)
+    if (recent.length < 4) return // not enough context yet
+    fetch('/api/update-memory', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ conversationId, recentMessages: recent }),
+    }).catch((err) => console.error('[Memory] Update failed:', err))
   }
 
   function formatMessageForExport(msg: Message, ownerName: string, contactName: string): string {
@@ -668,6 +827,12 @@ export default function Chat() {
           {}
         )
         setTranscriptMap(transcripts)
+        // Build read_at map from messages
+        const readAts: Record<string, string | null> = {}
+        for (const msg of msgs as Array<{ id: string; read_at?: string | null }>) {
+          readAts[msg.id] = msg.read_at ?? null
+        }
+        setReadAtMap(readAts)
       })
       .catch((loadError) => {
         console.error(loadError)
@@ -1093,6 +1258,12 @@ export default function Chat() {
           [String((reply as Message).id)]: String(replyPayload.content),
         }))
       }
+      // Mark avatar reply as instantly read by contact
+      setReadAtMap((prev) => ({ ...prev, [String((reply as Message).id)]: new Date().toISOString() }))
+      // Trigger memory update after every few exchanges
+      if (messages.length > 0 && messages.length % 6 === 0) {
+        triggerMemoryUpdate()
+      }
     } catch (err) {
       console.error('Avatar reply failed:', err)
     } finally {
@@ -1110,7 +1281,9 @@ export default function Chat() {
     try {
       const message = await sendMessage(conversationId, 'contact', 'text', content)
       setMessages((current) => [...current, message as Message])
+      simulateAvatarRead((message as Message).id)
       await sendAvatarReply(content, { useVoice: false })
+      maybeAvatarReact((message as Message).id)
     } catch (sendError: any) {
       console.error(sendError)
       setError(sendError?.message || 'Unable to send your message.')
@@ -1190,6 +1363,7 @@ export default function Chat() {
       )) as Message
 
       setMessages((current) => [...current, message])
+      simulateAvatarRead(message.id)
 
       if (finalTranscript && finalTranscript !== '[Voice message]') {
         createPerceptionLog({
@@ -1207,6 +1381,7 @@ export default function Chat() {
         isVoice: true,
         perception: opmResponse,
       })
+      maybeAvatarReact(message.id)
     } catch (recordingError: any) {
       console.error('[sendVoiceMessage]', recordingError)
       setError(recordingError?.message || 'Unable to send this voice note.')
@@ -1836,11 +2011,13 @@ export default function Chat() {
         if (!mediaUrl) throw new Error('upload failed')
         const message = await sendMessage(conversationId, 'contact', 'image', caption || '[Image]', mediaUrl)
         setMessages((current) => [...current, message as Message])
+        simulateAvatarRead((message as Message).id)
         await sendAvatarReply(caption || 'The user shared this image.', {
           useVoice: true,
           imageUrl: mediaUrl,
           isImage: true,
         })
+        maybeAvatarReact((message as Message).id)
         return
       }
 
@@ -1864,6 +2041,7 @@ export default function Chat() {
         metadata.duration || null || undefined
       )
       setMessages((current) => [...current, message as Message])
+      simulateAvatarRead((message as Message).id)
       const transcript = opmResponse?.transcript?.trim() || ''
       const videoMessageText = caption
         ? (transcript ? `${caption}\n\n[Transcribed from video]: ${transcript}` : caption)
@@ -1873,6 +2051,7 @@ export default function Chat() {
         isVideo: true,
         perception: opmResponse,
       })
+      maybeAvatarReact((message as Message).id)
     } catch (draftError) {
       console.error(draftError)
       setError(`Unable to send this ${kind}.`)
@@ -2100,6 +2279,7 @@ export default function Chat() {
 
       <main
         className="relative z-0 min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 pb-6"
+        onClick={() => { if (emojiPickerMessageId) setEmojiPickerMessageId(null) }}
       >
         <div className={`mx-auto flex w-full flex-col gap-2.5 ${isDesktopLayout ? 'max-w-[680px] py-5' : 'max-w-2xl'}`}>
           {groupedTimeline.map((item) => {
@@ -2116,12 +2296,34 @@ export default function Chat() {
             const message = item.message
             const isContact = message.sender === 'contact'
             const isSelected = selectedIds.has(message.id)
+            const reactions = reactionsMap[message.id]
+            const hasReaction = reactions?.contact || reactions?.avatar
+            const isRead = Boolean(readAtMap[message.id])
+
+            // Read receipt checkmarks for contact messages
+            const ReadReceipt = isContact ? (
+              <span className="ml-1 inline-flex items-center">
+                {isRead ? (
+                  // Double blue checkmarks
+                  <svg className="h-[14px] w-[14px] text-[#53bdeb]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M2 12.5l5.5 5.5L18 7" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M7 12.5l5.5 5.5L23 7" />
+                  </svg>
+                ) : (
+                  // Double grey checkmarks (delivered — always shown since message is on server)
+                  <svg className="h-[14px] w-[14px] text-white/30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M2 12.5l5.5 5.5L18 7" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M7 12.5l5.5 5.5L23 7" />
+                  </svg>
+                )}
+              </span>
+            ) : null
 
             return (
               <div
                 key={message.id}
-                className={`flex transition-colors ${isContact ? 'justify-end' : 'justify-start'} ${isSelected ? 'rounded-2xl bg-[#00a884]/10' : ''}`}
-                onClick={() => handleMessagePress(message.id)}
+                className={`relative flex transition-colors ${isContact ? 'justify-end' : 'justify-start'} ${isSelected ? 'rounded-2xl bg-[#00a884]/10' : ''}`}
+                onClick={() => { handleMessagePress(message.id); handleDoubleTap(message.id) }}
                 onContextMenu={(e) => { e.preventDefault(); handleMessageLongPress(message.id) }}
                 onTouchStart={() => {
                   longPressTimerRef.current = window.setTimeout(() => handleMessageLongPress(message.id), 500)
@@ -2136,32 +2338,79 @@ export default function Chat() {
                     </div>
                   </div>
                 )}
-                {message.type === 'voice' ? (
-                  <VoiceMessageBubble
-                    isContact={isContact}
-                    message={message}
-                    transcript={transcriptMap[message.id] || (!isPlaceholderContent(message) ? message.content || '' : '')}
-                  />
-                ) : message.type === 'image' || message.type === 'video' ? (
-                  <MediaMessageBubble isContact={isContact} message={message} />
-                ) : (
-                  <div
-                    className={`relative max-w-[78%] rounded-[20px] border px-4 py-3 text-[14.5px] leading-relaxed shadow-[0_2px_8px_rgba(0,0,0,0.12)] ${
-                      isContact
-                        ? 'rounded-tr-[6px] border-[#00a884]/15 bg-[#005c4b] text-white'
-                        : 'rounded-tl-[6px] border-white/[0.06] bg-[#1a2332] text-white/[0.92]'
-                    }`}
-                  >
-                    <span>{message.content}</span>
-                    <span className={`mt-1 flex justify-end text-[10px] ${isContact ? 'text-white/40' : 'text-white/30'}`}>
-                      {formatMessageTime(message.created_at)}
-                    </span>
-                  </div>
-                )}
+                <div className="relative">
+                  {message.type === 'voice' ? (
+                    <VoiceMessageBubble
+                      isContact={isContact}
+                      message={message}
+                      transcript={transcriptMap[message.id] || (!isPlaceholderContent(message) ? message.content || '' : '')}
+                      isRead={isRead}
+                    />
+                  ) : message.type === 'image' || message.type === 'video' ? (
+                    <MediaMessageBubble isContact={isContact} message={message} isRead={isRead} />
+                  ) : (
+                    <div
+                      className={`relative max-w-[78%] rounded-[20px] border px-4 py-3 text-[14.5px] leading-relaxed shadow-[0_2px_8px_rgba(0,0,0,0.12)] ${
+                        isContact
+                          ? 'rounded-tr-[6px] border-[#00a884]/15 bg-[#005c4b] text-white'
+                          : 'rounded-tl-[6px] border-white/[0.06] bg-[#1a2332] text-white/[0.92]'
+                      }`}
+                    >
+                      <span>{message.content}</span>
+                      <span className={`mt-1 flex items-center justify-end gap-0.5 text-[10px] ${isContact ? 'text-white/40' : 'text-white/30'}`}>
+                        {formatMessageTime(message.created_at)}
+                        {ReadReceipt}
+                      </span>
+                    </div>
+                  )}
+                  {/* Reaction badges */}
+                  {hasReaction && (
+                    <div className={`absolute -bottom-2.5 flex gap-0.5 ${isContact ? 'right-2' : 'left-2'}`}>
+                      {reactions?.avatar && (
+                        <span className="rounded-full border border-white/10 bg-[#1a2332] px-1 py-0.5 text-[13px] shadow-sm">{reactions.avatar}</span>
+                      )}
+                      {reactions?.contact && (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); removeReaction(message.id) }}
+                          className="rounded-full border border-[#00a884]/30 bg-[#005c4b] px-1 py-0.5 text-[13px] shadow-sm transition hover:border-[#00a884]/50"
+                        >{reactions.contact}</button>
+                      )}
+                    </div>
+                  )}
+                  {/* Emoji picker */}
+                  {emojiPickerMessageId === message.id && (
+                    <div className={`absolute -top-10 z-30 flex gap-1 rounded-full border border-white/10 bg-[#1e2d3d] px-2 py-1.5 shadow-xl ${isContact ? 'right-0' : 'left-0'}`}>
+                      {QUICK_EMOJIS.map((emoji) => (
+                        <button
+                          key={emoji}
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); addReaction(message.id, emoji) }}
+                          className="rounded-full px-1 text-lg transition hover:scale-125 hover:bg-white/10"
+                        >{emoji}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             )
           })}
 
+          {/* Avatar away status (fun delay before reading) */}
+          {avatarAwayStatus && !avatarStatus ? (
+            <div className="flex justify-start">
+              <div className="flex items-center gap-2 rounded-[20px] rounded-tl-[6px] border border-white/[0.06] bg-[#1a2332] px-4 py-2.5 shadow-[0_2px_8px_rgba(0,0,0,0.12)]">
+                <span className="text-[13px]">{'\u{1F634}'}</span>
+                <span className="text-[13px] italic text-white/45">
+                  <span className="font-medium text-white/60">{owner.display_name}</span>
+                  {' '}
+                  {t(locale, avatarAwayStatus as any)}
+                </span>
+              </div>
+            </div>
+          ) : null}
+
+          {/* Avatar active status (typing, thinking, etc.) */}
           {avatarStatus ? (
             <div className="flex justify-start">
               <div className="flex items-center gap-2.5 rounded-[20px] rounded-tl-[6px] border border-white/[0.06] bg-[#1a2332] px-4 py-3 shadow-[0_2px_8px_rgba(0,0,0,0.12)]">
