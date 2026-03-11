@@ -227,6 +227,17 @@ CREATE POLICY "memory_select" ON public.wa_conversation_memory FOR SELECT USING 
 CREATE POLICY "memory_insert" ON public.wa_conversation_memory FOR INSERT WITH CHECK (TRUE);
 CREATE POLICY "memory_update" ON public.wa_conversation_memory FOR UPDATE USING (TRUE);
 
+-- Owner persona learning: flag whether owner IS the avatar (self-clone)
+-- When true, the system learns the owner's communication style from conversations
+-- When false (e.g. a celebrity avatar), only OPM adapts behavior to the contact
+ALTER TABLE public.wa_owners
+  ADD COLUMN IF NOT EXISTS is_self_avatar BOOLEAN DEFAULT FALSE;
+
+-- Stores extracted communication style patterns (only used when is_self_avatar = true)
+-- Example: {"traits": ["Uses humor and irony", "Switches between German and Spanish"], "speech_patterns": ["Says 'mega' and 'krass'"], "thinking_style": ["Asks counter-questions"]}
+ALTER TABLE public.wa_owners
+  ADD COLUMN IF NOT EXISTS communication_style JSONB DEFAULT NULL;
+
 -- Notify PostgREST to reload schema
 NOTIFY pgrst, 'reload schema';
 

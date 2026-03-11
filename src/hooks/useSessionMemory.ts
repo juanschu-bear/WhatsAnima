@@ -8,6 +8,7 @@ interface Message {
 
 interface UseSessionMemoryOptions {
   conversationId: string | undefined
+  ownerId: string | undefined
   messages: Message[]
   sending: boolean
   avatarStatus: string | null
@@ -19,6 +20,7 @@ const SESSION_TIMEOUT_MS = 180_000 // 3 minutes
 
 export function useSessionMemory({
   conversationId,
+  ownerId,
   messages,
   sending,
   avatarStatus,
@@ -40,7 +42,7 @@ export function useSessionMemory({
     fetch('/api/update-memory', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ conversationId, recentMessages: recent }),
+      body: JSON.stringify({ conversationId, recentMessages: recent, ownerId }),
     }).catch((err) => console.error('[Memory] Update failed:', err))
   }
 

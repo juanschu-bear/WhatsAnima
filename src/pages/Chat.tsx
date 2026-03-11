@@ -483,6 +483,7 @@ export default function Chat() {
 
   useSessionMemory({
     conversationId,
+    ownerId: conversation?.owner_id,
     messages,
     sending,
     avatarStatus,

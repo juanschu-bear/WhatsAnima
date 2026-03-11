@@ -27,7 +27,7 @@ export default async function handler(req: any, res: any) {
     return res.status(503).json({ error: `DB not configured – missing ${missing}` })
   }
 
-  const { conversationId, recentMessages } = req.body ?? {}
+  const { conversationId, recentMessages, ownerId } = req.body ?? {}
   if (!conversationId || !Array.isArray(recentMessages)) {
     return res.status(400).json({ error: 'conversationId and recentMessages are required' })
   }
@@ -159,6 +159,73 @@ Respond in EXACTLY this JSON format:
       console.error('[update-memory] Upsert error:', upsertError.message)
       return res.status(200).json({ ok: false, error: upsertError.message })
     }
+
+    // --- Communication Style Learning (only for self-avatars) ---
+    if (ownerId) {
+      try {
+        const { data: owner } = await supabase
+          .from('wa_owners')
+          .select('is_self_avatar, communication_style')
+          .eq('id', ownerId)
+          .maybeSingle()
+
+        if (owner?.is_self_avatar) {
+          const existingStyle = owner.communication_style || { traits: [], speech_patterns: [], thinking_style: [] }
+
+          const stylePrompt = `You are a communication style analyzer. Study how the AVATAR responds in this conversation and extract personality & style patterns. The avatar is a clone of a real person — we want to learn how that person communicates.
+
+EXISTING STYLE PROFILE:
+${JSON.stringify(existingStyle, null, 2)}
+
+CONVERSATION:
+${conversationExcerpt}
+
+INSTRUCTIONS:
+Analyze only the AVATAR's messages (not the User's). Extract:
+
+1. **traits**: General communication traits (e.g. "Uses humor and irony", "Very direct, no fluff", "Empathetic listener")
+2. **speech_patterns**: Specific phrases, words, or language habits (e.g. "Says 'mega' and 'krass'", "Mixes German and Spanish", "Uses rhetorical questions")
+3. **thinking_style**: How the person reasons and approaches topics (e.g. "Asks counter-questions before answering", "Uses analogies to explain", "Pragmatic problem-solver")
+
+Merge with the existing style profile. Keep max 10 entries per category. Update entries that evolved, add new ones, keep unchanged ones.
+
+Respond in EXACTLY this JSON format:
+{"traits": ["..."], "speech_patterns": ["..."], "thinking_style": ["..."]}`
+
+          const styleResponse = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-api-key': apiKey,
+              'anthropic-version': '2023-06-01',
+            },
+            body: JSON.stringify({
+              model: 'claude-haiku-4-5-20251001',
+              max_tokens: 600,
+              messages: [{ role: 'user', content: stylePrompt }],
+            }),
+          })
+
+          if (styleResponse.ok) {
+            const styleResult = await styleResponse.json()
+            const styleText = styleResult.content?.[0]?.text?.trim() || ''
+            try {
+              const styleMatch = styleText.match(/\{[\s\S]*\}/)
+              const styleData = JSON.parse(styleMatch?.[0] || styleText)
+              await supabase
+                .from('wa_owners')
+                .update({ communication_style: styleData })
+                .eq('id', ownerId)
+            } catch {
+              console.warn('[update-memory] Failed to parse style extraction:', styleText)
+            }
+          }
+        }
+      } catch (err: any) {
+        console.warn('[update-memory] Style extraction skipped:', err.message)
+      }
+    }
+    // --- End Communication Style Learning ---
 
     return res.status(200).json({
       summary: parsed.summary,
