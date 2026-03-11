@@ -166,6 +166,8 @@ function isPlaceholderContent(message: Message) {
   )
 }
 
+const PLAYBACK_SPEEDS = [0.75, 1, 1.5, 2] as const
+
 const VoiceMessageBubble = memo(function VoiceMessageBubble({
   isContact,
   message,
@@ -180,7 +182,9 @@ const VoiceMessageBubble = memo(function VoiceMessageBubble({
   const [displaySeconds, setDisplaySeconds] = useState(message.duration_sec ?? 0)
   const [durationSeconds, setDurationSeconds] = useState(message.duration_sec ?? 0)
   const [progress, setProgress] = useState(0)
+  const [speedIndex, setSpeedIndex] = useState(1) // default 1x
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  const waveformRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     setDisplaySeconds(message.duration_sec ?? 0)
@@ -196,43 +200,69 @@ const VoiceMessageBubble = memo(function VoiceMessageBubble({
 
   const hasPlayableAudio = Boolean(message.media_url)
   const hasTranscript = Boolean(transcript && transcript.trim())
+  const currentSpeed = PLAYBACK_SPEEDS[speedIndex]
+
+  function ensureAudio() {
+    if (audioRef.current) return audioRef.current
+    if (!message.media_url) return null
+
+    const audio = new Audio(message.media_url)
+    audio.preload = 'metadata'
+    audio.playbackRate = currentSpeed
+    audio.onloadedmetadata = () => {
+      if (Number.isFinite(audio.duration) && audio.duration > 0) {
+        setDurationSeconds(audio.duration)
+        setDisplaySeconds(audio.duration)
+      }
+    }
+    audio.ontimeupdate = () => {
+      if (Number.isFinite(audio.duration) && audio.duration > 0) {
+        setDisplaySeconds(audio.currentTime)
+        setProgress(audio.currentTime / audio.duration)
+      }
+    }
+    audio.onended = () => {
+      setIsPlaying(false)
+      setDisplaySeconds(audio.duration || message.duration_sec || 0)
+      setProgress(0)
+    }
+    audio.onerror = () => setIsPlaying(false)
+    audioRef.current = audio
+    return audio
+  }
 
   const togglePlay = async () => {
-    if (!message.media_url) return
+    const audio = ensureAudio()
+    if (!audio) return
 
-    if (!audioRef.current) {
-      const audio = new Audio(message.media_url)
-      audio.preload = 'metadata'
-      audio.onloadedmetadata = () => {
-        if (Number.isFinite(audio.duration) && audio.duration > 0) {
-          setDurationSeconds(audio.duration)
-          setDisplaySeconds(audio.duration)
-        }
-      }
-      audio.ontimeupdate = () => {
-        if (Number.isFinite(audio.duration) && audio.duration > 0) {
-          setDisplaySeconds(audio.currentTime)
-          setProgress(audio.currentTime / audio.duration)
-        }
-      }
-      audio.onended = () => {
-        setIsPlaying(false)
-        setDisplaySeconds(audio.duration || message.duration_sec || 0)
-        setProgress(0)
-      }
-      audio.onerror = () => {
-        setIsPlaying(false)
-      }
-      audioRef.current = audio
-    }
-
-    const audio = audioRef.current
     if (audio.paused) {
+      audio.playbackRate = currentSpeed
       await audio.play().catch(() => undefined)
       setIsPlaying(true)
     } else {
       audio.pause()
       setIsPlaying(false)
+    }
+  }
+
+  function cycleSpeed() {
+    const nextIndex = (speedIndex + 1) % PLAYBACK_SPEEDS.length
+    setSpeedIndex(nextIndex)
+    if (audioRef.current) {
+      audioRef.current.playbackRate = PLAYBACK_SPEEDS[nextIndex]
+    }
+  }
+
+  function seekToPosition(event: React.MouseEvent | React.TouchEvent) {
+    const audio = ensureAudio()
+    if (!audio || !waveformRef.current) return
+    const rect = waveformRef.current.getBoundingClientRect()
+    const clientX = 'touches' in event ? event.touches[0].clientX : event.clientX
+    const fraction = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
+    if (Number.isFinite(audio.duration) && audio.duration > 0) {
+      audio.currentTime = fraction * audio.duration
+      setProgress(fraction)
+      setDisplaySeconds(audio.currentTime)
     }
   }
 
@@ -244,7 +274,7 @@ const VoiceMessageBubble = memo(function VoiceMessageBubble({
           : 'rounded-tl-[6px] border-white/[0.06] bg-[#1a2332] text-white'
       }`}
     >
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2.5">
         <button
           type="button"
           onClick={togglePlay}
@@ -261,18 +291,54 @@ const VoiceMessageBubble = memo(function VoiceMessageBubble({
             </svg>
           )}
         </button>
-        <div className="flex min-w-0 flex-1 items-center gap-1.5">
-          {WAVEFORM_BARS.map((bar) => (
-            <span
-              key={bar}
-              className={`w-1 rounded-full transition-all ${
-                (bar + 1) / WAVEFORM_BARS.length <= progress ? 'bg-[#7be3ce]' : 'bg-white/30'
-              }`}
-              style={{ height: `${[6, 12, 18, 10, 22, 14, 8, 20, 12, 16, 24, 10, 18, 8, 14][bar]}px` }}
-            />
-          ))}
+
+        {/* Seekable waveform */}
+        <div
+          ref={waveformRef}
+          className="flex min-w-0 flex-1 cursor-pointer items-center gap-[3px]"
+          onClick={seekToPosition}
+          onTouchStart={seekToPosition}
+          role="slider"
+          aria-valuenow={Math.round(progress * 100)}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          tabIndex={0}
+        >
+          {WAVEFORM_BARS.map((bar) => {
+            const barProgress = (bar + 1) / WAVEFORM_BARS.length
+            const heights = [6, 12, 18, 10, 22, 14, 8, 20, 12, 16, 24, 10, 18, 8, 14]
+            const isActive = barProgress <= progress
+            return (
+              <span
+                key={bar}
+                className={`w-[3px] rounded-full transition-all duration-150 ${
+                  isActive
+                    ? isContact ? 'bg-[#7be3ce]' : 'bg-[#00d4a1]'
+                    : isContact ? 'bg-white/25' : 'bg-white/20'
+                }`}
+                style={{ height: `${heights[bar]}px` }}
+              />
+            )
+          })}
         </div>
-        <span className="text-xs text-white/70">{formatClock(isPlaying ? displaySeconds : durationSeconds)}</span>
+
+        <div className="flex shrink-0 flex-col items-end gap-0.5">
+          <span className="text-[11px] tabular-nums text-white/60">{formatClock(isPlaying ? displaySeconds : durationSeconds)}</span>
+          {/* Speed toggle */}
+          {hasPlayableAudio && (
+            <button
+              type="button"
+              onClick={cycleSpeed}
+              className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums transition ${
+                currentSpeed !== 1
+                  ? isContact ? 'bg-[#00a884]/30 text-[#7be3ce]' : 'bg-[#00d4a1]/20 text-[#00d4a1]'
+                  : 'text-white/40 hover:text-white/60'
+              }`}
+            >
+              {currentSpeed}x
+            </button>
+          )}
+        </div>
       </div>
       {hasTranscript ? (
         <button
@@ -1765,33 +1831,20 @@ export default function Chat() {
 
     try {
       if (kind === 'image') {
+        setAvatarStatus('looking')
         const mediaUrl = await uploadMediaToStorage(file, 'image')
         if (!mediaUrl) throw new Error('upload failed')
         const message = await sendMessage(conversationId, 'contact', 'image', caption || '[Image]', mediaUrl)
         setMessages((current) => [...current, message as Message])
-        const replyPayload = await getAvatarReply(caption || 'The user shared this image.', {
+        await sendAvatarReply(caption || 'The user shared this image.', {
           useVoice: true,
           imageUrl: mediaUrl,
           isImage: true,
         })
-        const hasAudio = !!replyPayload.mediaUrl
-        const reply = await sendMessage(
-          conversationId,
-          'avatar',
-          hasAudio ? 'voice' : 'text',
-          replyPayload.content,
-          hasAudio ? replyPayload.mediaUrl ?? undefined : undefined
-        )
-        setMessages((current) => [...current, reply as Message])
-        if (hasAudio) {
-          setTranscriptMap((current) => ({
-            ...current,
-            [String((reply as Message).id)]: String(replyPayload.content),
-          }))
-        }
         return
       }
 
+      setAvatarStatus('watching')
       const rotatedFile = await correctVideoOrientation(file)
       const metadata = await readVideoMetadata(rotatedFile)
       const [mediaUrl, opmResponse] = await Promise.all([
@@ -1823,6 +1876,7 @@ export default function Chat() {
     } catch (draftError) {
       console.error(draftError)
       setError(`Unable to send this ${kind}.`)
+      setAvatarStatus(null)
     } finally {
       setSending(false)
     }
