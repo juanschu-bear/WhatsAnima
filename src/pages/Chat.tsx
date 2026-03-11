@@ -743,6 +743,7 @@ export default function Chat() {
         .map((message) => ({
           role: message.sender === 'contact' ? 'user' : 'assistant',
           content: (message.content || '').trim(),
+          msgType: message.type as string,
         }))
         .filter((message) => message.content.length > 0)
 

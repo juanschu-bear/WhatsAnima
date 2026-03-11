@@ -14,6 +14,15 @@ const RESPONSE_FORMAT_MATCHING =
 - Respond conversationally. Be natural, direct, no disclaimers.`
 const FORMATTING_INSTRUCTION =
   "IMPORTANT FORMATTING RULE: Respond conversationally as if you're texting. No bullet points, no bold text, no headers, no markdown formatting. No asterisks, no dashes for lists, no numbered lists. Write like you're actually talking to someone in a private chat. Keep it natural and direct."
+const MESSAGE_TYPE_AWARENESS =
+  `### Message Type Awareness
+- Each message in the conversation is tagged with its type: [TEXT], [VOICE], [VIDEO], or [IMAGE].
+- [TEXT] means the user typed a text message. You CANNOT hear tone, pitch, volume, or any audio qualities in text messages. NEVER claim you can.
+- [VOICE] means the user sent a voice message that was transcribed. You may have perception data about tone/emotion from the audio analysis system, but only reference what the perception context explicitly provides.
+- [VIDEO] means the user sent a video message. You may have perception data from the video analysis.
+- [IMAGE] means the user shared an image.
+- CRITICAL: Never confuse message types. If the current message is [TEXT], do NOT reference audio qualities like volume, tone of voice, speaking speed, or intensity — those do not exist in text. If caught making claims about sensory data that doesn't exist for the message type, you lose credibility.
+- When responding to a text message that references a previous voice/video message, clearly distinguish between what you observed in the earlier media and what is in the current text.`
 
 type ChatMessage = {
   role: 'user' | 'assistant'
@@ -22,6 +31,7 @@ type ChatMessage = {
   isImage?: boolean
   isVideo?: boolean
   isVoice?: boolean
+  msgType?: string
 }
 
 function buildPerceptionPrompt(perception: any) {
@@ -122,22 +132,30 @@ async function loadOwnerPromptAndMemory(conversationId: string | undefined): Pro
   }
 }
 
+function getMessageTypeTag(msg: ChatMessage): string {
+  if (msg.msgType === 'voice' || msg.isVoice) return '[VOICE] '
+  if (msg.msgType === 'video' || msg.isVideo) return '[VIDEO] '
+  if (msg.msgType === 'image' || msg.isImage) return '[IMAGE] '
+  return '[TEXT] '
+}
+
 async function callAnthropic(apiKey: string, systemPrompt: string, messages: ChatMessage[]) {
   const payload = {
     model: 'claude-sonnet-4-20250514',
     max_tokens: 300,
     system: systemPrompt,
     messages: messages.map((message) => {
+      const tag = message.role === 'user' ? getMessageTypeTag(message) : ''
       if (message.image_url && message.role === 'user') {
         return {
           role: message.role,
           content: [
             { type: 'image', source: { type: 'url', url: message.image_url } },
-            { type: 'text', text: message.content || 'The user shared this image.' },
+            { type: 'text', text: `${tag}${message.content || 'The user shared this image.'}` },
           ],
         }
       }
-      return { role: message.role, content: message.content }
+      return { role: message.role, content: tag ? `${tag}${message.content}` : message.content }
     }),
   }
 
@@ -209,7 +227,7 @@ export default async function handler(req: any, res: any) {
 
   try {
     const { ownerPrompt, memory, stylePrompt } = await loadOwnerPromptAndMemory(conversationId)
-    const systemPrompt = `${ownerPrompt}\n\n${RESPONSE_FORMAT_MATCHING}\n\n${FORMATTING_INSTRUCTION}\n\n${LANGUAGE_INSTRUCTION}\n\n${SPANISH_DIALECT_INSTRUCTION}${stylePrompt}${memory}${buildPerceptionPrompt(perception)}`
+    const systemPrompt = `${ownerPrompt}\n\n${RESPONSE_FORMAT_MATCHING}\n\n${FORMATTING_INSTRUCTION}\n\n${MESSAGE_TYPE_AWARENESS}\n\n${LANGUAGE_INSTRUCTION}\n\n${SPANISH_DIALECT_INSTRUCTION}${stylePrompt}${memory}${buildPerceptionPrompt(perception)}`
     const messages: ChatMessage[] = [
       ...priorMessages.slice(-30),
       {
