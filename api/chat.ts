@@ -142,7 +142,7 @@ function getMessageTypeTag(msg: ChatMessage): string {
 async function callAnthropic(apiKey: string, systemPrompt: string, messages: ChatMessage[]) {
   const payload = {
     model: 'claude-sonnet-4-20250514',
-    max_tokens: 300,
+    max_tokens: 600,
     system: systemPrompt,
     messages: messages.map((message) => {
       const tag = message.role === 'user' ? getMessageTypeTag(message) : ''
