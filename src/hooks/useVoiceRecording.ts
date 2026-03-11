@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { createPerceptionLog, sendMessage } from '../lib/api'
 import {
   getFileExtension, blobToBase64,
-  uploadAudioToStorage, uploadMediaToStorage,
+  uploadAudioToStorage,
   callOpmApi, transcribeServerSide,
 } from '../lib/mediaUtils'
 

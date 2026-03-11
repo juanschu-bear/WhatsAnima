@@ -9,7 +9,7 @@ import {
 import { useParams } from 'react-router-dom'
 import { getConversation, listMessages, listPerceptionLogs, sendMessage, listAllOwners, findContactByEmail, findOrCreateConversation, createContactForOwner } from '../lib/api'
 import { resolveAvatarUrl } from '../lib/avatars'
-import { getStoredLocale, t } from '../lib/i18n'
+import { t } from '../lib/i18n'
 import {
   blobToBase64,
   uploadAudioToStorage, uploadMediaToStorage,
