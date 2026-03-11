@@ -107,7 +107,11 @@ function formatDateSeparator(dateStr: string) {
   const yesterday = new Date()
   yesterday.setDate(today.getDate() - 1)
 
-  if (dateKey(date.toISOString()) === dateKey(today.toISOString())) return 'Today'
+  if (dateKey(date.toISOString()) === dateKey(today.toISOString())) {
+    const hour = date.getHours()
+    const timeOfDay = hour < 6 ? '\u{1F319} Night' : hour < 12 ? '\u{2600}\u{FE0F} Morning' : hour < 17 ? '\u{1F324}\u{FE0F} Afternoon' : hour < 21 ? '\u{1F305} Evening' : '\u{1F319} Night'
+    return `Today \u00b7 ${timeOfDay}`
+  }
   if (dateKey(date.toISOString()) === dateKey(yesterday.toISOString())) return 'Yesterday'
 
   return date.toLocaleDateString([], {
@@ -271,7 +275,7 @@ const VoiceMessageBubble = memo(function VoiceMessageBubble({
 
   return (
     <div
-      className={`relative max-w-[78%] rounded-[20px] border px-4 py-3 text-sm shadow-[0_2px_8px_rgba(0,0,0,0.12)] ${
+      className={`relative rounded-[20px] border px-4 py-3 text-sm shadow-[0_2px_8px_rgba(0,0,0,0.12)] ${
         isContact
           ? 'rounded-tr-[6px] border-[#00a884]/15 bg-[#005c4b] text-white'
           : 'rounded-tl-[6px] border-white/[0.06] bg-[#1a2332] text-white'
@@ -362,10 +366,13 @@ const VoiceMessageBubble = memo(function VoiceMessageBubble({
       <span className={`mt-1 flex items-center justify-end gap-0.5 text-[10px] ${isContact ? 'text-white/40' : 'text-white/30'}`}>
         {formatMessageTime(message.created_at)}
         {isContact && (
-          <span className="ml-0.5 inline-flex items-center">
-            <svg className={`h-[14px] w-[14px] ${isRead ? 'text-[#53bdeb]' : 'text-white/30'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M2 12.5l5.5 5.5L18 7" />
-              <path strokeLinecap="round" strokeLinejoin="round" d="M7 12.5l5.5 5.5L23 7" />
+          <span className="ml-1.5 inline-flex items-center gap-[3px]">
+            <svg className="h-3 w-3 text-white/40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+            <svg className={`h-3.5 w-3.5 transition-colors duration-500 ${isRead ? 'text-[#00d4a1]' : 'text-white/25'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+              <circle cx="12" cy="12" r="3" fill={isRead ? 'currentColor' : 'none'} />
             </svg>
           </span>
         )}
@@ -386,10 +393,15 @@ const MediaMessageBubble = memo(function MediaMessageBubble({
   if (!message.media_url) return null
 
   const checkmark = isContact ? (
-    <svg className={`ml-0.5 inline-block h-[14px] w-[14px] ${isRead ? 'text-[#53bdeb]' : 'text-white/30'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M2 12.5l5.5 5.5L18 7" />
-      <path strokeLinecap="round" strokeLinejoin="round" d="M7 12.5l5.5 5.5L23 7" />
-    </svg>
+    <span className="ml-1.5 inline-flex items-center gap-[3px]">
+      <svg className="h-3 w-3 text-white/40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+      </svg>
+      <svg className={`h-3.5 w-3.5 transition-colors duration-500 ${isRead ? 'text-[#00d4a1]' : 'text-white/25'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+        <circle cx="12" cy="12" r="3" fill={isRead ? 'currentColor' : 'none'} />
+      </svg>
+    </span>
   ) : null
 
   const commonMeta = (
@@ -399,7 +411,7 @@ const MediaMessageBubble = memo(function MediaMessageBubble({
   if (message.type === 'image') {
     return (
       <div
-        className={`relative max-w-[78%] overflow-hidden rounded-[20px] border shadow-[0_2px_8px_rgba(0,0,0,0.12)] ${
+        className={`relative overflow-hidden rounded-[20px] border shadow-[0_2px_8px_rgba(0,0,0,0.12)] ${
           isContact
             ? 'rounded-tr-[6px] border-[#00a884]/15 bg-[#005c4b]'
             : 'rounded-tl-[6px] border-white/[0.06] bg-[#1a2332]'
@@ -417,7 +429,7 @@ const MediaMessageBubble = memo(function MediaMessageBubble({
   const recorded = isRecordedVideoMessage(message)
   return (
     <div
-      className={`relative max-w-[78%] overflow-hidden border shadow-[0_2px_8px_rgba(0,0,0,0.12)] ${
+      className={`relative overflow-hidden border shadow-[0_2px_8px_rgba(0,0,0,0.12)] ${
         recorded ? 'rounded-full' : 'rounded-[20px]'
       } ${isContact
         ? `${recorded ? '' : 'rounded-tr-[6px]'} border-[#00a884]/15 bg-[#005c4b]`
@@ -874,6 +886,23 @@ export default function Chat() {
           readAts[msg.id] = msg.read_at ?? null
         }
         setReadAtMap(readAts)
+        // Load reactions for all messages
+        const msgIds = (msgs as Message[]).map((m) => m.id)
+        if (msgIds.length > 0) {
+          fetch(`/api/react-message?messageIds=${msgIds.join(',')}`)
+            .then((r) => r.json())
+            .then((reactions: Array<{ message_id: string; emoji: string; reactor: string }>) => {
+              if (!Array.isArray(reactions)) return
+              const map: Record<string, { contact?: string; avatar?: string }> = {}
+              for (const r of reactions) {
+                if (!map[r.message_id]) map[r.message_id] = {}
+                if (r.reactor === 'contact') map[r.message_id].contact = r.emoji
+                if (r.reactor === 'avatar') map[r.message_id].avatar = r.emoji
+              }
+              setReactionsMap(map)
+            })
+            .catch(() => {})
+        }
       })
       .catch((loadError) => {
         console.error(loadError)
@@ -2337,29 +2366,25 @@ export default function Chat() {
             const hasReaction = reactions?.contact || reactions?.avatar
             const isRead = Boolean(readAtMap[message.id])
 
-            // Read receipt checkmarks for contact messages
+            // Read receipt: single check (sent) + eye icon (grey=unread, colored=read)
             const ReadReceipt = isContact ? (
-              <span className="ml-1 inline-flex items-center">
-                {isRead ? (
-                  // Double blue checkmarks
-                  <svg className="h-[14px] w-[14px] text-[#53bdeb]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M2 12.5l5.5 5.5L18 7" />
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M7 12.5l5.5 5.5L23 7" />
-                  </svg>
-                ) : (
-                  // Double grey checkmarks (delivered — always shown since message is on server)
-                  <svg className="h-[14px] w-[14px] text-white/30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M2 12.5l5.5 5.5L18 7" />
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M7 12.5l5.5 5.5L23 7" />
-                  </svg>
-                )}
+              <span className="ml-1.5 inline-flex items-center gap-[3px]">
+                {/* Single checkmark = sent */}
+                <svg className="h-3 w-3 text-white/40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                {/* Eye icon = seen status */}
+                <svg className={`h-3.5 w-3.5 transition-colors duration-500 ${isRead ? 'text-[#00d4a1]' : 'text-white/25'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                  <circle cx="12" cy="12" r="3" fill={isRead ? 'currentColor' : 'none'} />
+                </svg>
               </span>
             ) : null
 
             return (
               <div
                 key={message.id}
-                className={`relative flex transition-colors ${isContact ? 'justify-end' : 'justify-start'} ${isSelected ? 'rounded-2xl bg-[#00a884]/10' : ''}`}
+                className={`relative flex transition-colors ${isContact ? 'justify-end' : 'justify-start'} ${isSelected ? 'rounded-2xl bg-[#00a884]/10' : ''} ${hasReaction ? 'mb-3' : ''}`}
                 onClick={() => { handleMessagePress(message.id); handleDoubleTap(message.id) }}
                 onContextMenu={(e) => { e.preventDefault(); handleMessageLongPress(message.id) }}
                 onTouchStart={() => {
@@ -2375,7 +2400,7 @@ export default function Chat() {
                     </div>
                   </div>
                 )}
-                <div className="relative">
+                <div className="relative max-w-[78%]">
                   {message.type === 'voice' ? (
                     <VoiceMessageBubble
                       isContact={isContact}
@@ -2387,7 +2412,7 @@ export default function Chat() {
                     <MediaMessageBubble isContact={isContact} message={message} isRead={isRead} />
                   ) : (
                     <div
-                      className={`relative max-w-[78%] rounded-[20px] border px-4 py-3 text-[14.5px] leading-relaxed shadow-[0_2px_8px_rgba(0,0,0,0.12)] ${
+                      className={`relative rounded-[20px] border px-4 py-3 text-[14.5px] leading-relaxed shadow-[0_2px_8px_rgba(0,0,0,0.12)] ${
                         isContact
                           ? 'rounded-tr-[6px] border-[#00a884]/15 bg-[#005c4b] text-white'
                           : 'rounded-tl-[6px] border-white/[0.06] bg-[#1a2332] text-white/[0.92]'

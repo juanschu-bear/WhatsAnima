@@ -17,6 +17,29 @@ export default async function handler(req: any, res: any) {
     return res.status(503).json({ error: `DB not configured – missing ${missing}` })
   }
 
+  // GET: list reactions for given message IDs
+  if (req.method === 'GET') {
+    const messageIds = req.query?.messageIds
+    if (!messageIds) return res.status(200).json([])
+
+    const ids = typeof messageIds === 'string' ? messageIds.split(',') : messageIds
+    try {
+      const { data, error } = await supabase
+        .from('wa_reactions')
+        .select('message_id, emoji, reactor')
+        .in('message_id', ids)
+
+      if (error) {
+        // Table might not exist yet — return empty gracefully
+        console.warn('[react-message] GET error (table may not exist):', error.message)
+        return res.status(200).json([])
+      }
+      return res.status(200).json(data ?? [])
+    } catch {
+      return res.status(200).json([])
+    }
+  }
+
   if (req.method === 'POST') {
     const { messageId, emoji, reactor } = req.body ?? {}
     if (!messageId || !emoji || !reactor) {
@@ -24,7 +47,6 @@ export default async function handler(req: any, res: any) {
     }
 
     try {
-      // Upsert: one reaction per message per reactor
       const { data, error } = await supabase
         .from('wa_reactions')
         .upsert(
@@ -35,13 +57,14 @@ export default async function handler(req: any, res: any) {
         .single()
 
       if (error) {
-        console.error('[react-message] Upsert error:', error.message)
-        return res.status(500).json({ error: error.message })
+        // Table might not exist yet
+        console.warn('[react-message] Upsert error (table may not exist):', error.message)
+        return res.status(200).json({ ok: false, error: error.message })
       }
       return res.status(200).json(data)
     } catch (err: any) {
-      console.error('[react-message] Error:', err.message)
-      return res.status(500).json({ error: err.message })
+      console.warn('[react-message] Error:', err.message)
+      return res.status(200).json({ ok: false, error: err.message })
     }
   }
 
@@ -59,15 +82,15 @@ export default async function handler(req: any, res: any) {
         .eq('reactor', reactor)
 
       if (error) {
-        console.error('[react-message] Delete error:', error.message)
-        return res.status(500).json({ error: error.message })
+        console.warn('[react-message] Delete error:', error.message)
+        return res.status(200).json({ ok: false })
       }
       return res.status(200).json({ ok: true })
-    } catch (err: any) {
-      return res.status(500).json({ error: err.message })
+    } catch {
+      return res.status(200).json({ ok: false })
     }
   }
 
-  res.setHeader('Allow', 'POST, DELETE')
+  res.setHeader('Allow', 'GET, POST, DELETE')
   return res.status(405).json({ error: 'Method not allowed' })
 }
