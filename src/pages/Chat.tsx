@@ -286,15 +286,29 @@ const VoiceMessageBubble = memo(function VoiceMessageBubble({
           )}
         </div>
       </div>
-      {hasTranscript ? (
-        <button
-          type="button"
-          onClick={() => setIsTranscriptOpen((current) => !current)}
-          className="mt-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-medium text-white/80 transition hover:border-white/25"
-        >
-          {isTranscriptOpen ? 'Hide transcript' : 'Transcribe'}
-        </button>
-      ) : null}
+      <div className="mt-2 flex items-center gap-2">
+        {hasPlayableAudio && (
+          <a
+            href={message.media_url!}
+            download={`voice-${message.id.slice(0, 8)}.webm`}
+            className={`inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-medium text-white/80 transition hover:border-white/25`}
+          >
+            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V3" />
+            </svg>
+            Download
+          </a>
+        )}
+        {hasTranscript ? (
+          <button
+            type="button"
+            onClick={() => setIsTranscriptOpen((current) => !current)}
+            className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-medium text-white/80 transition hover:border-white/25"
+          >
+            {isTranscriptOpen ? 'Hide transcript' : 'Transcribe'}
+          </button>
+        ) : null}
+      </div>
       {hasTranscript && isTranscriptOpen ? (
         <div className="mt-2 rounded-2xl bg-black/15 px-3 py-2.5 text-[13px] leading-[1.55] text-white/80">
           {transcript!.split(/(?<=[.!?])\s+/).filter(Boolean).map((sentence, i) => (
