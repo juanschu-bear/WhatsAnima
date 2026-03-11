@@ -170,15 +170,22 @@ export function useVoiceRecording({
       onMessageSent(message)
       simulateAvatarRead(message.id)
 
+      createPerceptionLog({
+        messageId: message.id,
+        conversationId: conversation.id,
+        contactId: conversation.contact_id,
+        ownerId: conversation.owner_id,
+        transcript: finalTranscript !== '[Voice message]' ? finalTranscript : null,
+        audioDurationSec: durationSeconds,
+        primaryEmotion: opmResponse?.perception?.primary_emotion ?? null,
+        secondaryEmotion: opmResponse?.perception?.secondary_emotion ?? null,
+        firedRules: opmResponse?.fired_rules ?? null,
+        behavioralSummary: opmResponse?.interpretation?.behavioral_summary ?? null,
+        conversationHooks: opmResponse?.interpretation?.conversation_hooks ?? null,
+        prosodicSummary: opmResponse?.prosodic_summary ?? null,
+        mediaType: 'audio',
+      }).catch((logErr) => console.warn('[perception-log]', logErr.message))
       if (finalTranscript && finalTranscript !== '[Voice message]') {
-        createPerceptionLog({
-          messageId: message.id,
-          conversationId: conversation.id,
-          contactId: conversation.contact_id,
-          ownerId: conversation.owner_id,
-          transcript: finalTranscript,
-          audioDurationSec: durationSeconds,
-        }).catch((logErr) => console.warn('[perception-log]', logErr.message))
         onTranscript(message.id, finalTranscript)
       }
 
