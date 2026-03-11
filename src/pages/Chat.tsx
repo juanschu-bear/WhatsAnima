@@ -22,6 +22,7 @@ import { useSessionMemory } from '../hooks/useSessionMemory'
 import { useMessageSelection } from '../hooks/useMessageSelection'
 import { useVoiceRecording } from '../hooks/useVoiceRecording'
 import { useVideoCapture } from '../hooks/useVideoCapture'
+import { getVoiceListeningDelay, getAvatarFirstName, VOICE_SEEN_DELAY_MS } from '../lib/voiceDelay'
 
 type MessageType = 'text' | 'voice' | 'video' | 'image'
 
@@ -760,6 +761,7 @@ export default function Chat() {
       isImage?: boolean
       isVideo?: boolean
       isVoice?: boolean
+      voiceDurationSec?: number
       perception?: any
     }
   ) {
@@ -772,6 +774,21 @@ export default function Chat() {
 
     try {
       const useVoice = options?.useVoice ?? true
+
+      // --- Realistic voice-message delay ---
+      // Phase 1: "seen" delay (avatar notices the message)
+      // Phase 2: "listening" (avatar listens proportional to message length)
+      // Phase 3: "thinking" → proceeds with reply generation
+      if (options?.isVoice && options.voiceDurationSec) {
+        // Phase 1: brief "seen" pause before listening indicator
+        await new Promise((r) => setTimeout(r, VOICE_SEEN_DELAY_MS))
+        setAvatarStatus('listening')
+
+        // Phase 2: listen for a realistic duration scaled to message length
+        const listeningMs = getVoiceListeningDelay(options.voiceDurationSec)
+        await new Promise((r) => setTimeout(r, listeningMs))
+      }
+
       setAvatarStatus('thinking')
       const replyPayload = await getAvatarReply(seedText, options)
       const hasAudio = useVoice && !!replyPayload.mediaUrl
@@ -1222,7 +1239,7 @@ export default function Chat() {
               <div className="flex items-center gap-2 rounded-[20px] rounded-tl-[6px] border border-white/[0.06] bg-[#1a2332] px-4 py-2.5 shadow-[0_2px_8px_rgba(0,0,0,0.12)]">
                 <span className="text-[13px]">{'\u{1F634}'}</span>
                 <span className="text-[13px] italic text-white/45">
-                  <span className="font-medium text-white/60">{owner.display_name}</span>
+                  <span className="font-medium text-white/60">{getAvatarFirstName(owner.display_name)}</span>
                   {' '}
                   {t(locale, avatarAwayStatus as any)}
                 </span>
@@ -1240,7 +1257,7 @@ export default function Chat() {
                   <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#00d4a1]" style={{ animationDelay: '300ms' }} />
                 </div>
                 <span className="text-[13px] text-white/50">
-                  <span className="font-medium text-white/70">{owner.display_name}</span>
+                  <span className="font-medium text-white/70">{getAvatarFirstName(owner.display_name)}</span>
                   {' '}
                   {avatarStatus === 'listening' ? t(locale, 'isListening')
                     : avatarStatus === 'watching' ? t(locale, 'isWatching')
