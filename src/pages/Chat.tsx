@@ -10,6 +10,10 @@ import { useParams } from 'react-router-dom'
 import { createPerceptionLog, getConversation, listMessages, listPerceptionLogs, sendMessage, listAllOwners, findContactByEmail, findOrCreateConversation, createContactForOwner } from '../lib/api'
 import { resolveAvatarUrl } from '../lib/avatars'
 import { getStoredLocale, t } from '../lib/i18n'
+import { useReactions, QUICK_EMOJIS } from '../hooks/useReactions'
+import { useReadReceipts } from '../hooks/useReadReceipts'
+import { useSessionMemory } from '../hooks/useSessionMemory'
+import { useMessageSelection } from '../hooks/useMessageSelection'
 
 type MessageType = 'text' | 'voice' | 'video' | 'image'
 
@@ -508,293 +512,39 @@ export default function Chat() {
   const videoInputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
 
-  // Reactions state
-  const [reactionsMap, setReactionsMap] = useState<Record<string, { contact?: string; avatar?: string }>>({})
-  const [emojiPickerMessageId, setEmojiPickerMessageId] = useState<string | null>(null)
-  const doubleTapRef = useRef<{ id: string; time: number } | null>(null)
+  // --- Extracted hooks ---
+  const {
+    reactionsMap, emojiPickerMessageId, loadReactions,
+    addReaction, removeReaction, handleDoubleTap,
+    maybeAvatarReact, closeEmojiPicker,
+  } = useReactions()
 
-  // Read receipts state
-  const [readAtMap, setReadAtMap] = useState<Record<string, string | null>>({})
-  const [avatarAwayStatus, setAvatarAwayStatus] = useState<string | null>(null)
+  const {
+    readAtMap, avatarAwayStatus, loadReadAts,
+    simulateAvatarRead, markAsInstantlyRead,
+  } = useReadReceipts()
 
-  // Message selection & forward/export state
-  const locale = getStoredLocale()
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [selectionMode, setSelectionMode] = useState(false)
-  const [forwardModalOpen, setForwardModalOpen] = useState(false)
-  const [forwardOwners, setForwardOwners] = useState<Array<{ id: string; display_name: string }>>([])
-  const [forwardLoading, setForwardLoading] = useState(false)
-  const [forwardSending, setForwardSending] = useState<string | null>(null)
-  const [exportMenuOpen, setExportMenuOpen] = useState(false)
-  const [toastMessage, setToastMessage] = useState<string | null>(null)
-  const longPressTimerRef = useRef<number | null>(null)
+  const {
+    locale, selectedIds, selectionMode, forwardModalOpen, setForwardModalOpen,
+    forwardOwners, setForwardOwners, forwardLoading, setForwardLoading,
+    forwardSending, setForwardSending, exportMenuOpen, setExportMenuOpen,
+    toastMessage, longPressTimerRef,
+    handleMessagePress, handleMessageLongPress, clearSelection,
+    getSelectedMessages, handleCopySelected, handleExportAsFile,
+    handleExportToClipboard, showToast,
+  } = useMessageSelection(messages as any, conversation as any)
 
-  function toggleSelectMessage(id: string) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) {
-        next.delete(id)
-      } else {
-        next.add(id)
-      }
-      if (next.size === 0) setSelectionMode(false)
-      return next
-    })
-  }
+  // useSessionMemory needs sendAvatarReply, which is defined later — so we use a ref
+  const sendAvatarReplyRef = useRef<(text: string, options?: { useVoice?: boolean }) => Promise<void>>(async () => {})
 
-  function handleMessagePress(id: string) {
-    if (selectionMode) {
-      toggleSelectMessage(id)
-    }
-  }
-
-  function handleMessageLongPress(id: string) {
-    if (!selectionMode) {
-      setSelectionMode(true)
-    }
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      next.add(id)
-      return next
-    })
-  }
-
-  function clearSelection() {
-    setSelectionMode(false)
-    setSelectedIds(new Set())
-    setExportMenuOpen(false)
-  }
-
-  function getSelectedMessages(): Message[] {
-    return messages.filter((m) => selectedIds.has(m.id))
-  }
-
-  // --- Emoji Reactions ---
-  const QUICK_EMOJIS = ['\u{1F44D}', '\u{2764}\u{FE0F}', '\u{1F602}', '\u{1F62E}', '\u{1F622}', '\u{1F64F}']
-
-  async function addReaction(messageId: string, emoji: string) {
-    setReactionsMap((prev) => ({
-      ...prev,
-      [messageId]: { ...prev[messageId], contact: emoji },
-    }))
-    setEmojiPickerMessageId(null)
-    try {
-      await fetch('/api/react-message', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messageId, emoji, reactor: 'contact' }),
-      })
-    } catch (err) {
-      console.error('[Reaction] Failed:', err)
-    }
-  }
-
-  async function removeReaction(messageId: string) {
-    setReactionsMap((prev) => {
-      const updated = { ...prev }
-      if (updated[messageId]) {
-        const { contact: _, ...rest } = updated[messageId]
-        updated[messageId] = rest
-      }
-      return updated
-    })
-    try {
-      await fetch('/api/react-message', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messageId, reactor: 'contact' }),
-      })
-    } catch (err) {
-      console.error('[Reaction] Remove failed:', err)
-    }
-  }
-
-  function handleDoubleTap(messageId: string) {
-    if (selectionMode) return
-    const now = Date.now()
-    if (doubleTapRef.current?.id === messageId && now - doubleTapRef.current.time < 350) {
-      // Double-tap detected — toggle emoji picker
-      doubleTapRef.current = null
-      if (reactionsMap[messageId]?.contact) {
-        removeReaction(messageId)
-      } else {
-        setEmojiPickerMessageId((prev) => prev === messageId ? null : messageId)
-      }
-    } else {
-      doubleTapRef.current = { id: messageId, time: now }
-    }
-  }
-
-  // Avatar auto-react to contact messages (occasionally)
-  function maybeAvatarReact(messageId: string) {
-    // ~25% chance to react
-    if (Math.random() > 0.25) return
-    const delay = 1500 + Math.random() * 4000
-    const emoji = QUICK_EMOJIS[Math.floor(Math.random() * QUICK_EMOJIS.length)]
-    setTimeout(() => {
-      setReactionsMap((prev) => ({
-        ...prev,
-        [messageId]: { ...prev[messageId], avatar: emoji },
-      }))
-      fetch('/api/react-message', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messageId, emoji, reactor: 'avatar' }),
-      }).catch(() => {})
-    }, delay)
-  }
-
-  // --- Read Receipts ---
-  const AWAY_STATUSES: Array<'avatarAtLunch' | 'avatarOnPhone' | 'avatarInMeeting' | 'avatarOnToilet' | 'avatarGettingCoffee' | 'avatarTakingNap' | 'avatarWalkingDog' | 'avatarAtGym'> = [
-    'avatarAtLunch', 'avatarOnPhone', 'avatarInMeeting', 'avatarOnToilet',
-    'avatarGettingCoffee', 'avatarTakingNap', 'avatarWalkingDog', 'avatarAtGym',
-  ]
-
-  function simulateAvatarRead(messageId: string) {
-    // 20% chance of a fun "away" delay, otherwise instant read
-    const willBeAway = Math.random() < 0.2
-    if (willBeAway) {
-      const status = AWAY_STATUSES[Math.floor(Math.random() * AWAY_STATUSES.length)]
-      const awayDuration = 3000 + Math.random() * 5000
-      setAvatarAwayStatus(status)
-      setTimeout(() => {
-        setAvatarAwayStatus(null)
-        markMessageRead(messageId)
-      }, awayDuration)
-    } else {
-      // Instant or near-instant read (200-1500ms)
-      const delay = 200 + Math.random() * 1300
-      setTimeout(() => markMessageRead(messageId), delay)
-    }
-  }
-
-  function markMessageRead(messageId: string) {
-    const now = new Date().toISOString()
-    setReadAtMap((prev) => ({ ...prev, [messageId]: now }))
-    fetch('/api/mark-read', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messageIds: [messageId] }),
-    }).catch(() => {})
-  }
-
-  // --- Session Inactivity: Memory Update + Avatar Nudge ---
-  const SESSION_TIMEOUT_MS = 180_000 // 3 minutes
-  const sessionTimerRef = useRef<number | null>(null)
-  const sessionMemorySavedRef = useRef(false)
-
-  function triggerMemoryUpdate() {
-    if (!conversationId || sessionMemorySavedRef.current) return
-    sessionMemorySavedRef.current = true
-    const recent = messages.slice(-40).map((m) => ({
-      role: m.sender === 'contact' ? 'user' : 'assistant',
-      content: (m.content || '').trim(),
-    })).filter((m) => m.content.length > 0)
-    if (recent.length < 3) return
-    console.log('[Memory] Session ended — saving memory (%d messages)', recent.length)
-    fetch('/api/update-memory', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ conversationId, recentMessages: recent }),
-    }).catch((err) => console.error('[Memory] Update failed:', err))
-  }
-
-  function resetSessionTimer() {
-    sessionMemorySavedRef.current = false
-    if (sessionTimerRef.current) window.clearTimeout(sessionTimerRef.current)
-    sessionTimerRef.current = window.setTimeout(() => {
-      // Session expired — save memory and optionally nudge
-      triggerMemoryUpdate()
-      maybeAvatarNudge()
-    }, SESSION_TIMEOUT_MS)
-  }
-
-  function maybeAvatarNudge() {
-    if (!conversationId || !conversation || sending || avatarStatus) return
-    // Only nudge if the last message was from the contact (avatar already replied)
-    const last = messages[messages.length - 1]
-    if (!last || last.sender !== 'avatar') return
-    // 40% chance to nudge — don't be annoying
-    if (Math.random() > 0.4) return
-    sendAvatarReply('The user has been quiet for a few minutes. Send a brief, natural follow-up based on the conversation context — like checking in, asking if they need more time, or offering encouragement. Keep it to 1-2 short sentences. Be natural, not robotic.', {
-      useVoice: false,
-    })
-  }
-
-  // Reset session timer on every new message
-  useEffect(() => {
-    if (messages.length > 0) resetSessionTimer()
-    return () => { if (sessionTimerRef.current) window.clearTimeout(sessionTimerRef.current) }
-  }, [messages.length])
-
-  // Save memory when user leaves the page
-  useEffect(() => {
-    const handleUnload = () => triggerMemoryUpdate()
-    window.addEventListener('beforeunload', handleUnload)
-    return () => window.removeEventListener('beforeunload', handleUnload)
-  }, [conversationId, messages])
-
-  function formatMessageForExport(msg: Message, ownerName: string, contactName: string): string {
-    const sender = msg.sender === 'contact' ? contactName : ownerName
-    const time = new Date(msg.created_at).toLocaleString()
-    const content = msg.type === 'voice'
-      ? `[Voice message${msg.duration_sec ? ` ${formatClock(msg.duration_sec)}` : ''}]${msg.content ? ` ${msg.content}` : ''}`
-      : msg.type === 'image'
-      ? `[Image]${msg.content ? ` ${msg.content}` : ''}`
-      : msg.type === 'video'
-      ? `[Video]${msg.content ? ` ${msg.content}` : ''}`
-      : msg.content || ''
-    return `[${time}] ${sender}: ${content}`
-  }
-
-  async function handleCopySelected() {
-    const selected = getSelectedMessages()
-    if (selected.length === 0) return
-    const ownerName = conversation?.wa_owners.display_name || 'Avatar'
-    const contactName = conversation?.wa_contacts.display_name || 'You'
-    const text = selected.map((m) => formatMessageForExport(m, ownerName, contactName)).join('\n')
-    try {
-      await navigator.clipboard.writeText(text)
-      showToast(t(locale, 'copiedToClipboard'))
-    } catch {
-      showToast(t(locale, 'noTextToCopy'))
-    }
-    clearSelection()
-  }
-
-  function handleExportAsFile() {
-    const selected = selectionMode ? getSelectedMessages() : messages
-    if (selected.length === 0) return
-    const ownerName = conversation?.wa_owners.display_name || 'Avatar'
-    const contactName = conversation?.wa_contacts.display_name || 'You'
-    const lines = selected.map((m) => formatMessageForExport(m, ownerName, contactName))
-    const header = `WhatsAnima Chat Export — ${ownerName} & ${contactName}\n${'='.repeat(50)}\n\n`
-    const blob = new Blob([header + lines.join('\n')], { type: 'text/plain' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `chat-${ownerName.replace(/\s+/g, '-')}-${new Date().toISOString().slice(0, 10)}.txt`
-    a.click()
-    URL.revokeObjectURL(url)
-    clearSelection()
-    setExportMenuOpen(false)
-  }
-
-  async function handleExportToClipboard() {
-    const selected = selectionMode ? getSelectedMessages() : messages
-    if (selected.length === 0) return
-    const ownerName = conversation?.wa_owners.display_name || 'Avatar'
-    const contactName = conversation?.wa_contacts.display_name || 'You'
-    const lines = selected.map((m) => formatMessageForExport(m, ownerName, contactName))
-    try {
-      await navigator.clipboard.writeText(lines.join('\n'))
-      showToast(t(locale, 'copiedToClipboard'))
-    } catch {
-      showToast(t(locale, 'noTextToCopy'))
-    }
-    clearSelection()
-    setExportMenuOpen(false)
-  }
+  useSessionMemory({
+    conversationId,
+    messages,
+    sending,
+    avatarStatus,
+    conversation,
+    sendAvatarReply: (...args) => sendAvatarReplyRef.current(...args),
+  })
 
   async function openForwardModal() {
     setForwardModalOpen(true)
@@ -853,10 +603,6 @@ export default function Chat() {
     }
   }
 
-  function showToast(message: string) {
-    setToastMessage(message)
-    setTimeout(() => setToastMessage(null), 2500)
-  }
 
   useEffect(() => {
     if (!conversationId) return
@@ -880,29 +626,8 @@ export default function Chat() {
           {}
         )
         setTranscriptMap(transcripts)
-        // Build read_at map from messages
-        const readAts: Record<string, string | null> = {}
-        for (const msg of msgs as Array<{ id: string; read_at?: string | null }>) {
-          readAts[msg.id] = msg.read_at ?? null
-        }
-        setReadAtMap(readAts)
-        // Load reactions for all messages
-        const msgIds = (msgs as Message[]).map((m) => m.id)
-        if (msgIds.length > 0) {
-          fetch(`/api/react-message?messageIds=${msgIds.join(',')}`)
-            .then((r) => r.json())
-            .then((reactions: Array<{ message_id: string; emoji: string; reactor: string }>) => {
-              if (!Array.isArray(reactions)) return
-              const map: Record<string, { contact?: string; avatar?: string }> = {}
-              for (const r of reactions) {
-                if (!map[r.message_id]) map[r.message_id] = {}
-                if (r.reactor === 'contact') map[r.message_id].contact = r.emoji
-                if (r.reactor === 'avatar') map[r.message_id].avatar = r.emoji
-              }
-              setReactionsMap(map)
-            })
-            .catch(() => {})
-        }
+        loadReadAts(msgs as Array<{ id: string; read_at?: string | null }>)
+        loadReactions((msgs as Message[]).map((m) => m.id))
       })
       .catch((loadError) => {
         console.error(loadError)
@@ -1329,13 +1054,16 @@ export default function Chat() {
         }))
       }
       // Mark avatar reply as instantly read by contact
-      setReadAtMap((prev) => ({ ...prev, [String((reply as Message).id)]: new Date().toISOString() }))
+      markAsInstantlyRead(String((reply as Message).id))
     } catch (err) {
       console.error('Avatar reply failed:', err)
     } finally {
       setAvatarStatus(null)
     }
   }
+
+  // Keep ref in sync for useSessionMemory's nudge callback
+  sendAvatarReplyRef.current = sendAvatarReply
 
   async function handleSendText() {
     if (!text.trim() || !conversationId || sending) return
@@ -2345,7 +2073,7 @@ export default function Chat() {
 
       <main
         className="relative z-0 min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 pb-6"
-        onClick={() => { if (emojiPickerMessageId) setEmojiPickerMessageId(null) }}
+        onClick={() => closeEmojiPicker()}
       >
         <div className={`mx-auto flex w-full flex-col gap-2.5 ${isDesktopLayout ? 'max-w-[680px] py-5' : 'max-w-2xl'}`}>
           {groupedTimeline.map((item) => {
@@ -2385,7 +2113,7 @@ export default function Chat() {
               <div
                 key={message.id}
                 className={`relative flex transition-colors ${isContact ? 'justify-end' : 'justify-start'} ${isSelected ? 'rounded-2xl bg-[#00a884]/10' : ''} ${hasReaction ? 'mb-3' : ''}`}
-                onClick={() => { handleMessagePress(message.id); handleDoubleTap(message.id) }}
+                onClick={() => { handleMessagePress(message.id); handleDoubleTap(message.id, selectionMode) }}
                 onContextMenu={(e) => { e.preventDefault(); handleMessageLongPress(message.id) }}
                 onTouchStart={() => {
                   longPressTimerRef.current = window.setTimeout(() => handleMessageLongPress(message.id), 500)
