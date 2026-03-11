@@ -148,6 +148,12 @@ const VoiceMessageBubble = memo(function VoiceMessageBubble({
   const hasTranscript = Boolean(transcript && transcript.trim())
   const currentSpeed = PLAYBACK_SPEEDS[speedIndex]
 
+  function getEffectiveDuration(audio: HTMLAudioElement): number {
+    if (Number.isFinite(audio.duration) && audio.duration > 0) return audio.duration
+    if (durationSeconds > 0) return durationSeconds
+    return message.duration_sec ?? 0
+  }
+
   function ensureAudio() {
     if (audioRef.current) return audioRef.current
     if (!message.media_url) return null
@@ -162,14 +168,15 @@ const VoiceMessageBubble = memo(function VoiceMessageBubble({
       }
     }
     audio.ontimeupdate = () => {
-      if (Number.isFinite(audio.duration) && audio.duration > 0) {
+      const dur = getEffectiveDuration(audio)
+      if (dur > 0) {
         setDisplaySeconds(audio.currentTime)
-        setProgress(audio.currentTime / audio.duration)
+        setProgress(audio.currentTime / dur)
       }
     }
     audio.onended = () => {
       setIsPlaying(false)
-      setDisplaySeconds(audio.duration || message.duration_sec || 0)
+      setDisplaySeconds(getEffectiveDuration(audio))
       setProgress(0)
     }
     audio.onerror = () => setIsPlaying(false)
@@ -205,8 +212,9 @@ const VoiceMessageBubble = memo(function VoiceMessageBubble({
     const rect = waveformRef.current.getBoundingClientRect()
     const clientX = 'touches' in event ? event.touches[0].clientX : event.clientX
     const fraction = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
-    if (Number.isFinite(audio.duration) && audio.duration > 0) {
-      audio.currentTime = fraction * audio.duration
+    const dur = getEffectiveDuration(audio)
+    if (dur > 0) {
+      audio.currentTime = fraction * dur
       setProgress(fraction)
       setDisplaySeconds(audio.currentTime)
     }
