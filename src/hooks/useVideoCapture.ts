@@ -44,7 +44,7 @@ interface UseVideoCaptureOptions {
   onError: (error: string | null) => void
   onMessageSent: (message: Message) => void
   onTranscript: (messageId: string, transcript: string) => void
-  sendAvatarReply: (text: string, options?: { useVoice?: boolean; isVideo?: boolean; perception?: any }) => Promise<void>
+  sendAvatarReply: (text: string, options?: { useVoice?: boolean; isVideo?: boolean; videoDurationSec?: number; perception?: any }) => Promise<void>
 }
 
 export function useVideoCapture({
@@ -427,6 +427,7 @@ export function useVideoCapture({
       await sendAvatarReply(transcript || 'a recorded video', {
         useVoice: false,
         isVideo: true,
+        videoDurationSec: videoDraftSeconds,
         perception: opmResponse,
       })
     } catch (videoSendError) {

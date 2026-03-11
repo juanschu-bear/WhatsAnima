@@ -22,7 +22,7 @@ import { useSessionMemory } from '../hooks/useSessionMemory'
 import { useMessageSelection } from '../hooks/useMessageSelection'
 import { useVoiceRecording } from '../hooks/useVoiceRecording'
 import { useVideoCapture } from '../hooks/useVideoCapture'
-import { getVoiceListeningDelay, getAvatarFirstName, VOICE_SEEN_DELAY_MS } from '../lib/voiceDelay'
+import { getVoiceListeningDelay, getVideoWatchingDelay, getAvatarFirstName, VOICE_SEEN_DELAY_MS } from '../lib/voiceDelay'
 
 type MessageType = 'text' | 'voice' | 'video' | 'image'
 
@@ -388,21 +388,19 @@ const MediaMessageBubble = memo(function MediaMessageBubble({
     )
   }
 
-  const recorded = isRecordedVideoMessage(message)
   return (
     <div
-      className={`relative overflow-hidden border shadow-[0_2px_8px_rgba(0,0,0,0.12)] ${
-        recorded ? 'rounded-full' : 'rounded-[20px]'
-      } ${isContact
-        ? `${recorded ? '' : 'rounded-tr-[6px]'} border-[#00a884]/15 bg-[#005c4b]`
-        : `${recorded ? '' : 'rounded-tl-[6px]'} border-white/[0.06] bg-[#1a2332]`}`}
+      className={`relative overflow-hidden rounded-[20px] border shadow-[0_2px_8px_rgba(0,0,0,0.12)] ${
+        isContact
+          ? 'rounded-tr-[6px] border-[#00a884]/15 bg-[#005c4b]'
+          : 'rounded-tl-[6px] border-white/[0.06] bg-[#1a2332]'}`}
     >
       <video
         src={message.media_url ?? undefined}
         controls
         playsInline
-        preload="auto"
-        className={recorded ? 'h-52 w-52 object-cover' : 'max-h-96 max-w-full'}
+        preload="metadata"
+        className="max-h-96 max-w-full"
       />
       <div className="px-4 pb-2 pt-2">
         {!isPlaceholderContent(message) ? <div className="text-[14px] text-white/90">{message.content}</div> : null}
@@ -762,6 +760,7 @@ export default function Chat() {
       isVideo?: boolean
       isVoice?: boolean
       voiceDurationSec?: number
+      videoDurationSec?: number
       perception?: any
     }
   ) {
@@ -787,6 +786,15 @@ export default function Chat() {
         // Phase 2: listen for a realistic duration scaled to message length
         const listeningMs = getVoiceListeningDelay(options.voiceDurationSec)
         await new Promise((r) => setTimeout(r, listeningMs))
+      }
+
+      // --- Realistic video-message delay ---
+      if (options?.isVideo && options.videoDurationSec) {
+        await new Promise((r) => setTimeout(r, VOICE_SEEN_DELAY_MS))
+        setAvatarStatus('watching')
+
+        const watchingMs = getVideoWatchingDelay(options.videoDurationSec)
+        await new Promise((r) => setTimeout(r, watchingMs))
       }
 
       setAvatarStatus('thinking')
@@ -917,6 +925,7 @@ export default function Chat() {
       await sendAvatarReply(videoMessageText, {
         useVoice: false,
         isVideo: true,
+        videoDurationSec: metadata.duration || undefined,
         perception: opmResponse,
       })
       maybeAvatarReact((message as Message).id)
@@ -1500,7 +1509,7 @@ export default function Chat() {
             <div className="flex flex-1 flex-col items-center justify-center">
               <div className={`relative flex items-center justify-center overflow-hidden border border-white/10 bg-[#07111c] shadow-[0_30px_120px_rgba(0,0,0,0.46)] ${isDesktopLayout ? 'h-[420px] w-[420px] rounded-full' : 'h-[300px] w-[300px] rounded-full'}`}>
                 {videoOverlayMode === 'preview' && videoPreviewUrl ? (
-                  <video src={videoPreviewUrl} autoPlay loop controls playsInline className="h-full w-full object-cover" />
+                  <video src={videoPreviewUrl} autoPlay loop muted playsInline className="h-full w-full object-cover" />
                 ) : (
                   <video ref={videoPreviewRef} autoPlay muted playsInline className="-scale-x-100 h-full w-full object-cover" />
                 )}

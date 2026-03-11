@@ -44,6 +44,14 @@ export function getVoiceListeningDelay(durationSec: number): number {
   return tier.minDelay + Math.random() * (tier.maxDelay - tier.minDelay)
 }
 
+/**
+ * Returns a randomised watching delay (ms) for video messages.
+ * Uses the same tier table as voice — the avatar needs to "watch" the clip.
+ */
+export function getVideoWatchingDelay(durationSec: number): number {
+  return getVoiceListeningDelay(durationSec)
+}
+
 /** Titles/prefixes to strip when extracting a first name from a display name. */
 const TITLE_PREFIXES = /^(dr\.?|prof\.?|professor|mr\.?|mrs\.?|ms\.?|sir|herr|frau)\s+/i
 
