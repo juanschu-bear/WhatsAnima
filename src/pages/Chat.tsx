@@ -666,20 +666,61 @@ export default function Chat() {
     }).catch(() => {})
   }
 
-  // --- Memory Update (fire-and-forget after avatar replies) ---
+  // --- Session Inactivity: Memory Update + Avatar Nudge ---
+  const SESSION_TIMEOUT_MS = 180_000 // 3 minutes
+  const sessionTimerRef = useRef<number | null>(null)
+  const sessionMemorySavedRef = useRef(false)
+
   function triggerMemoryUpdate() {
-    if (!conversationId) return
-    const recent = messages.slice(-20).map((m) => ({
+    if (!conversationId || sessionMemorySavedRef.current) return
+    sessionMemorySavedRef.current = true
+    const recent = messages.slice(-40).map((m) => ({
       role: m.sender === 'contact' ? 'user' : 'assistant',
       content: (m.content || '').trim(),
     })).filter((m) => m.content.length > 0)
-    if (recent.length < 4) return // not enough context yet
+    if (recent.length < 3) return
+    console.log('[Memory] Session ended — saving memory (%d messages)', recent.length)
     fetch('/api/update-memory', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ conversationId, recentMessages: recent }),
     }).catch((err) => console.error('[Memory] Update failed:', err))
   }
+
+  function resetSessionTimer() {
+    sessionMemorySavedRef.current = false
+    if (sessionTimerRef.current) window.clearTimeout(sessionTimerRef.current)
+    sessionTimerRef.current = window.setTimeout(() => {
+      // Session expired — save memory and optionally nudge
+      triggerMemoryUpdate()
+      maybeAvatarNudge()
+    }, SESSION_TIMEOUT_MS)
+  }
+
+  function maybeAvatarNudge() {
+    if (!conversationId || !conversation || sending || avatarStatus) return
+    // Only nudge if the last message was from the contact (avatar already replied)
+    const last = messages[messages.length - 1]
+    if (!last || last.sender !== 'avatar') return
+    // 40% chance to nudge — don't be annoying
+    if (Math.random() > 0.4) return
+    sendAvatarReply('The user has been quiet for a few minutes. Send a brief, natural follow-up based on the conversation context — like checking in, asking if they need more time, or offering encouragement. Keep it to 1-2 short sentences. Be natural, not robotic.', {
+      useVoice: false,
+    })
+  }
+
+  // Reset session timer on every new message
+  useEffect(() => {
+    if (messages.length > 0) resetSessionTimer()
+    return () => { if (sessionTimerRef.current) window.clearTimeout(sessionTimerRef.current) }
+  }, [messages.length])
+
+  // Save memory when user leaves the page
+  useEffect(() => {
+    const handleUnload = () => triggerMemoryUpdate()
+    window.addEventListener('beforeunload', handleUnload)
+    return () => window.removeEventListener('beforeunload', handleUnload)
+  }, [conversationId, messages])
 
   function formatMessageForExport(msg: Message, ownerName: string, contactName: string): string {
     const sender = msg.sender === 'contact' ? contactName : ownerName
@@ -1260,10 +1301,6 @@ export default function Chat() {
       }
       // Mark avatar reply as instantly read by contact
       setReadAtMap((prev) => ({ ...prev, [String((reply as Message).id)]: new Date().toISOString() }))
-      // Trigger memory update after every few exchanges
-      if (messages.length > 0 && messages.length % 6 === 0) {
-        triggerMemoryUpdate()
-      }
     } catch (err) {
       console.error('Avatar reply failed:', err)
     } finally {

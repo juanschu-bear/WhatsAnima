@@ -43,29 +43,57 @@ export default async function handler(req: any, res: any) {
     const existingSummary = existing?.summary || ''
     const existingFacts = existing?.key_facts || []
 
+    // Separate user profile facts from timeline events
+    const existingProfile: string[] = []
+    const existingTimeline: string[] = []
+    for (const fact of (Array.isArray(existingFacts) ? existingFacts : [])) {
+      if (typeof fact === 'string' && /^\[\d{4}-\d{2}/.test(fact)) {
+        existingTimeline.push(fact)
+      } else {
+        existingProfile.push(fact as string)
+      }
+    }
+
+    const today = new Date().toISOString().split('T')[0]
+
     // Build the conversation excerpt for the LLM
     const conversationExcerpt = recentMessages
       .map((m: any) => `${m.role === 'user' ? 'User' : 'Avatar'}: ${m.content}`)
       .join('\n')
 
-    const prompt = `You are a memory extraction system. Given a conversation excerpt and existing memory, produce an updated memory summary.
+    const prompt = `You are a memory extraction system for an AI avatar that has ongoing conversations with a user. Extract and organize memories into three layers.
 
-EXISTING MEMORY:
+TODAY'S DATE: ${today}
+
+EXISTING USER PROFILE (permanent facts about this user):
+${existingProfile.length > 0 ? existingProfile.join('\n') : '(none yet)'}
+
+EXISTING TIMELINE (dated events and milestones):
+${existingTimeline.length > 0 ? existingTimeline.join('\n') : '(none yet)'}
+
+EXISTING SESSION SUMMARY:
 ${existingSummary || '(none yet)'}
 
-EXISTING KEY FACTS:
-${Array.isArray(existingFacts) && existingFacts.length > 0 ? existingFacts.join('\n') : '(none yet)'}
-
-RECENT CONVERSATION:
+SESSION CONVERSATION:
 ${conversationExcerpt}
 
 INSTRUCTIONS:
-1. Write a concise updated summary (2-4 sentences) capturing the most important context about this user and conversation.
-2. Extract key facts as a JSON array of short strings. Include: user's name, interests, goals, preferences, recurring topics, important dates or events they mentioned, emotional patterns, and anything the avatar should remember next time.
-3. Merge with existing facts — don't duplicate, update if changed.
+Extract memories into three categories:
+
+1. **summary**: A 2-4 sentence summary of THIS session — what was discussed, the user's mood, any decisions made. This replaces the previous session summary.
+
+2. **profile_facts**: Permanent facts about the user as a JSON array of short strings. Things like: name, age, occupation, goals, learning style, interests, preferences, strengths, weaknesses. These should be stable over time. Merge with existing profile — update facts that changed, add new ones, keep unchanged ones.
+
+3. **timeline_events**: Important events, milestones, or dated information as a JSON array of strings. Each entry MUST start with a date prefix in format "[YYYY-MM] description". Examples:
+   - "[2026-02] Passed math exam with grade B+"
+   - "[2026-03] Started preparing for physics final"
+   - "[2026-03] Mentioned feeling stressed about workload"
+   Merge with existing timeline — add new events, never remove old ones, update if corrected. Keep max 30 most relevant entries.
+
+IMPORTANT: Only extract information the user actually shared. Never invent or assume facts.
 
 Respond in EXACTLY this JSON format:
-{"summary": "...", "key_facts": ["fact 1", "fact 2", ...]}`
+{"summary": "...", "profile_facts": ["fact 1", "fact 2"], "timeline_events": ["[YYYY-MM] event 1", "[YYYY-MM] event 2"]}`
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -76,7 +104,7 @@ Respond in EXACTLY this JSON format:
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 500,
+        max_tokens: 800,
         messages: [{ role: 'user', content: prompt }],
       }),
     })
@@ -88,15 +116,21 @@ Respond in EXACTLY this JSON format:
     }
 
     const rawText = result.content?.[0]?.text?.trim() || ''
-    let parsed: { summary: string; key_facts: string[] }
+    let parsed: { summary: string; profile_facts: string[]; timeline_events: string[] }
     try {
-      // Extract JSON from possible markdown code blocks
       const jsonMatch = rawText.match(/\{[\s\S]*\}/)
       parsed = JSON.parse(jsonMatch?.[0] || rawText)
     } catch {
       console.error('[update-memory] Failed to parse LLM response:', rawText)
       return res.status(500).json({ error: 'Failed to parse memory update' })
     }
+
+    // Merge profile facts and timeline events into a single key_facts array
+    // Timeline events are prefixed with [YYYY-MM] so they can be separated on read
+    const mergedFacts = [
+      ...(parsed.profile_facts || existingProfile),
+      ...(parsed.timeline_events || existingTimeline),
+    ]
 
     // Upsert memory
     const { error: upsertError } = await supabase
@@ -105,7 +139,7 @@ Respond in EXACTLY this JSON format:
         {
           conversation_id: conversationId,
           summary: parsed.summary || existingSummary,
-          key_facts: parsed.key_facts || existingFacts,
+          key_facts: mergedFacts,
           updated_at: new Date().toISOString(),
         },
         { onConflict: 'conversation_id' }
@@ -118,7 +152,8 @@ Respond in EXACTLY this JSON format:
 
     return res.status(200).json({
       summary: parsed.summary,
-      key_facts: parsed.key_facts,
+      profile_facts: parsed.profile_facts,
+      timeline_events: parsed.timeline_events,
     })
   } catch (err: any) {
     console.error('[update-memory] Error:', err.message)

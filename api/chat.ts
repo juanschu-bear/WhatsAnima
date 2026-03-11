@@ -77,12 +77,21 @@ async function loadOwnerPromptAndMemory(conversationId: string | undefined): Pro
     let memory = ''
     const memRow = memoryResult.rows[0]
     if (memRow?.summary || (Array.isArray(memRow?.key_facts) && memRow.key_facts.length > 0)) {
-      const lines = ['[CONVERSATION MEMORY — things you remember about this user from previous sessions]']
-      if (memRow.summary) lines.push(`Summary: ${memRow.summary}`)
-      if (Array.isArray(memRow.key_facts) && memRow.key_facts.length > 0) {
-        lines.push(`Key facts: ${memRow.key_facts.join('; ')}`)
+      const facts: string[] = Array.isArray(memRow?.key_facts) ? memRow.key_facts : []
+      const profileFacts = facts.filter((f: string) => !/^\[\d{4}-\d{2}/.test(f))
+      const timelineEvents = facts.filter((f: string) => /^\[\d{4}-\d{2}/.test(f))
+
+      const lines = ['[CONVERSATION MEMORY — things you remember about this user]']
+      if (profileFacts.length > 0) {
+        lines.push(`\nUser profile: ${profileFacts.join('; ')}`)
       }
-      lines.push('Use this memory naturally in conversation. Reference past topics when relevant. Never say "according to my memory" — just know these things like a real person would.')
+      if (timelineEvents.length > 0) {
+        lines.push(`\nTimeline: ${timelineEvents.join('; ')}`)
+      }
+      if (memRow.summary) {
+        lines.push(`\nLast session: ${memRow.summary}`)
+      }
+      lines.push('\nUse this memory naturally. Reference past events, milestones, and user details when relevant. Never say "according to my memory" or "I remember" explicitly — just know these things like a close friend would.')
       memory = '\n\n' + lines.join('\n')
     }
 
