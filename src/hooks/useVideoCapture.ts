@@ -3,7 +3,6 @@ import { sendMessage } from '../lib/api'
 import {
   getFileExtension,
   uploadMediaToStorage, callOpmApi, correctVideoOrientation,
-  type OpmStageCallback,
 } from '../lib/mediaUtils'
 import { getAvatarFirstName } from '../lib/voiceDelay'
 
