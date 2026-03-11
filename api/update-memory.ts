@@ -33,12 +33,17 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    // Load existing memory
-    const { data: existing } = await supabase
+    // Load existing memory (gracefully handle missing table)
+    const { data: existing, error: loadError } = await supabase
       .from('wa_conversation_memory')
       .select('summary, key_facts')
       .eq('conversation_id', conversationId)
       .maybeSingle()
+
+    if (loadError && (loadError.code === '42P01' || loadError.message?.includes('does not exist'))) {
+      console.warn('[update-memory] wa_conversation_memory table not found — skipping')
+      return res.status(200).json({ ok: false, skipped: true, reason: 'table not created yet' })
+    }
 
     const existingSummary = existing?.summary || ''
     const existingFacts = existing?.key_facts || []
@@ -146,8 +151,13 @@ Respond in EXACTLY this JSON format:
       )
 
     if (upsertError) {
+      // Gracefully handle missing table
+      if (upsertError.code === '42P01' || upsertError.message?.includes('does not exist')) {
+        console.warn('[update-memory] wa_conversation_memory table not found — skipping upsert')
+        return res.status(200).json({ ok: false, skipped: true, reason: 'table not created yet' })
+      }
       console.error('[update-memory] Upsert error:', upsertError.message)
-      return res.status(500).json({ error: upsertError.message })
+      return res.status(200).json({ ok: false, error: upsertError.message })
     }
 
     return res.status(200).json({
@@ -157,6 +167,6 @@ Respond in EXACTLY this JSON format:
     })
   } catch (err: any) {
     console.error('[update-memory] Error:', err.message)
-    return res.status(500).json({ error: err.message })
+    return res.status(200).json({ ok: false, error: err.message })
   }
 }
