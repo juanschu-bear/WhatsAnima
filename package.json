@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "precheck": "tsc --noEmit && eslint ."
   },
   "dependencies": {
     "@daily-co/daily-js": "^0.87.0",
