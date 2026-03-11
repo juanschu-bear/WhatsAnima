@@ -21,17 +21,28 @@ export function useReadReceipts() {
   }
 
   function simulateAvatarRead(messageId: string) {
-    const willBeAway = Math.random() < 0.2
-    if (willBeAway) {
+    const roll = Math.random()
+
+    if (roll < 0.15) {
+      // 15% — away status (toilet, gym, lunch, etc.) → 8-30s delay
       const status = AWAY_STATUSES[Math.floor(Math.random() * AWAY_STATUSES.length)]
-      const awayDuration = 3000 + Math.random() * 5000
+      const awayDuration = 8000 + Math.random() * 22000
       setAvatarAwayStatus(status)
       setTimeout(() => {
         setAvatarAwayStatus(null)
         markMessageRead(messageId)
       }, awayDuration)
+    } else if (roll < 0.35) {
+      // 20% — slow read, as if busy or distracted → 3-8s
+      const delay = 3000 + Math.random() * 5000
+      setTimeout(() => markMessageRead(messageId), delay)
+    } else if (roll < 0.60) {
+      // 25% — normal read → 1-3s
+      const delay = 1000 + Math.random() * 2000
+      setTimeout(() => markMessageRead(messageId), delay)
     } else {
-      const delay = 200 + Math.random() * 1300
+      // 40% — quick read, actively chatting → 300-1200ms
+      const delay = 300 + Math.random() * 900
       setTimeout(() => markMessageRead(messageId), delay)
     }
   }
