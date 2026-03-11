@@ -3,6 +3,8 @@ import { Client } from 'pg'
 const DEFAULT_SYSTEM_PROMPT = 'You are a helpful assistant.'
 const LANGUAGE_INSTRUCTION =
   'CRITICAL: Always respond in the same language the user\'s last message is written in. If they write Spanish, respond in Spanish. If German, German. If English, English. Never mix languages unless the user does. Never use em-dashes (—).'
+const SPANISH_DIALECT_INSTRUCTION =
+  'SPANISH DIALECT: When responding in Spanish, use neutral Castellano as spoken in Ecuador or Colombia. NEVER use Mexican slang or expressions (no "la neta", "güey", "chido", "no mames", "se te atoró", "mero", "padre", "qué onda"). Use neutral Latin American expressions instead. Example: say "¿qué pasó?" not "¿qué onda?", say "en serio" not "la neta", say "genial" not "chido".'
 const RESPONSE_FORMAT_MATCHING =
   `### Response Format Matching
 - The system automatically determines whether to send your response as text or voice — you do NOT need to indicate the format.
@@ -188,7 +190,7 @@ export default async function handler(req: any, res: any) {
 
   try {
     const { ownerPrompt, memory } = await loadOwnerPromptAndMemory(conversationId)
-    const systemPrompt = `${ownerPrompt}\n\n${RESPONSE_FORMAT_MATCHING}\n\n${FORMATTING_INSTRUCTION}\n\n${LANGUAGE_INSTRUCTION}${memory}${buildPerceptionPrompt(perception)}`
+    const systemPrompt = `${ownerPrompt}\n\n${RESPONSE_FORMAT_MATCHING}\n\n${FORMATTING_INSTRUCTION}\n\n${LANGUAGE_INSTRUCTION}\n\n${SPANISH_DIALECT_INSTRUCTION}${memory}${buildPerceptionPrompt(perception)}`
     const messages: ChatMessage[] = [
       ...priorMessages.slice(-30),
       {

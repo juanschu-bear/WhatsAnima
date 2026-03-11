@@ -36,13 +36,18 @@ export default async function handler(req: any, res: any) {
       .is('read_at', null)
 
     if (error) {
+      // Gracefully handle missing read_at column (table exists but column not added yet)
+      if (error.message?.includes('read_at') || error.code === '42703') {
+        console.warn('[mark-read] read_at column not found — skipping')
+        return res.status(200).json({ ok: false, skipped: true })
+      }
       console.error('[mark-read] Update error:', error.message)
-      return res.status(500).json({ error: error.message })
+      return res.status(200).json({ ok: false, error: error.message })
     }
 
     return res.status(200).json({ ok: true, read_at: now })
   } catch (err: any) {
     console.error('[mark-read] Error:', err.message)
-    return res.status(500).json({ error: err.message })
+    return res.status(200).json({ ok: false, error: err.message })
   }
 }
