@@ -4,6 +4,10 @@ import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
 
+export const config = {
+  api: { bodyParser: { sizeLimit: '500mb' } },
+}
+
 function ffmpegAvailable() {
   return new Promise<boolean>((resolve) => {
     execFile('ffmpeg', ['-version'], (error) => resolve(!error))

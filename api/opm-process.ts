@@ -1,3 +1,7 @@
+export const config = {
+  api: { bodyParser: { sizeLimit: '500mb' } },
+}
+
 const OPM_URL = 'https://boardroom-api.onioko.com/api/v1/process';
 
 export default async function handler(req: any, res: any) {
