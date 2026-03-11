@@ -416,7 +416,7 @@ export default function Chat() {
   const {
     reactionsMap, emojiPickerMessageId, loadReactions,
     addReaction, removeReaction, handleDoubleTap,
-    maybeAvatarReact, closeEmojiPicker,
+    maybeAvatarReact, closeEmojiPicker, toggleReactionPicker,
   } = useReactions()
 
   const {
@@ -1119,8 +1119,9 @@ export default function Chat() {
             return (
               <div
                 key={message.id}
-                className={`relative flex transition-colors ${isContact ? 'justify-end' : 'justify-start'} ${isSelected ? 'rounded-2xl bg-[#00a884]/10' : ''} ${hasReaction ? 'mb-3' : ''}`}
+                className={`relative flex transition-colors ${isContact ? 'justify-end' : 'justify-start'} ${isSelected ? 'rounded-2xl bg-[#00a884]/10' : ''} ${hasReaction ? 'mb-4' : ''}`}
                 onClick={() => { handleMessagePress(message.id); handleDoubleTap(message.id, selectionMode) }}
+                onDoubleClick={() => { if (!selectionMode) toggleReactionPicker(message.id) }}
                 onContextMenu={(e) => { e.preventDefault(); handleMessageLongPress(message.id) }}
                 onTouchStart={() => {
                   longPressTimerRef.current = window.setTimeout(() => handleMessageLongPress(message.id), 500)
@@ -1162,15 +1163,15 @@ export default function Chat() {
                   )}
                   {/* Reaction badges */}
                   {hasReaction && (
-                    <div className={`absolute -bottom-2.5 flex gap-0.5 ${isContact ? 'right-2' : 'left-2'}`}>
+                    <div className={`absolute -bottom-3.5 flex gap-1 ${isContact ? 'right-2' : 'left-2'}`}>
                       {reactions?.avatar && (
-                        <span className="rounded-full border border-white/10 bg-[#1a2332] px-1 py-0.5 text-[13px] shadow-sm">{reactions.avatar}</span>
+                        <span className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-[#1a2332] text-[18px] shadow-md">{reactions.avatar}</span>
                       )}
                       {reactions?.contact && (
                         <button
                           type="button"
                           onClick={(e) => { e.stopPropagation(); removeReaction(message.id) }}
-                          className="rounded-full border border-[#00a884]/30 bg-[#005c4b] px-1 py-0.5 text-[13px] shadow-sm transition hover:border-[#00a884]/50"
+                          className="flex h-7 w-7 items-center justify-center rounded-full border border-[#00a884]/30 bg-[#005c4b] text-[18px] shadow-md transition hover:border-[#00a884]/50 hover:scale-110"
                         >{reactions.contact}</button>
                       )}
                     </div>

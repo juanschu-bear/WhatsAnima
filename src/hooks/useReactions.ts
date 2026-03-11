@@ -101,6 +101,14 @@ export function useReactions() {
     setEmojiPickerMessageId(null)
   }
 
+  function toggleReactionPicker(messageId: string) {
+    if (reactionsMap[messageId]?.contact) {
+      removeReaction(messageId)
+    } else {
+      setEmojiPickerMessageId((prev) => prev === messageId ? null : messageId)
+    }
+  }
+
   return {
     reactionsMap,
     emojiPickerMessageId,
@@ -110,5 +118,6 @@ export function useReactions() {
     handleDoubleTap,
     maybeAvatarReact,
     closeEmojiPicker,
+    toggleReactionPicker,
   }
 }
