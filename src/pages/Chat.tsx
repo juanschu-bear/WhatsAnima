@@ -7,13 +7,21 @@ import {
   type ChangeEvent,
 } from 'react'
 import { useParams } from 'react-router-dom'
-import { createPerceptionLog, getConversation, listMessages, listPerceptionLogs, sendMessage, listAllOwners, findContactByEmail, findOrCreateConversation, createContactForOwner } from '../lib/api'
+import { getConversation, listMessages, listPerceptionLogs, sendMessage, listAllOwners, findContactByEmail, findOrCreateConversation, createContactForOwner } from '../lib/api'
 import { resolveAvatarUrl } from '../lib/avatars'
 import { getStoredLocale, t } from '../lib/i18n'
+import {
+  blobToBase64,
+  uploadAudioToStorage, uploadMediaToStorage,
+  callOpmApi,
+  readVideoMetadata, correctVideoOrientation,
+} from '../lib/mediaUtils'
 import { useReactions, QUICK_EMOJIS } from '../hooks/useReactions'
 import { useReadReceipts } from '../hooks/useReadReceipts'
 import { useSessionMemory } from '../hooks/useSessionMemory'
 import { useMessageSelection } from '../hooks/useMessageSelection'
+import { useVoiceRecording } from '../hooks/useVoiceRecording'
+import { useVideoCapture } from '../hooks/useVideoCapture'
 
 type MessageType = 'text' | 'voice' | 'video' | 'image'
 
@@ -48,40 +56,6 @@ interface CaptionDraft {
   previewUrl: string
 }
 
-type RecordingMode = 'idle' | 'recording' | 'stopping'
-type CaptureKind = 'none' | 'voice' | 'video'
-type VideoOverlayMode = 'live' | 'preview'
-type ValidationTone = '' | 'warning' | 'success' | 'error'
-
-interface BrowserSpeechRecognitionResult {
-  isFinal: boolean
-  0: { transcript: string }
-}
-
-interface BrowserSpeechRecognitionEvent {
-  resultIndex: number
-  results: ArrayLike<BrowserSpeechRecognitionResult>
-}
-
-interface BrowserSpeechRecognition {
-  continuous: boolean
-  interimResults: boolean
-  lang: string
-  onresult: ((event: BrowserSpeechRecognitionEvent) => void) | null
-  start(): void
-  stop(): void
-}
-
-declare global {
-  interface Window {
-    SpeechRecognition?: {
-      new (): BrowserSpeechRecognition
-    }
-    webkitSpeechRecognition?: {
-      new (): BrowserSpeechRecognition
-    }
-  }
-}
 
 const BOARDROOM_API_BASE = 'https://boardroom-api.onioko.com'
 const LIVE_CALL_REPLICA_ID = 'rf5414018e80'
@@ -125,45 +99,6 @@ function formatDateSeparator(dateStr: string) {
     year: date.getFullYear() === today.getFullYear() ? undefined : 'numeric',
   })
 }
-
-function getFileExtension(file: Blob & { name?: string; type: string }, fallback: string) {
-  const byMime: Record<string, string> = {
-    'audio/webm': 'webm',
-    'audio/webm;codecs=opus': 'webm',
-    'audio/mp4': 'm4a',
-    'audio/mpeg': 'mp3',
-    'audio/aac': 'aac',
-    'image/jpeg': 'jpg',
-    'image/jpg': 'jpg',
-    'image/png': 'png',
-    'image/webp': 'webp',
-    'image/heic': 'heic',
-    'video/mp4': 'mp4',
-    'video/webm': 'webm',
-    'video/quicktime': 'mov',
-  }
-  const fromMime = byMime[file.type]
-  if (fromMime) return fromMime
-  const fromName = file.name?.split('.').pop()?.toLowerCase()
-  return fromName || fallback
-}
-
-function blobToBase64(blob: Blob) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onloadend = () => {
-      const result = reader.result
-      if (typeof result !== 'string') {
-        reject(new Error('Unable to read file'))
-        return
-      }
-      resolve(result.split(',')[1] || '')
-    }
-    reader.onerror = () => reject(new Error('Unable to read file'))
-    reader.readAsDataURL(blob)
-  })
-}
-
 
 function isRecordedVideoMessage(message: Message) {
   return (message.content || '') === '[Recorded video]'
@@ -466,49 +401,14 @@ export default function Chat() {
   const [sending, setSending] = useState(false)
   type AvatarStatus = null | 'listening' | 'watching' | 'looking' | 'thinking' | 'writing' | 'recording'
   const [avatarStatus, setAvatarStatus] = useState<AvatarStatus>(null)
-  const [recordingMode, setRecordingMode] = useState<RecordingMode>('idle')
-  const [captureKind, setCaptureKind] = useState<CaptureKind>('none')
-  const [recordingSeconds, setRecordingSeconds] = useState(0)
   const [captionDraft, setCaptionDraft] = useState<CaptionDraft | null>(null)
   const [captionText, setCaptionText] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [transcriptMap, setTranscriptMap] = useState<Record<string, string>>({})
   const [mediaMenuOpen, setMediaMenuOpen] = useState(false)
-  const [voiceOverlayOpen, setVoiceOverlayOpen] = useState(false)
-  const [voiceDraftUrl, setVoiceDraftUrl] = useState<string | null>(null)
-  const [voiceDraftReady, setVoiceDraftReady] = useState(false)
-  const [voiceDraftSeconds, setVoiceDraftSeconds] = useState(0)
-  const [voiceDraftTranscript, setVoiceDraftTranscript] = useState('')
-  const [videoOverlayOpen, setVideoOverlayOpen] = useState(false)
-  const [videoOverlayMode, setVideoOverlayMode] = useState<VideoOverlayMode>('live')
-  const [videoPermissionPending, setVideoPermissionPending] = useState(false)
-  const [videoValidationText, setVideoValidationText] = useState('Position your face in the circle')
-  const [videoValidationTone, setVideoValidationTone] = useState<ValidationTone>('')
-  const [videoCanRecord, setVideoCanRecord] = useState(false)
-  const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null)
-  const [videoDraftSeconds, setVideoDraftSeconds] = useState(0)
   const [isDesktopLayout, setIsDesktopLayout] = useState(false)
   const [liveCallState, setLiveCallState] = useState<'idle' | 'starting' | 'joining' | 'active'>('idle')
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const audioRecorderRef = useRef<MediaRecorder | null>(null)
-  const audioStreamRef = useRef<MediaStream | null>(null)
-  const audioChunksRef = useRef<Blob[]>([])
-  const audioStartRef = useRef(0)
-  const audioStopResolverRef = useRef<((blob: Blob | null) => void) | null>(null)
-  const recordTimerRef = useRef<number | null>(null)
-  const speechRecognitionRef = useRef<BrowserSpeechRecognition | null>(null)
-  const browserTranscriptRef = useRef('')
-  const videoRecorderRef = useRef<MediaRecorder | null>(null)
-  const videoStreamRef = useRef<MediaStream | null>(null)
-  const videoChunksRef = useRef<Blob[]>([])
-  const videoPreviewRef = useRef<HTMLVideoElement>(null)
-  const faceCanvasRef = useRef<HTMLCanvasElement | null>(null)
-  const videoValidationLockRef = useRef(0)
-  const lastVideoValidationRef = useRef('')
-  const voiceDraftBlobRef = useRef<Blob | null>(null)
-  const videoDraftBlobRef = useRef<Blob | null>(null)
-  const videoDraftTranscriptRef = useRef('')
-  const faceValidationIntervalRef = useRef<number | null>(null)
   const videoInputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
 
@@ -534,8 +434,52 @@ export default function Chat() {
     handleExportToClipboard, showToast,
   } = useMessageSelection(messages as any, conversation as any)
 
-  // useSessionMemory needs sendAvatarReply, which is defined later — so we use a ref
-  const sendAvatarReplyRef = useRef<(text: string, options?: { useVoice?: boolean }) => Promise<void>>(async () => {})
+  // sendAvatarReply is defined later — use a ref for hooks that need it
+  const sendAvatarReplyRef = useRef<(text: string, options?: { useVoice?: boolean; isVoice?: boolean; perception?: any }) => Promise<void>>(async () => {})
+
+  const {
+    recordingMode, setRecordingMode, captureKind, setCaptureKind,
+    recordingSeconds, setRecordingSeconds, recordTimerRef,
+    speechRecognitionRef, browserTranscriptRef, audioStartRef, audioStreamRef,
+    stopRecordingTimer, startSpeechRecognition,
+    voiceOverlayOpen, voiceDraftUrl, voiceDraftReady,
+    voiceDraftSeconds, voiceDraftTranscript,
+    openVoiceOverlay, closeVoiceOverlay, stopVoiceIntoDraft, sendVoiceDraft,
+    finishVoiceRecording,
+  } = useVoiceRecording({
+    locale,
+    conversationId,
+    conversation,
+    onSending: setSending,
+    onError: setError,
+    onMessageSent: (msg) => setMessages((current) => [...current, msg as Message]),
+    onTranscript: (id, text) => setTranscriptMap((current) => ({ ...current, [id]: text })),
+    sendAvatarReply: (...args) => sendAvatarReplyRef.current(...args),
+    simulateAvatarRead,
+    maybeAvatarReact,
+  })
+
+  const {
+    videoOverlayOpen, videoOverlayMode, videoPermissionPending,
+    videoValidationText, videoValidationTone, videoCanRecord,
+    videoPreviewUrl, videoDraftSeconds,
+    videoPreviewRef, videoStreamRef, faceValidationIntervalRef,
+    openVideoOverlay, closeVideoOverlay,
+    startLiveVideoRecording, stopLiveVideoRecording, sendRecordedVideoDraft,
+  } = useVideoCapture({
+    conversationId,
+    conversation,
+    shared: {
+      setRecordingMode, setCaptureKind, setRecordingSeconds,
+      recordTimerRef, speechRecognitionRef, browserTranscriptRef, audioStartRef,
+      stopRecordingTimer, startSpeechRecognition,
+    },
+    onSending: setSending,
+    onError: setError,
+    onMessageSent: (msg) => setMessages((current) => [...current, msg as Message]),
+    onTranscript: (id, text) => setTranscriptMap((current) => ({ ...current, [id]: text })),
+    sendAvatarReply: (...args) => sendAvatarReplyRef.current(...args),
+  })
 
   useSessionMemory({
     conversationId,
@@ -680,236 +624,6 @@ export default function Chat() {
     return items
   }, [messages])
 
-  async function uploadAudioToStorage(audioBase64: string, mimeType: string) {
-    if (!conversation) throw new Error('No active conversation')
-
-    const cleanType = (mimeType || 'audio/webm').split(';')[0]
-    const ext = cleanType === 'audio/mpeg' ? 'mp3' : cleanType === 'audio/mp4' ? 'm4a' : 'webm'
-    const filename = `voice-${Date.now()}.${ext}`
-
-    const response = await fetch('/api/upload-audio', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        audio: audioBase64,
-        conversationId: conversation.id,
-        filename,
-      }),
-    })
-
-    const data = await response.json().catch(() => ({}))
-    if (!response.ok) {
-      const msg = data?.error || `Upload failed (HTTP ${response.status})`
-      console.error('[uploadAudio] FAILED:', msg)
-      throw new Error(msg)
-    }
-    if (typeof data.url !== 'string') {
-      throw new Error('Upload returned no URL')
-    }
-    return data.url
-  }
-
-  async function uploadMediaToStorage(file: File, mediaType: 'image' | 'video', isRecorded = false) {
-    if (!conversation) throw new Error('No active conversation')
-
-    const mediaBase64 = await blobToBase64(file)
-    const ext = file.name?.split('.').pop() || (mediaType === 'image' ? 'jpg' : 'webm')
-    const rawType = (file.type || '').split(';')[0] || (mediaType === 'image' ? 'image/jpeg' : 'video/webm')
-    const filename = `${mediaType}-${Date.now()}.${ext}`
-
-    // Route to correct Supabase bucket:
-    // image → image-uploads, recorded video → video-messages, uploaded video → video-uploads
-    const bucket = mediaType === 'image'
-      ? 'image-uploads'
-      : isRecorded
-        ? 'video-messages'
-        : 'video-uploads'
-
-    const response = await fetch('/api/upload-media', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        media: mediaBase64,
-        conversationId: conversation.id,
-        filename,
-        contentType: rawType,
-        mediaType,
-        bucket,
-      }),
-    })
-
-    const data = await response.json().catch(() => ({}))
-    if (!response.ok) {
-      const msg = data?.error || `Media upload failed (HTTP ${response.status})`
-      console.error('[uploadMedia] FAILED:', msg)
-      throw new Error(msg)
-    }
-    if (typeof data.url !== 'string') {
-      throw new Error('Media upload returned no URL')
-    }
-    return data.url
-  }
-
-  async function getOpmConfig() {
-    const response = await fetch('/api/config')
-    const data = await response.json().catch(() => ({}))
-    return {
-      opm_api_url: typeof data.opm_api_url === 'string' ? data.opm_api_url : null,
-      opm_preset: typeof data.opm_preset === 'string' ? data.opm_preset : 'celebrity_ceo',
-    }
-  }
-
-  function delay(ms: number) {
-    return new Promise((resolve) => window.setTimeout(resolve, ms))
-  }
-
-  function normalizeOpmResponse(raw: any) {
-    const unwrapped = raw?.result || raw?.data || raw
-    const echoAnalysis = unwrapped?.echo_analysis || null
-    const standardAnalysis = unwrapped?.standard_analysis || null
-
-    if (echoAnalysis || standardAnalysis) {
-      const isEcho = !!echoAnalysis
-      const analysis = echoAnalysis || standardAnalysis
-      const audioFeatures = analysis.audio_features || {}
-      const firedRules = analysis.fired_rules || []
-      const transcript = audioFeatures.transcript || analysis.transcript || ''
-      const sessionObj = unwrapped.session || null
-      const lucidText =
-        sessionObj?.lucid_interpretation?.interpretation ||
-        sessionObj?.session_interpretation?.interpretation ||
-        ''
-      const sessionPatterns = sessionObj?.session_analysis?.session_patterns || []
-
-      return {
-        transcript,
-        perception: {
-          primary_emotion: audioFeatures.primary_emotion || null,
-          secondary_emotion: audioFeatures.secondary_emotion || null,
-          valence: audioFeatures.valence ?? null,
-          arousal: audioFeatures.arousal ?? null,
-          confidence: audioFeatures.confidence ?? null,
-          behavioral_summary: lucidText || null,
-          session_patterns: sessionPatterns,
-          transcript,
-        },
-        interpretation: {
-          behavioral_summary: lucidText || '',
-          conversation_hooks: sessionPatterns.map((pattern: any) =>
-            typeof pattern === 'string' ? pattern : pattern?.pattern || pattern?.description || JSON.stringify(pattern)
-          ),
-          lucid_raw: Boolean(lucidText),
-        },
-        session: sessionObj,
-        analysisType: isEcho ? 'echo' : 'standard',
-        duration_sec: analysis.duration_sec || null,
-        processing_ms: analysis.processing_ms || null,
-        skipped_reason: analysis.skipped_reason || null,
-        prosodic_summary: audioFeatures.prosodic_summary || null,
-        fired_rules: firedRules,
-      }
-    }
-
-    return {
-      transcript: unwrapped?.transcript || '',
-      perception: unwrapped?.perception || {},
-      interpretation: unwrapped?.interpretation || {},
-      session: unwrapped?.session || null,
-      analysisType: 'legacy',
-      fired_rules: [],
-    }
-  }
-
-  async function callOpmApi(
-    mediaBlob: Blob,
-    mediaType: 'audio' | 'video',
-    opts?: { orientation?: number }
-  ) {
-    const config = await getOpmConfig()
-    const opmUrl = config.opm_api_url
-    const preset = mediaType === 'audio' ? 'echo' : config.opm_preset || 'celebrity_ceo'
-    const blobType = (mediaBlob.type || '').toLowerCase()
-    let ext = 'webm'
-    if (blobType.includes('aac')) ext = 'aac'
-    else if (blobType.includes('m4a')) ext = 'm4a'
-    else if (blobType.includes('mp4')) ext = 'mp4'
-    else if (blobType.includes('ogg')) ext = 'ogg'
-    const fileName = `capture.${ext}`
-
-    if (!opmUrl) {
-      // No OPM URL configured — use server-side opm-process endpoint
-      const audioBase64 = await blobToBase64(mediaBlob)
-      const opmRes = await fetch('/api/opm-process', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          audio: audioBase64,
-          conversationId: conversation?.id || '',
-          contactId: conversation?.contact_id || 'guest',
-          ownerId: conversation?.owner_id || '',
-          filename: fileName,
-          contentType: mediaBlob.type || 'audio/webm',
-        }),
-      })
-      const opmJson = await opmRes.json().catch(() => ({}))
-      if (!opmRes.ok) {
-        console.warn('[callOpmApi] opm-process error:', opmJson.error)
-        return normalizeOpmResponse({})
-      }
-      return normalizeOpmResponse(opmJson.data || opmJson)
-    }
-
-    const useProxy = mediaType === 'video' && Boolean(opts?.orientation)
-    const uploadUrl = useProxy ? '/api/ingest-video' : `${opmUrl}/analyze`
-    const formData = new FormData()
-    formData.append('video', mediaBlob, fileName)
-    formData.append('user_id', conversation?.contact_id || 'guest')
-    formData.append('preset', preset)
-    if (opts?.orientation) formData.append('orientation', String(opts.orientation))
-
-    const submitRes = await fetch(uploadUrl, {
-      method: 'POST',
-      body: formData,
-    })
-
-    if (!submitRes.ok) {
-      const errData = await submitRes.json().catch(() => ({}))
-      throw new Error(errData.error || 'processing_error')
-    }
-
-    const submitData = await submitRes.json()
-    const jobId = submitData.job_id
-    const startTime = Date.now()
-    let jobComplete = false
-
-    while (Date.now() - startTime < 180000) {
-      await delay(3000)
-      const statusRes = await fetch(`${opmUrl}/status/${jobId}`)
-      if (!statusRes.ok) continue
-      const statusData = await statusRes.json()
-      const jobStatus = String(statusData.status || '').toLowerCase()
-
-      if (jobStatus === 'complete' || jobStatus === 'completed' || jobStatus === 'done') {
-        jobComplete = true
-        break
-      }
-      if (jobStatus === 'failed' || jobStatus === 'error') {
-        throw new Error(statusData.error || 'processing_error')
-      }
-    }
-
-    if (!jobComplete) {
-      throw new Error('processing_timeout')
-    }
-
-    const resultsRes = await fetch(`${opmUrl}/results/${jobId}`)
-    if (!resultsRes.ok) {
-      throw new Error('processing_error')
-    }
-
-    const rawResults = await resultsRes.json()
-    return normalizeOpmResponse(rawResults)
-  }
 
   async function getAvatarReply(
     userMessage: string,
@@ -1000,7 +714,7 @@ export default function Chat() {
         return { content: '[TTS ERROR: empty audio] ' + replyText, mediaUrl: null }
       }
       const audioBase64 = await blobToBase64(audioBlob)
-      const uploadedUrl = await uploadAudioToStorage(audioBase64, 'audio/mpeg')
+      const uploadedUrl = await uploadAudioToStorage(conversation!, audioBase64, 'audio/mpeg')
 
       return {
         content: replyText,
@@ -1086,689 +800,9 @@ export default function Chat() {
     }
   }
 
-  async function transcribeServerSide(audioBase64: string, contentType: string): Promise<string> {
-    try {
-      const langMap: Record<string, string> = { en: 'eng', de: 'deu', es: 'spa' }
-      const response = await fetch('/api/transcribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          audio: audioBase64,
-          contentType,
-          languageCode: langMap[locale] || null,
-        }),
-      })
-      const data = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        console.warn('[transcribe] Server STT failed:', data.error)
-        return ''
-      }
-      return (data.transcript || '').trim()
-    } catch (err) {
-      console.warn('[transcribe] Request failed:', err)
-      return ''
-    }
-  }
-
-  async function sendVoiceMessage(blob: Blob, browserTranscript: string, durationSeconds: number) {
-    if (!conversationId || !conversation) return
-
-    const file = new File([blob], `voice-note.${getFileExtension(blob, 'webm')}`, {
-      type: blob.type || 'audio/webm',
-    })
-
-    setSending(true)
-    setError(null)
-    try {
-      const audioBase64 = await blobToBase64(file)
-      const contentType = file.type || 'audio/webm'
-
-      // Run upload, server-side STT, and OPM analysis in parallel
-      const [mediaUrl, serverTranscript, opmResponse] = await Promise.all([
-        uploadAudioToStorage(audioBase64, contentType),
-        transcribeServerSide(audioBase64, contentType),
-        callOpmApi(file, 'audio').catch((error) => {
-          console.error('[Voice] OPM voice analysis failed:', error)
-          return null
-        }),
-      ])
-      if (!mediaUrl) throw new Error('upload failed')
-
-      // Priority: server STT > OPM transcript > browser SpeechRecognition > fallback
-      const finalTranscript = serverTranscript
-        || opmResponse?.transcript?.trim()
-        || browserTranscript
-        || '[Voice message]'
-
-      console.log('[sendVoiceMessage] transcript sources:', {
-        server: serverTranscript?.slice(0, 60) || '(empty)',
-        opm: opmResponse?.transcript?.slice(0, 60) || '(empty)',
-        browser: browserTranscript?.slice(0, 60) || '(empty)',
-        final: finalTranscript.slice(0, 60),
-      })
-
-      const message = (await sendMessage(
-        conversationId,
-        'contact',
-        'voice',
-        finalTranscript,
-        mediaUrl,
-        durationSeconds
-      )) as Message
-
-      setMessages((current) => [...current, message])
-      simulateAvatarRead(message.id)
-
-      if (finalTranscript && finalTranscript !== '[Voice message]') {
-        createPerceptionLog({
-          messageId: message.id,
-          conversationId: conversation.id,
-          contactId: conversation.contact_id,
-          ownerId: conversation.owner_id,
-          transcript: finalTranscript,
-          audioDurationSec: durationSeconds,
-        }).catch((logErr) => console.warn('[perception-log]', logErr.message))
-        setTranscriptMap((current) => ({ ...current, [message.id]: finalTranscript }))
-      }
-
-      await sendAvatarReply(finalTranscript !== '[Voice message]' ? finalTranscript : 'a voice message', {
-        isVoice: true,
-        perception: opmResponse,
-      })
-      maybeAvatarReact(message.id)
-    } catch (recordingError: any) {
-      console.error('[sendVoiceMessage]', recordingError)
-      setError(recordingError?.message || 'Unable to send this voice note.')
-    } finally {
-      setSending(false)
-    }
-  }
-
-  function stopRecordingTimer() {
-    if (recordTimerRef.current) {
-      window.clearInterval(recordTimerRef.current)
-      recordTimerRef.current = null
-    }
-  }
-
-  function startSpeechRecognition() {
-    const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition
-
-    if (!SpeechRecognitionCtor) return
-
-    try {
-      const recognition = new SpeechRecognitionCtor()
-      recognition.continuous = true
-      recognition.interimResults = false
-      recognition.lang = locale === 'de' ? 'de-DE' : locale === 'es' ? 'es-ES' : 'en-US'
-      recognition.onresult = (event: BrowserSpeechRecognitionEvent) => {
-        let nextTranscript = browserTranscriptRef.current
-        for (let index = event.resultIndex; index < event.results.length; index += 1) {
-          const result = event.results[index]
-          if (result.isFinal) nextTranscript += `${result[0].transcript} `
-        }
-        browserTranscriptRef.current = nextTranscript
-      }
-      recognition.start()
-      speechRecognitionRef.current = recognition
-    } catch {
-      speechRecognitionRef.current = null
-    }
-  }
-
-  async function startVoiceRecording() {
-    if (recordingMode !== 'idle') return
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const mimeTypeOptions = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/aac', '']
-      const supportedMimeType = mimeTypeOptions.find((option) => option === '' || MediaRecorder.isTypeSupported(option)) || ''
-      const recorder = supportedMimeType ? new MediaRecorder(stream, { mimeType: supportedMimeType }) : new MediaRecorder(stream)
-
-      audioStreamRef.current = stream
-      audioRecorderRef.current = recorder
-      audioChunksRef.current = []
-      browserTranscriptRef.current = ''
-      audioStartRef.current = Date.now()
-      setRecordingSeconds(0)
-      setRecordingMode('recording')
-      setCaptureKind('voice')
-
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) audioChunksRef.current.push(event.data)
-      }
-      recorder.onstop = () => {
-        const blob = audioChunksRef.current.length
-          ? new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' })
-          : null
-        audioStreamRef.current?.getTracks().forEach((track) => track.stop())
-        audioStreamRef.current = null
-        audioRecorderRef.current = null
-        audioStopResolverRef.current?.(blob)
-        audioStopResolverRef.current = null
-      }
-
-      recorder.start(100)
-      startSpeechRecognition()
-
-      recordTimerRef.current = window.setInterval(() => {
-        const elapsed = Math.floor((Date.now() - audioStartRef.current) / 1000)
-        setRecordingSeconds(elapsed)
-      }, 250)
-    } catch (startError) {
-      console.error(startError)
-      setRecordingMode('idle')
-      setError('Microphone access is required to record voice notes.')
-    }
-  }
-
-  async function finishVoiceRecording(action: 'send' | 'draft' | 'cancel' = 'send') {
-    if (recordingMode === 'idle') return
-
-    setRecordingMode('stopping')
-    stopRecordingTimer()
-    speechRecognitionRef.current?.stop?.()
-    speechRecognitionRef.current = null
-
-    const blobPromise = new Promise<Blob | null>((resolve) => {
-      audioStopResolverRef.current = resolve
-    })
-
-    if (audioRecorderRef.current && audioRecorderRef.current.state !== 'inactive') {
-      audioRecorderRef.current.stop()
-    } else {
-      audioStopResolverRef.current?.(null)
-    }
-
-    const blob = await blobPromise
-    setRecordingMode('idle')
-    setCaptureKind('none')
-    setRecordingSeconds(0)
-
-    const durationSeconds = Math.max(1, Math.round((Date.now() - audioStartRef.current) / 1000))
-    const transcript = browserTranscriptRef.current.trim()
-    browserTranscriptRef.current = ''
-
-    if (!blob || action === 'cancel') return
-    if (action === 'draft') {
-      voiceDraftBlobRef.current = blob
-      setVoiceDraftTranscript(transcript)
-      setVoiceDraftSeconds(durationSeconds)
-      setVoiceDraftReady(true)
-      setVoiceDraftUrl((current) => {
-        if (current) URL.revokeObjectURL(current)
-        return URL.createObjectURL(blob)
-      })
-      return
-    }
-
-    await sendVoiceMessage(blob, transcript, durationSeconds)
-  }
-
-  async function startLiveVideoRecording() {
-    if (!conversation || !videoStreamRef.current) return
-
-    try {
-      const mimeTypeOptions = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4']
-      const mimeType = mimeTypeOptions.find((option) => MediaRecorder.isTypeSupported(option)) || ''
-      const recorder = mimeType ? new MediaRecorder(videoStreamRef.current, { mimeType }) : new MediaRecorder(videoStreamRef.current)
-      videoRecorderRef.current = recorder
-      videoChunksRef.current = []
-      browserTranscriptRef.current = ''
-
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) videoChunksRef.current.push(event.data)
-      }
-      recorder.start(250)
-      startSpeechRecognition()
-      setRecordingMode('recording')
-      setCaptureKind('video')
-      audioStartRef.current = Date.now()
-      stopRecordingTimer()
-      if (faceValidationIntervalRef.current) {
-        window.clearInterval(faceValidationIntervalRef.current)
-        faceValidationIntervalRef.current = null
-      }
-      setVideoValidationText('Recording...')
-      setVideoValidationTone('')
-      recordTimerRef.current = window.setInterval(() => {
-        setRecordingSeconds(Math.floor((Date.now() - audioStartRef.current) / 1000))
-      }, 250)
-    } catch (videoError) {
-      console.error(videoError)
-      setError('Camera access is required to record video.')
-    }
-  }
-
-  async function stopLiveVideoRecording() {
-    if (!videoRecorderRef.current || !conversation || !conversationId) return
-
-    stopRecordingTimer()
-    speechRecognitionRef.current?.stop?.()
-    speechRecognitionRef.current = null
-    if (faceValidationIntervalRef.current) {
-      window.clearInterval(faceValidationIntervalRef.current)
-      faceValidationIntervalRef.current = null
-    }
-    setRecordingMode('stopping')
-
-    const blob = await new Promise<Blob | null>((resolve) => {
-      const recorder = videoRecorderRef.current
-      if (!recorder) {
-        resolve(null)
-        return
-      }
-
-      recorder.onstop = () => {
-        const output = videoChunksRef.current.length
-          ? new Blob(videoChunksRef.current, { type: recorder.mimeType || 'video/webm' })
-          : null
-        videoStreamRef.current?.getTracks().forEach((track) => track.stop())
-        videoStreamRef.current = null
-        videoRecorderRef.current = null
-        resolve(output)
-      }
-      recorder.stop()
-    })
-
-    setRecordingMode('idle')
-    setCaptureKind('none')
-    setRecordingSeconds(0)
-
-    if (!blob) return
-
-    const videoTranscript = browserTranscriptRef.current.trim()
-    browserTranscriptRef.current = ''
-
-    const file = new File([blob], `recorded-video.${getFileExtension(blob, 'webm')}`, {
-      type: blob.type || 'video/webm',
-    })
-    const duration = Math.max(1, Math.round((Date.now() - audioStartRef.current) / 1000))
-
-    try {
-      const previewUrl = URL.createObjectURL(file)
-      videoDraftBlobRef.current = file
-      videoDraftTranscriptRef.current = videoTranscript
-      setVideoDraftSeconds(duration)
-      setVideoPreviewUrl((current) => {
-        if (current) URL.revokeObjectURL(current)
-        return previewUrl
-      })
-      setVideoOverlayMode('preview')
-      setVideoValidationText('Preview ready. Send or cancel.')
-      setVideoValidationTone('success')
-    } catch (videoSendError) {
-      console.error(videoSendError)
-      setError('Unable to prepare this recorded video.')
-    }
-  }
-
-  async function sendRecordedVideoDraft() {
-    if (!videoDraftBlobRef.current || !conversationId || !conversation) return
-
-    setSending(true)
-    setError(null)
-    try {
-      const file = videoDraftBlobRef.current instanceof File
-        ? videoDraftBlobRef.current
-        : new File([videoDraftBlobRef.current], `recorded-video.${getFileExtension(videoDraftBlobRef.current, 'webm')}`, {
-            type: videoDraftBlobRef.current.type || 'video/webm',
-          })
-      const [mediaUrl, opmResponse] = await Promise.all([
-        uploadMediaToStorage(file, 'video', true),
-        callOpmApi(file, 'video').catch((error) => {
-          console.error('[Video] OPM recorded video analysis failed:', error)
-          return null
-        }),
-      ])
-      if (!mediaUrl) throw new Error('upload failed')
-      const transcript = opmResponse?.transcript?.trim() || ''
-
-      const contentText = transcript || '[Recorded video]'
-      const message = (await sendMessage(
-        conversationId,
-        'contact',
-        'video',
-        contentText,
-        mediaUrl,
-        videoDraftSeconds
-      )) as Message
-      setMessages((current) => [...current, message])
-
-      if (transcript) {
-        setTranscriptMap((current) => ({ ...current, [message.id]: transcript }))
-      }
-
-      closeVideoOverlay()
-      await sendAvatarReply(transcript || 'a recorded video', {
-        useVoice: false,
-        isVideo: true,
-        perception: opmResponse,
-      })
-    } catch (videoSendError) {
-      console.error(videoSendError)
-      setError('Unable to send this recorded video.')
-    } finally {
-      setSending(false)
-    }
-  }
-
-  async function readVideoMetadata(file: File) {
-    return new Promise<{ width: number; height: number; duration: number }>((resolve) => {
-      const video = document.createElement('video')
-      const objectUrl = URL.createObjectURL(file)
-      video.preload = 'metadata'
-      video.onloadedmetadata = () => {
-        resolve({
-          width: video.videoWidth,
-          height: video.videoHeight,
-          duration: video.duration || 0,
-        })
-        URL.revokeObjectURL(objectUrl)
-      }
-      video.onerror = () => {
-        resolve({ width: 0, height: 0, duration: 0 })
-        URL.revokeObjectURL(objectUrl)
-      }
-      video.src = objectUrl
-    })
-  }
-
-  async function correctVideoOrientation(file: File) {
-    const metadata = await readVideoMetadata(file)
-    const forceRotation =
-      metadata.width > metadata.height ||
-      file.type === 'video/quicktime' ||
-      /\.mov$/i.test(file.name)
-
-    if (!forceRotation) return file
-
-    const source = document.createElement('video')
-    const sourceUrl = URL.createObjectURL(file)
-    source.src = sourceUrl
-    source.muted = true
-    source.playsInline = true
-    source.preload = 'auto'
-
-    await new Promise<void>((resolve, reject) => {
-      source.onloadedmetadata = () => resolve()
-      source.onerror = () => reject(new Error('metadata failed'))
-    })
-
-    const canvas = document.createElement('canvas')
-    canvas.width = source.videoHeight || metadata.height || 720
-    canvas.height = source.videoWidth || metadata.width || 1280
-    const context = canvas.getContext('2d')
-    if (!context) {
-      URL.revokeObjectURL(sourceUrl)
-      return file
-    }
-
-    const canvasStream = canvas.captureStream(30)
-    const sourceStream =
-      (source as HTMLVideoElement & {
-        captureStream?: () => MediaStream
-        mozCaptureStream?: () => MediaStream
-      }).captureStream?.() ||
-      (source as HTMLVideoElement & { mozCaptureStream?: () => MediaStream }).mozCaptureStream?.()
-    const audioTracks = sourceStream?.getAudioTracks() || []
-    audioTracks.forEach((track) => canvasStream.addTrack(track))
-    const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')
-      ? 'video/webm;codecs=vp8,opus'
-      : 'video/webm'
-    const recorder = new MediaRecorder(canvasStream, { mimeType })
-    const chunks: Blob[] = []
-
-    recorder.ondataavailable = (event) => {
-      if (event.data.size > 0) chunks.push(event.data)
-    }
-
-    const recording = new Promise<Blob>((resolve) => {
-      recorder.onstop = () => resolve(new Blob(chunks, { type: mimeType }))
-    })
-
-    const drawFrame = () => {
-      if (source.paused || source.ended) return
-      context.save()
-      context.clearRect(0, 0, canvas.width, canvas.height)
-      context.translate(canvas.width / 2, canvas.height / 2)
-      context.rotate(Math.PI / 2)
-      context.drawImage(source, -canvas.height / 2, -canvas.width / 2, canvas.height, canvas.width)
-      context.restore()
-      requestAnimationFrame(drawFrame)
-    }
-
-    recorder.start(250)
-    await source.play()
-    drawFrame()
-    await new Promise<void>((resolve) => {
-      source.onended = () => resolve()
-    })
-    recorder.stop()
-
-    const correctedBlob = await recording
-    URL.revokeObjectURL(sourceUrl)
-    return new File([correctedBlob], file.name.replace(/\.\w+$/, '.webm'), {
-      type: correctedBlob.type || 'video/webm',
-    })
-  }
-
-  function setVideoValidation(text: string, tone: ValidationTone, blockRecording: boolean) {
-    const now = Date.now()
-    if (!blockRecording && now < videoValidationLockRef.current && text !== lastVideoValidationRef.current) {
-      return
-    }
-    if (text !== lastVideoValidationRef.current && tone && navigator.vibrate) {
-      navigator.vibrate(blockRecording ? [80, 50, 80] : 60)
-    }
-    if (text !== lastVideoValidationRef.current) {
-      videoValidationLockRef.current = now + 1800
-    }
-    lastVideoValidationRef.current = text
-    setVideoValidationText(text)
-    setVideoValidationTone(tone)
-    setVideoCanRecord(!blockRecording)
-  }
-
-  function runFaceValidation() {
-    const video = videoPreviewRef.current
-    if (!video || !videoStreamRef.current || videoOverlayMode !== 'live') return
-    if (!video.videoWidth || !video.videoHeight) return
-
-    if (!faceCanvasRef.current) {
-      faceCanvasRef.current = document.createElement('canvas')
-    }
-
-    const canvas = faceCanvasRef.current
-    const context = canvas.getContext('2d', { willReadFrequently: true })
-    if (!context) return
-
-    const width = 160
-    const height = 160
-    canvas.width = width
-    canvas.height = height
-    context.drawImage(video, 0, 0, width, height)
-
-    const { data } = context.getImageData(0, 0, width, height)
-    const centerX = width / 2
-    const centerY = height / 2
-    const radius = width * 0.35
-    let skinPixels = 0
-    let totalPixels = 0
-    let brightnessSum = 0
-    let skinXSum = 0
-    let skinYSum = 0
-    let leftSkinPixels = 0
-    let rightSkinPixels = 0
-
-    for (let y = 0; y < height; y += 1) {
-      for (let x = 0; x < width; x += 1) {
-        const index = (y * width + x) * 4
-        const red = data[index]
-        const green = data[index + 1]
-        const blue = data[index + 2]
-        const brightness = (red + green + blue) / 3
-        const dx = x - centerX
-        const dy = y - centerY
-
-        if (dx * dx + dy * dy <= radius * radius) {
-          brightnessSum += brightness
-          totalPixels += 1
-        }
-
-        if (
-          red > 60 &&
-          green > 40 &&
-          blue > 20 &&
-          red > green &&
-          red > blue &&
-          Math.abs(red - green) > 10 &&
-          brightness > 50 &&
-          brightness < 240
-        ) {
-          skinPixels += 1
-          skinXSum += x
-          skinYSum += y
-          if (x < centerX) leftSkinPixels += 1
-          else rightSkinPixels += 1
-        }
-      }
-    }
-
-    const totalFramePixels = width * height
-    const skinRatio = skinPixels / totalFramePixels
-    const averageBrightness = totalPixels > 0 ? brightnessSum / totalPixels : 0
-
-    if (averageBrightness < 40) {
-      setVideoValidation('We need more light so the camera can see you.', 'warning', true)
-      return
-    }
-    if (skinRatio < 0.02) {
-      setVideoValidation('Position your face in the circle.', '', true)
-      return
-    }
-
-    const faceCenterX = skinPixels > 0 ? skinXSum / skinPixels : centerX
-    const faceCenterY = skinPixels > 0 ? skinYSum / skinPixels : centerY
-    const offsetX = Math.abs(faceCenterX - centerX) / (width / 2)
-    const offsetY = Math.abs(faceCenterY - centerY) / (height / 2)
-
-    if (offsetX > 0.35 || offsetY > 0.35) {
-      setVideoValidation('Center your face in the circle.', 'warning', true)
-      return
-    }
-    if (skinRatio < 0.05) {
-      setVideoValidation('Move a little closer to the camera.', 'warning', true)
-      return
-    }
-
-    const totalSideSkin = leftSkinPixels + rightSkinPixels
-    if (totalSideSkin > 0) {
-      const asymmetry = Math.abs(leftSkinPixels - rightSkinPixels) / totalSideSkin
-      if (asymmetry > 0.4) {
-        setVideoValidation('Look into the camera for a clean take.', 'warning', false)
-        return
-      }
-    }
-
-    if (averageBrightness < 70) {
-      setVideoValidation('A bit more light would help.', 'warning', false)
-      return
-    }
-
-    setVideoValidation('Ready to record.', 'success', false)
-  }
-
-  async function openVideoOverlay() {
-    if (videoOverlayOpen) return
+  function handleOpenVideoOverlay() {
     setMediaMenuOpen(false)
-    setVideoOverlayOpen(true)
-    setVideoOverlayMode('live')
-    setVideoPermissionPending(true)
-    setVideoValidationText('Preparing camera...')
-    setVideoValidationTone('')
-    setVideoCanRecord(false)
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 720 } },
-        audio: true,
-      })
-      videoStreamRef.current = stream
-      const video = videoPreviewRef.current
-      if (video) {
-        video.srcObject = stream
-        video.muted = true
-        video.playsInline = true
-        await video.play().catch(() => undefined)
-      }
-      setVideoPermissionPending(false)
-      setVideoValidationText('Position your face in the circle.')
-      if (faceValidationIntervalRef.current) window.clearInterval(faceValidationIntervalRef.current)
-      faceValidationIntervalRef.current = window.setInterval(runFaceValidation, 500)
-    } catch (videoError) {
-      console.error(videoError)
-      setVideoPermissionPending(false)
-      setVideoValidationText('Camera access is required to record video.')
-      setVideoValidationTone('error')
-      setVideoCanRecord(false)
-    }
-  }
-
-  function closeVideoOverlay() {
-    if (recordTimerRef.current) {
-      window.clearInterval(recordTimerRef.current)
-      recordTimerRef.current = null
-    }
-    if (faceValidationIntervalRef.current) {
-      window.clearInterval(faceValidationIntervalRef.current)
-      faceValidationIntervalRef.current = null
-    }
-    if (videoRecorderRef.current && videoRecorderRef.current.state !== 'inactive') {
-      videoRecorderRef.current.onstop = null
-      videoRecorderRef.current.stop()
-    }
-    videoStreamRef.current?.getTracks().forEach((track) => track.stop())
-    videoStreamRef.current = null
-    videoRecorderRef.current = null
-    videoChunksRef.current = []
-    videoDraftBlobRef.current = null
-    videoDraftTranscriptRef.current = ''
-    speechRecognitionRef.current?.stop?.()
-    speechRecognitionRef.current = null
-    setRecordingMode('idle')
-    setCaptureKind('none')
-    setRecordingSeconds(0)
-    setVideoOverlayOpen(false)
-    setVideoOverlayMode('live')
-    setVideoPermissionPending(false)
-    setVideoValidationText('Position your face in the circle.')
-    setVideoValidationTone('')
-    setVideoCanRecord(false)
-    setVideoPreviewUrl((current) => {
-      if (current) URL.revokeObjectURL(current)
-      return null
-    })
-    const video = videoPreviewRef.current
-    if (video) {
-      video.pause()
-      video.srcObject = null
-      video.src = ''
-    }
-  }
-
-  async function openVoiceOverlay() {
-    setMediaMenuOpen(false)
-    setVoiceOverlayOpen(true)
-    setVoiceDraftReady(false)
-    setVoiceDraftTranscript('')
-    setVoiceDraftSeconds(0)
-    setVoiceDraftUrl((current) => {
-      if (current) URL.revokeObjectURL(current)
-      return null
-    })
-    voiceDraftBlobRef.current = null
-    await startVoiceRecording()
+    void openVideoOverlay()
   }
 
   function openCaptionDraft(file: File, kind: 'image' | 'video') {
@@ -1801,7 +835,7 @@ export default function Chat() {
     try {
       if (kind === 'image') {
         setAvatarStatus('looking')
-        const mediaUrl = await uploadMediaToStorage(file, 'image')
+        const mediaUrl = await uploadMediaToStorage(conversation!, file, 'image')
         if (!mediaUrl) throw new Error('upload failed')
         const message = await sendMessage(conversationId, 'contact', 'image', caption || '[Image]', mediaUrl)
         setMessages((current) => [...current, message as Message])
@@ -1819,8 +853,8 @@ export default function Chat() {
       const rotatedFile = await correctVideoOrientation(file)
       const metadata = await readVideoMetadata(rotatedFile)
       const [mediaUrl, opmResponse] = await Promise.all([
-        uploadMediaToStorage(rotatedFile, 'video'),
-        callOpmApi(rotatedFile, 'video').catch((error) => {
+        uploadMediaToStorage(conversation!, rotatedFile, 'video'),
+        callOpmApi(conversation!, rotatedFile, 'video').catch((error) => {
           console.error('[Video] OPM uploaded video analysis failed:', error)
           return null
         }),
@@ -1879,34 +913,6 @@ export default function Chat() {
       return
     }
     openCaptionDraft(file, 'video')
-  }
-
-  function closeVoiceOverlay() {
-    if (recordingMode !== 'idle' && captureKind === 'voice') {
-      void finishVoiceRecording('cancel')
-    }
-    voiceDraftBlobRef.current = null
-    setVoiceOverlayOpen(false)
-    setVoiceDraftReady(false)
-    setVoiceDraftTranscript('')
-    setVoiceDraftSeconds(0)
-    setVoiceDraftUrl((current) => {
-      if (current) URL.revokeObjectURL(current)
-      return null
-    })
-  }
-
-  async function stopVoiceIntoDraft() {
-    await finishVoiceRecording('draft')
-  }
-
-  async function sendVoiceDraft() {
-    if (!voiceDraftBlobRef.current) return
-    const blob = voiceDraftBlobRef.current
-    const transcript = voiceDraftTranscript
-    const duration = voiceDraftSeconds
-    closeVoiceOverlay()
-    await sendVoiceMessage(blob, transcript, duration)
   }
 
   if (loading) {
@@ -2306,10 +1312,7 @@ export default function Chat() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    setMediaMenuOpen(false)
-                    void openVideoOverlay()
-                  }}
+                  onClick={handleOpenVideoOverlay}
                   className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm text-white/88 transition hover:bg-white/6"
                 >
                   <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#173447] text-[#88ffe4]">
