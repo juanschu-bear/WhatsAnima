@@ -55,17 +55,17 @@ function getDatabaseUrl() {
   )
 }
 
-async function loadOwnerPromptAndMemory(conversationId: string | undefined): Promise<{ ownerPrompt: string; memory: string }> {
-  if (!conversationId) return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '' }
+async function loadOwnerPromptAndMemory(conversationId: string | undefined): Promise<{ ownerPrompt: string; memory: string; stylePrompt: string }> {
+  if (!conversationId) return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '', stylePrompt: '' }
   const databaseUrl = getDatabaseUrl()
-  if (!databaseUrl) return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '' }
+  if (!databaseUrl) return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '', stylePrompt: '' }
 
   const client = new Client({ connectionString: databaseUrl, ssl: { rejectUnauthorized: false } })
   try {
     await client.connect()
     const [ownerResult, memoryResult] = await Promise.all([
       client.query(
-        `select o.system_prompt from public.wa_conversations c join public.wa_owners o on o.id = c.owner_id where c.id = $1 limit 1`,
+        `select o.system_prompt, o.is_self_avatar, o.communication_style from public.wa_conversations c join public.wa_owners o on o.id = c.owner_id where c.id = $1 limit 1`,
         [conversationId]
       ),
       client.query(
@@ -74,7 +74,26 @@ async function loadOwnerPromptAndMemory(conversationId: string | undefined): Pro
       ).catch(() => ({ rows: [] })),
     ])
 
-    const ownerPrompt = ownerResult.rows[0]?.system_prompt?.trim() || DEFAULT_SYSTEM_PROMPT
+    const ownerRow = ownerResult.rows[0]
+    const ownerPrompt = ownerRow?.system_prompt?.trim() || DEFAULT_SYSTEM_PROMPT
+
+    // Build communication style injection (only for self-avatars)
+    let stylePrompt = ''
+    if (ownerRow?.is_self_avatar && ownerRow?.communication_style) {
+      const style = ownerRow.communication_style
+      const parts = ['[YOUR COMMUNICATION STYLE — this is how you naturally talk and think]']
+      if (Array.isArray(style.traits) && style.traits.length > 0) {
+        parts.push(`Personality: ${style.traits.join('; ')}`)
+      }
+      if (Array.isArray(style.speech_patterns) && style.speech_patterns.length > 0) {
+        parts.push(`Speech patterns: ${style.speech_patterns.join('; ')}`)
+      }
+      if (Array.isArray(style.thinking_style) && style.thinking_style.length > 0) {
+        parts.push(`Thinking style: ${style.thinking_style.join('; ')}`)
+      }
+      parts.push('Adopt these patterns naturally. This is who you ARE, not a persona you perform.')
+      stylePrompt = '\n\n' + parts.join('\n')
+    }
 
     let memory = ''
     const memRow = memoryResult.rows[0]
@@ -97,7 +116,7 @@ async function loadOwnerPromptAndMemory(conversationId: string | undefined): Pro
       memory = '\n\n' + lines.join('\n')
     }
 
-    return { ownerPrompt, memory }
+    return { ownerPrompt, memory, stylePrompt }
   } finally {
     await client.end().catch(() => undefined)
   }
@@ -189,8 +208,8 @@ export default async function handler(req: any, res: any) {
     : []
 
   try {
-    const { ownerPrompt, memory } = await loadOwnerPromptAndMemory(conversationId)
-    const systemPrompt = `${ownerPrompt}\n\n${RESPONSE_FORMAT_MATCHING}\n\n${FORMATTING_INSTRUCTION}\n\n${LANGUAGE_INSTRUCTION}\n\n${SPANISH_DIALECT_INSTRUCTION}${memory}${buildPerceptionPrompt(perception)}`
+    const { ownerPrompt, memory, stylePrompt } = await loadOwnerPromptAndMemory(conversationId)
+    const systemPrompt = `${ownerPrompt}\n\n${RESPONSE_FORMAT_MATCHING}\n\n${FORMATTING_INSTRUCTION}\n\n${LANGUAGE_INSTRUCTION}\n\n${SPANISH_DIALECT_INSTRUCTION}${stylePrompt}${memory}${buildPerceptionPrompt(perception)}`
     const messages: ChatMessage[] = [
       ...priorMessages.slice(-30),
       {
