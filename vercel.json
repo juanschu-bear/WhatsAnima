@@ -1,4 +1,11 @@
 {
+  "functions": {
+    "api/upload-audio.ts": { "maxDuration": 60 },
+    "api/upload-media.ts": { "maxDuration": 60 },
+    "api/opm-process.ts": { "maxDuration": 120 },
+    "api/ingest-video.ts": { "maxDuration": 120 },
+    "api/transcribe.ts": { "maxDuration": 60 }
+  },
   "rewrites": [
     { "source": "/((?!api/|assets/).*)", "destination": "/index.html" }
   ]

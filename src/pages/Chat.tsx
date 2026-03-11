@@ -7,7 +7,7 @@ import {
   type ChangeEvent,
 } from 'react'
 import { useParams } from 'react-router-dom'
-import { getConversation, listMessages, listPerceptionLogs, sendMessage, listAllOwners, findContactByEmail, findOrCreateConversation, createContactForOwner } from '../lib/api'
+import { getConversation, listMessages, listPerceptionLogs, sendMessage, createPerceptionLog, listAllOwners, findContactByEmail, findOrCreateConversation, createContactForOwner } from '../lib/api'
 import { resolveAvatarUrl } from '../lib/avatars'
 import { t } from '../lib/i18n'
 import {
@@ -1005,6 +1005,23 @@ export default function Chat() {
       )
       setMessages((current) => [...current, message as Message])
       simulateAvatarRead((message as Message).id)
+
+      createPerceptionLog({
+        messageId: (message as Message).id,
+        conversationId: conversationId!,
+        contactId: conversation!.contact_id,
+        ownerId: conversation!.owner_id,
+        transcript: opmResponse?.transcript?.trim() || null,
+        audioDurationSec: metadata.duration || null,
+        primaryEmotion: opmResponse?.perception?.primary_emotion ?? null,
+        secondaryEmotion: opmResponse?.perception?.secondary_emotion ?? null,
+        firedRules: opmResponse?.fired_rules ?? null,
+        behavioralSummary: opmResponse?.interpretation?.behavioral_summary ?? null,
+        conversationHooks: opmResponse?.interpretation?.conversation_hooks ?? null,
+        prosodicSummary: opmResponse?.prosodic_summary ?? null,
+        mediaType: 'video',
+      }).catch((logErr) => console.warn('[perception-log]', logErr.message))
+
       const transcript = opmResponse?.transcript?.trim() || ''
       const videoMessageText = caption
         ? (transcript ? `${caption}\n\n[Transcribed from video]: ${transcript}` : caption)

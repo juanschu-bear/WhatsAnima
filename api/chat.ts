@@ -41,15 +41,69 @@ function buildPerceptionPrompt(perception: any) {
   const interpretation = perception.interpretation || {}
   const hooks = interpretation.conversation_hooks || emotionSource.session_patterns || []
   const firedRules = perception.fired_rules || []
-  const lines = [
-    '[PERCEPTION CONTEXT]',
-    emotionSource.primary_emotion ? `Primary emotion: ${emotionSource.primary_emotion}` : null,
-    emotionSource.secondary_emotion ? `Secondary emotion: ${emotionSource.secondary_emotion}` : null,
-    interpretation.behavioral_summary ? `Behavioral summary: ${interpretation.behavioral_summary}` : null,
-    hooks.length ? `Conversation hooks: ${hooks.join('; ')}` : null,
-    firedRules.length ? `Detected signals: ${firedRules.map((rule: any) => typeof rule === 'string' ? rule : rule.name || rule.rule || '').filter(Boolean).join(', ')}` : null,
-    'Respond to both what the user said and what was detected emotionally/behaviorally. Do not mention analysis unless asked.',
-  ].filter(Boolean)
+  const canon = perception.canon || null
+
+  const lines = ['[PERCEPTION CONTEXT]']
+
+  // Emotion: replace "neutral" with personal center context
+  const primary = emotionSource.primary_emotion
+  if (primary) {
+    const lowerPrimary = primary.toLowerCase()
+    if (lowerPrimary === 'neutral' && canon?.phase === 'analyzing_delta') {
+      lines.push('Primary emotion: at personal center (baseline state)')
+    } else if (lowerPrimary === 'neutral' && canon?.phase === 'building') {
+      lines.push('Primary emotion: baseline still calibrating — treat as personal resting state')
+    } else {
+      lines.push(`Primary emotion: ${primary}`)
+    }
+  }
+  if (emotionSource.secondary_emotion) {
+    lines.push(`Secondary emotion: ${emotionSource.secondary_emotion}`)
+  }
+
+  // Canon delta context
+  if (canon?.phase === 'analyzing_delta' && canon.delta) {
+    const pd = canon.delta.prosodic_delta || {}
+    const ed = canon.delta.emotion_delta
+
+    const deltaLines: string[] = []
+    if (typeof pd.speaking_rate === 'number' && Math.abs(pd.speaking_rate) > 0.15) {
+      deltaLines.push(`Speaking ${pd.speaking_rate > 0 ? 'faster' : 'slower'} than their personal norm (${Math.round(Math.abs(pd.speaking_rate) * 100)}% change)`)
+    }
+    if (typeof pd.mean_pause_duration === 'number' && Math.abs(pd.mean_pause_duration) > 0.2) {
+      deltaLines.push(`Pauses ${pd.mean_pause_duration > 0 ? 'longer' : 'shorter'} than their personal norm (${Math.round(Math.abs(pd.mean_pause_duration) * 100)}% change)`)
+    }
+    if (typeof pd.volume_mean === 'number' && Math.abs(pd.volume_mean) > 0.15) {
+      deltaLines.push(`Speaking ${pd.volume_mean > 0 ? 'louder' : 'quieter'} than their personal norm (${Math.round(Math.abs(pd.volume_mean) * 100)}% change)`)
+    }
+    if (typeof pd.mean_pitch === 'number' && Math.abs(pd.mean_pitch) > 0.15) {
+      deltaLines.push(`Pitch ${pd.mean_pitch > 0 ? 'higher' : 'lower'} than their personal norm (${Math.round(Math.abs(pd.mean_pitch) * 100)}% change)`)
+    }
+    if (ed?.is_unusual) {
+      deltaLines.push(`Emotion "${ed.emotion}" is unusual for this person (only ${Math.round(ed.personal_frequency * 100)}% of the time)`)
+    }
+
+    if (deltaLines.length > 0) {
+      lines.push('[PERSONAL DELTA — changes relative to this person\'s calibrated baseline]')
+      deltaLines.forEach((l) => lines.push(`- ${l}`))
+    }
+  } else if (canon?.phase === 'building') {
+    lines.push(`[CANON: Calibrating personal baseline — ${canon.progress}% complete (${canon.cumulative_sec}s / ${canon.threshold_sec}s)]`)
+  } else if (canon?.phase === 'baseline_locked') {
+    lines.push('[CANON: Personal baseline just locked — first calibrated reading]')
+  }
+
+  if (interpretation.behavioral_summary) {
+    lines.push(`Behavioral summary: ${interpretation.behavioral_summary}`)
+  }
+  if (hooks.length) {
+    lines.push(`Conversation hooks: ${hooks.join('; ')}`)
+  }
+  if (firedRules.length) {
+    lines.push(`Detected signals: ${firedRules.map((rule: any) => typeof rule === 'string' ? rule : rule.name || rule.rule || '').filter(Boolean).join(', ')}`)
+  }
+
+  lines.push('Respond to both what the user said and what was detected emotionally/behaviorally. Do not mention analysis or calibration unless asked.')
 
   return lines.length > 1 ? `\n\n${lines.join('\n')}` : ''
 }

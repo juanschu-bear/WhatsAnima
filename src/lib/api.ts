@@ -482,6 +482,13 @@ export async function createPerceptionLog(payload: {
   ownerId: string
   transcript?: string | null
   audioDurationSec?: number | null
+  primaryEmotion?: string | null
+  secondaryEmotion?: string | null
+  firedRules?: any[] | null
+  behavioralSummary?: string | null
+  conversationHooks?: any[] | null
+  prosodicSummary?: Record<string, any> | null
+  mediaType?: 'audio' | 'video' | null
 }) {
   const response = await fetch('/api/create-perception-log', {
     method: 'POST',
@@ -493,6 +500,13 @@ export async function createPerceptionLog(payload: {
       ownerId: payload.ownerId,
       transcript: payload.transcript ?? null,
       audioDurationSec: payload.audioDurationSec ?? null,
+      primaryEmotion: payload.primaryEmotion ?? null,
+      secondaryEmotion: payload.secondaryEmotion ?? null,
+      firedRules: payload.firedRules ?? null,
+      behavioralSummary: payload.behavioralSummary ?? null,
+      conversationHooks: payload.conversationHooks ?? null,
+      prosodicSummary: payload.prosodicSummary ?? null,
+      mediaType: payload.mediaType ?? null,
     }),
   })
 

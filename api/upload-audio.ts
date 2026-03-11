@@ -1,6 +1,10 @@
 import crypto from 'node:crypto'
 import { createClient } from '@supabase/supabase-js'
 
+export const config = {
+  api: { bodyParser: { sizeLimit: '500mb' } },
+}
+
 const BUCKET = 'voice-messages'
 
 function getSupabaseAdminClient(): { client: ReturnType<typeof createClient> | null; missing: string | null } {

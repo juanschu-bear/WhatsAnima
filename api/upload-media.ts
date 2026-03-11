@@ -5,6 +5,10 @@ import os from 'node:os'
 import path from 'node:path'
 import { createClient } from '@supabase/supabase-js'
 
+export const config = {
+  api: { bodyParser: { sizeLimit: '500mb' } },
+}
+
 function getSupabaseAdminClient() {
   const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
   const supabaseKey =

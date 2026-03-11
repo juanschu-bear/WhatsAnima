@@ -1,5 +1,5 @@
 import { useRef, useState, type MutableRefObject } from 'react'
-import { sendMessage } from '../lib/api'
+import { sendMessage, createPerceptionLog } from '../lib/api'
 import {
   getFileExtension,
   uploadMediaToStorage, callOpmApi, correctVideoOrientation,
@@ -530,6 +530,22 @@ export function useVideoCapture({
       )) as Message
 
       onMessageSent(message)
+
+      createPerceptionLog({
+        messageId: message.id,
+        conversationId: conversation.id,
+        contactId: conversation.contact_id,
+        ownerId: conversation.owner_id,
+        transcript: transcript || null,
+        audioDurationSec: videoDraftSeconds,
+        primaryEmotion: opmResponse?.perception?.primary_emotion ?? null,
+        secondaryEmotion: opmResponse?.perception?.secondary_emotion ?? null,
+        firedRules: opmResponse?.fired_rules ?? null,
+        behavioralSummary: opmResponse?.interpretation?.behavioral_summary ?? null,
+        conversationHooks: opmResponse?.interpretation?.conversation_hooks ?? null,
+        prosodicSummary: opmResponse?.prosodic_summary ?? null,
+        mediaType: 'video',
+      }).catch((logErr) => console.warn('[perception-log]', logErr.message))
 
       if (transcript) {
         onTranscript(message.id, transcript)

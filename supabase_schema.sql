@@ -301,3 +301,65 @@ DROP POLICY IF EXISTS "owners_claim_orphan" ON public.wa_owners;
 CREATE POLICY "owners_claim_orphan" ON public.wa_owners
   FOR UPDATE USING (auth.uid() IS NOT NULL)
   WITH CHECK (auth.uid() = user_id);
+
+-- =============================================================
+-- Canon: Personal Voice Baseline (Cygnus Echo Calibration)
+-- =============================================================
+-- Stores the calibrated personal audio baseline per contact+owner pair.
+-- Once cumulative audio reaches 60s, prosodic averages are computed
+-- and locked as the personal "center". All subsequent analysis
+-- measures delta from this baseline instead of population averages.
+
+CREATE TABLE IF NOT EXISTS public.wa_voice_baseline (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  contact_id UUID REFERENCES public.wa_contacts(id) ON DELETE CASCADE,
+  owner_id UUID REFERENCES public.wa_owners(id) ON DELETE CASCADE,
+  cumulative_audio_sec FLOAT NOT NULL DEFAULT 0,
+  baseline_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+  -- baseline_data structure:
+  -- {
+  --   "prosodic_center": {
+  --     "mean_pitch": 185.2,
+  --     "pitch_range": 45.3,
+  --     "pitch_variability": 12.1,
+  --     "speaking_rate": 4.2,
+  --     "articulation_rate": 5.1,
+  --     "pause_count": 3.5,
+  --     "mean_pause_duration": 0.42,
+  --     "pause_ratio": 0.18,
+  --     "volume_mean": -22.5,
+  --     "volume_range": 15.3,
+  --     "volume_variability": 4.2,
+  --     "jitter": 0.012,
+  --     "shimmer": 0.034,
+  --     "harmonic_to_noise_ratio": 18.5
+  --   },
+  --   "emotion_distribution": {
+  --     "engaged": 0.45,
+  --     "calm": 0.30,
+  --     "amused": 0.15,
+  --     "neutral": 0.10
+  --   },
+  --   "sample_count": 5,
+  --   "prosodic_sample_count": 4
+  -- }
+  sample_count INTEGER NOT NULL DEFAULT 0,
+  locked_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(contact_id, owner_id)
+);
+
+ALTER TABLE public.wa_voice_baseline ENABLE ROW LEVEL SECURITY;
+
+-- Owners can read baselines for their contacts
+CREATE POLICY "baseline_owner_select" ON public.wa_voice_baseline
+  FOR SELECT USING (
+    owner_id IN (SELECT id FROM public.wa_owners WHERE user_id = auth.uid())
+  );
+-- Service key handles inserts (from API)
+CREATE POLICY "baseline_insert" ON public.wa_voice_baseline
+  FOR INSERT WITH CHECK (TRUE);
+CREATE POLICY "baseline_update" ON public.wa_voice_baseline
+  FOR UPDATE USING (TRUE);
+
+NOTIFY pgrst, 'reload schema';
