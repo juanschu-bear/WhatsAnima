@@ -181,11 +181,13 @@ export function normalizeOpmResponse(raw: any) {
   }
 }
 
+export type OpmStageCallback = (emoji: string, text: string, progress: number) => void
+
 export async function callOpmApi(
   conversation: ConversationRef,
   mediaBlob: Blob,
   mediaType: 'audio' | 'video',
-  opts?: { orientation?: number }
+  opts?: { orientation?: number; onStage?: OpmStageCallback; avatarFirstName?: string }
 ) {
   const config = await getOpmConfig()
   const opmUrl = config.opm_api_url
@@ -198,7 +200,16 @@ export async function callOpmApi(
   else if (blobType.includes('ogg')) ext = 'ogg'
   const fileName = `capture.${ext}`
 
+  const onStage = opts?.onStage || (() => {})
+  const firstName = opts?.avatarFirstName || 'Avatar'
+  const isAudio = mediaType === 'audio'
+  const uploadLabel = isAudio ? 'Uploading voice...' : 'Uploading video...'
+  const watchingLabel = isAudio
+    ? `${firstName} is listening...`
+    : `${firstName} is watching your message...`
+
   if (!opmUrl) {
+    onStage('\uD83D\uDCE1', uploadLabel, 10)
     const audioBase64 = await blobToBase64(mediaBlob)
     const opmRes = await fetch('/api/opm-process', {
       method: 'POST',
@@ -212,16 +223,21 @@ export async function callOpmApi(
         contentType: mediaBlob.type || 'audio/webm',
       }),
     })
+    onStage('\uD83D\uDD2C', watchingLabel, 40)
     const opmJson = await opmRes.json().catch(() => ({}))
     if (!opmRes.ok) {
       console.warn('[callOpmApi] opm-process error:', opmJson.error)
       return normalizeOpmResponse({})
     }
+    onStage('\uD83E\uDDE0', `${firstName} is reading your expressions...`, 70)
+    onStage('\uD83D\uDCAC', `${firstName} is composing a response...`, 95)
     return normalizeOpmResponse(opmJson.data || opmJson)
   }
 
+  // Real OPM: upload directly or via proxy
   const useProxy = mediaType === 'video' && Boolean(opts?.orientation)
   const uploadUrl = useProxy ? '/api/ingest-video' : `${opmUrl}/analyze`
+  onStage('\uD83D\uDCE1', uploadLabel, 10)
   const formData = new FormData()
   formData.append('video', mediaBlob, fileName)
   formData.append('user_id', conversation.contact_id || 'guest')
@@ -243,12 +259,15 @@ export async function callOpmApi(
   const startTime = Date.now()
   let jobComplete = false
 
+  onStage('\uD83D\uDD2C', watchingLabel, 25)
+
   while (Date.now() - startTime < 180000) {
     await delay(3000)
     const statusRes = await fetch(`${opmUrl}/status/${jobId}`)
     if (!statusRes.ok) continue
     const statusData = await statusRes.json()
     const jobStatus = String(statusData.status || '').toLowerCase()
+    const stage = String(statusData.stage || '').toLowerCase()
 
     if (jobStatus === 'complete' || jobStatus === 'completed' || jobStatus === 'done') {
       jobComplete = true
@@ -257,12 +276,28 @@ export async function callOpmApi(
     if (jobStatus === 'failed' || jobStatus === 'error') {
       throw new Error(statusData.error || 'processing_error')
     }
+
+    // Map OPM stages to user-facing text
+    if (stage === 'cygnus' || stage === 'extracting' || jobStatus === 'processing') {
+      onStage('\uD83D\uDD2C', watchingLabel, 35)
+    } else if (stage === 'oracle' || stage === 'detecting') {
+      onStage('\uD83E\uDDE0', `${firstName} is reading your expressions...`, 55)
+    } else if (stage === 'lucid' || stage === 'interpreting') {
+      onStage('\uD83E\uDDE0', `${firstName} is reading your expressions...`, 70)
+    } else if (stage === 'trace' || stage === 'finalizing') {
+      onStage('\uD83D\uDCAC', `${firstName} is composing a response...`, 85)
+    } else {
+      const elapsed = Date.now() - startTime
+      const progress = Math.min(25 + Math.floor((elapsed / 180000) * 60), 85)
+      onStage('\uD83D\uDD2C', watchingLabel, progress)
+    }
   }
 
   if (!jobComplete) {
     throw new Error('processing_timeout')
   }
 
+  onStage('\uD83D\uDCAC', `${firstName} is composing a response...`, 95)
   const resultsRes = await fetch(`${opmUrl}/results/${jobId}`)
   if (!resultsRes.ok) {
     throw new Error('processing_error')

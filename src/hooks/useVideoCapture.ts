@@ -2,8 +2,9 @@ import { useRef, useState, type MutableRefObject } from 'react'
 import { sendMessage } from '../lib/api'
 import {
   getFileExtension,
-  uploadMediaToStorage, callOpmApi,
+  uploadMediaToStorage, callOpmApi, correctVideoOrientation,
 } from '../lib/mediaUtils'
+import { getAvatarFirstName } from '../lib/voiceDelay'
 
 type ValidationTone = '' | 'warning' | 'success' | 'error'
 type VideoOverlayMode = 'live' | 'preview'
@@ -39,22 +40,40 @@ interface SharedRecordingState {
 interface UseVideoCaptureOptions {
   conversationId: string | undefined
   conversation: ConversationRef | null
+  avatarDisplayName: string | undefined
   shared: SharedRecordingState
   onSending: (sending: boolean) => void
   onError: (error: string | null) => void
   onMessageSent: (message: Message) => void
   onTranscript: (messageId: string, transcript: string) => void
-  sendAvatarReply: (text: string, options?: { useVoice?: boolean; isVideo?: boolean; perception?: any }) => Promise<void>
+  onProcessingStage: (emoji: string, text: string) => void
+  sendAvatarReply: (text: string, options?: { useVoice?: boolean; isVideo?: boolean; videoDurationSec?: number; perception?: any }) => Promise<void>
+}
+
+const VIDEO_MAX_SECONDS = 300
+const PROGRESS_RING_CIRCUMFERENCE = 779.4
+const TIME_WARNING_THRESHOLD = 30
+
+const isIOSSafari = typeof navigator !== 'undefined'
+  && /iPad|iPhone|iPod/.test(navigator.userAgent)
+  && !(window as any).MSStream
+
+function pickVideoMimeType(): string {
+  if (typeof MediaRecorder === 'undefined') return ''
+  const options = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4']
+  return options.find((o) => MediaRecorder.isTypeSupported(o)) || ''
 }
 
 export function useVideoCapture({
   conversationId,
   conversation,
+  avatarDisplayName,
   shared,
   onSending,
   onError,
   onMessageSent,
   onTranscript,
+  onProcessingStage,
   sendAvatarReply,
 }: UseVideoCaptureOptions) {
   const {
@@ -62,6 +81,8 @@ export function useVideoCapture({
     recordTimerRef, speechRecognitionRef, browserTranscriptRef, audioStartRef,
     stopRecordingTimer, startSpeechRecognition,
   } = shared
+
+  const avatarFirstName = getAvatarFirstName(avatarDisplayName)
 
   // Video-specific state
   const [videoOverlayOpen, setVideoOverlayOpen] = useState(false)
@@ -72,6 +93,9 @@ export function useVideoCapture({
   const [videoCanRecord, setVideoCanRecord] = useState(false)
   const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null)
   const [videoDraftSeconds, setVideoDraftSeconds] = useState(0)
+  const [videoTimeWarning, setVideoTimeWarning] = useState(false)
+  const [progressRingOffset, setProgressRingOffset] = useState(PROGRESS_RING_CIRCUMFERENCE)
+  const [manualRotation, setManualRotation] = useState(0)
 
   // Video-specific refs
   const videoRecorderRef = useRef<MediaRecorder | null>(null)
@@ -84,6 +108,8 @@ export function useVideoCapture({
   const videoDraftBlobRef = useRef<Blob | null>(null)
   const videoDraftTranscriptRef = useRef('')
   const faceValidationIntervalRef = useRef<number | null>(null)
+  const videoSecondsRef = useRef(0)
+  const videoStreamIsLandscapeRef = useRef(false)
 
   function setVideoValidation(text: string, tone: ValidationTone, blockRecording: boolean) {
     const now = Date.now()
@@ -91,10 +117,10 @@ export function useVideoCapture({
       return
     }
     if (text !== lastVideoValidationRef.current && tone && navigator.vibrate) {
-      navigator.vibrate(blockRecording ? [80, 50, 80] : 60)
+      navigator.vibrate(blockRecording ? [100, 50, 100] : 80)
     }
     if (text !== lastVideoValidationRef.current) {
-      videoValidationLockRef.current = now + 1800
+      videoValidationLockRef.current = now + 3000
     }
     lastVideoValidationRef.current = text
     setVideoValidationText(text)
@@ -172,11 +198,11 @@ export function useVideoCapture({
     const averageBrightness = totalPixels > 0 ? brightnessSum / totalPixels : 0
 
     if (averageBrightness < 40) {
-      setVideoValidation('We need more light so the camera can see you.', 'warning', true)
+      setVideoValidation(`We need more light so ${avatarFirstName} can see you clearly`, 'warning', true)
       return
     }
     if (skinRatio < 0.02) {
-      setVideoValidation('Position your face in the circle.', '', true)
+      setVideoValidation('Position your face in the circle', '', true)
       return
     }
 
@@ -186,11 +212,11 @@ export function useVideoCapture({
     const offsetY = Math.abs(faceCenterY - centerY) / (height / 2)
 
     if (offsetX > 0.35 || offsetY > 0.35) {
-      setVideoValidation('Center your face in the circle.', 'warning', true)
+      setVideoValidation('Center your face in the circle', 'warning', true)
       return
     }
     if (skinRatio < 0.05) {
-      setVideoValidation('Move a little closer to the camera.', 'warning', true)
+      setVideoValidation('Move closer to the camera', 'warning', true)
       return
     }
 
@@ -198,29 +224,31 @@ export function useVideoCapture({
     if (totalSideSkin > 0) {
       const asymmetry = Math.abs(leftSkinPixels - rightSkinPixels) / totalSideSkin
       if (asymmetry > 0.4) {
-        setVideoValidation('Look into the camera for a clean take.', 'warning', false)
+        setVideoValidation(`Look into the camera so ${avatarFirstName} can read your expression`, 'warning', false)
         return
       }
     }
 
     if (averageBrightness < 70) {
-      setVideoValidation('A bit more light would help.', 'warning', false)
+      setVideoValidation('A bit more light would help', 'warning', false)
       return
     }
 
-    setVideoValidation('Ready to record.', 'success', false)
+    setVideoValidation('Ready to record', 'success', false)
   }
 
   async function startLiveVideoRecording() {
     if (!conversation || !videoStreamRef.current) return
 
     try {
-      const mimeTypeOptions = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4']
-      const mimeType = mimeTypeOptions.find((option) => MediaRecorder.isTypeSupported(option)) || ''
-      const recorder = mimeType ? new MediaRecorder(videoStreamRef.current, { mimeType }) : new MediaRecorder(videoStreamRef.current)
+      const mimeType = pickVideoMimeType()
+      const recorder = mimeType
+        ? new MediaRecorder(videoStreamRef.current, { mimeType })
+        : new MediaRecorder(videoStreamRef.current)
       videoRecorderRef.current = recorder
       videoChunksRef.current = []
       browserTranscriptRef.current = ''
+      videoSecondsRef.current = 0
 
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) videoChunksRef.current.push(event.data)
@@ -237,8 +265,29 @@ export function useVideoCapture({
       }
       setVideoValidationText('Recording...')
       setVideoValidationTone('')
+      setVideoTimeWarning(false)
+      setProgressRingOffset(PROGRESS_RING_CIRCUMFERENCE)
+
       recordTimerRef.current = window.setInterval(() => {
-        setRecordingSeconds(Math.floor((Date.now() - audioStartRef.current) / 1000))
+        const elapsed = Math.floor((Date.now() - audioStartRef.current) / 1000)
+        videoSecondsRef.current = elapsed
+        setRecordingSeconds(elapsed)
+
+        // Progress ring
+        const progress = elapsed / VIDEO_MAX_SECONDS
+        const offset = PROGRESS_RING_CIRCUMFERENCE * (1 - progress)
+        setProgressRingOffset(Math.max(offset, 0))
+
+        // Time warning at 30s remaining
+        const remaining = VIDEO_MAX_SECONDS - elapsed
+        if (remaining <= TIME_WARNING_THRESHOLD) {
+          setVideoTimeWarning(true)
+        }
+
+        // Auto-stop at max duration
+        if (elapsed >= VIDEO_MAX_SECONDS) {
+          void stopLiveVideoRecording()
+        }
       }, 250)
     } catch (videoError) {
       console.error(videoError)
@@ -280,33 +329,61 @@ export function useVideoCapture({
     setRecordingMode('idle')
     setCaptureKind('none')
     setRecordingSeconds(0)
+    setVideoTimeWarning(false)
 
-    if (!blob) return
+    if (!blob || videoSecondsRef.current < 1) return
 
     const videoTranscript = browserTranscriptRef.current.trim()
     browserTranscriptRef.current = ''
-
-    const file = new File([blob], `recorded-video.${getFileExtension(blob, 'webm')}`, {
-      type: blob.type || 'video/webm',
-    })
     const duration = Math.max(1, Math.round((Date.now() - audioStartRef.current) / 1000))
 
+    // Orientation correction BEFORE preview (like ANIMA Connect)
     try {
-      const previewUrl = URL.createObjectURL(file)
-      videoDraftBlobRef.current = file
+      setVideoValidationText('Processing video...')
+      setVideoValidationTone('')
+
+      let correctedBlob = blob
+      if (!isIOSSafari || !videoStreamIsLandscapeRef.current) {
+        const file = new File([blob], `recorded-video.${getFileExtension(blob, 'webm')}`, {
+          type: blob.type || 'video/webm',
+        })
+        try {
+          const correctedFile = await correctVideoOrientation(file)
+          correctedBlob = correctedFile
+        } catch (err) {
+          console.warn('[VideoRotation] Correction failed, using raw blob:', err)
+        }
+      }
+
+      const previewUrl = URL.createObjectURL(correctedBlob)
+      videoDraftBlobRef.current = correctedBlob instanceof File
+        ? correctedBlob
+        : new File([correctedBlob], `recorded-video.${getFileExtension(correctedBlob, 'webm')}`, {
+            type: correctedBlob.type || 'video/webm',
+          })
       videoDraftTranscriptRef.current = videoTranscript
       setVideoDraftSeconds(duration)
+      setManualRotation(0)
       setVideoPreviewUrl((current) => {
         if (current) URL.revokeObjectURL(current)
         return previewUrl
       })
       setVideoOverlayMode('preview')
-      setVideoValidationText('Preview ready. Send or cancel.')
+      setVideoValidationText('Preview — tap send or cancel')
       setVideoValidationTone('success')
     } catch (videoSendError) {
       console.error(videoSendError)
       onError('Unable to prepare this recorded video.')
     }
+  }
+
+  function rotatePreview() {
+    setManualRotation((prev) => (prev + 90) % 360)
+    setVideoValidationText(
+      ((manualRotation + 90) % 360)
+        ? `Rotated ${(manualRotation + 90) % 360}° — tap send or cancel`
+        : 'Preview — tap send or cancel'
+    )
   }
 
   function closeVideoOverlay() {
@@ -330,24 +407,30 @@ export function useVideoCapture({
     videoDraftTranscriptRef.current = ''
     speechRecognitionRef.current?.stop?.()
     speechRecognitionRef.current = null
+    videoSecondsRef.current = 0
     setRecordingMode('idle')
     setCaptureKind('none')
     setRecordingSeconds(0)
     setVideoOverlayOpen(false)
     setVideoOverlayMode('live')
     setVideoPermissionPending(false)
-    setVideoValidationText('Position your face in the circle.')
+    setVideoValidationText('Position your face in the circle')
     setVideoValidationTone('')
     setVideoCanRecord(false)
+    setVideoTimeWarning(false)
+    setProgressRingOffset(PROGRESS_RING_CIRCUMFERENCE)
+    setManualRotation(0)
     setVideoPreviewUrl((current) => {
       if (current) URL.revokeObjectURL(current)
       return null
     })
+    videoStreamIsLandscapeRef.current = false
     const video = videoPreviewRef.current
     if (video) {
       video.pause()
       video.srcObject = null
       video.src = ''
+      video.style.transform = ''
     }
   }
 
@@ -373,8 +456,25 @@ export function useVideoCapture({
         video.playsInline = true
         await video.play().catch(() => undefined)
       }
+
+      // iOS Safari landscape stream detection
+      videoStreamIsLandscapeRef.current = false
+      const videoTrack = stream.getVideoTracks()[0]
+      if (videoTrack) {
+        const settings = videoTrack.getSettings()
+        const sw = settings.width || 0
+        const sh = settings.height || 0
+        if (sw > sh && sh > 0) {
+          videoStreamIsLandscapeRef.current = true
+          if (video) {
+            const scale = Math.max(sw / sh, 1.35)
+            video.style.transform = `scaleX(-1) rotate(-90deg) scale(${scale.toFixed(2)})`
+          }
+        }
+      }
+
       setVideoPermissionPending(false)
-      setVideoValidationText('Position your face in the circle.')
+      setVideoValidationText('Position your face in the circle')
       if (faceValidationIntervalRef.current) window.clearInterval(faceValidationIntervalRef.current)
       faceValidationIntervalRef.current = window.setInterval(runFaceValidation, 500)
     } catch (videoError) {
@@ -397,9 +497,21 @@ export function useVideoCapture({
         : new File([videoDraftBlobRef.current], `recorded-video.${getFileExtension(videoDraftBlobRef.current, 'webm')}`, {
             type: videoDraftBlobRef.current.type || 'video/webm',
           })
+
+      const opmOpts: { orientation?: number } = {}
+      if (manualRotation) {
+        opmOpts.orientation = manualRotation
+      } else if (isIOSSafari && videoStreamIsLandscapeRef.current) {
+        opmOpts.orientation = 90
+      }
+
       const [mediaUrl, opmResponse] = await Promise.all([
         uploadMediaToStorage(conversation, file, 'video', true),
-        callOpmApi(conversation, file, 'video').catch((error) => {
+        callOpmApi(conversation, file, 'video', {
+          ...opmOpts,
+          avatarFirstName,
+          onStage: (emoji, text, _progress) => onProcessingStage(emoji, text),
+        }).catch((error) => {
           console.error('[Video] OPM recorded video analysis failed:', error)
           return null
         }),
@@ -423,15 +535,17 @@ export function useVideoCapture({
         onTranscript(message.id, transcript)
       }
 
+      onProcessingStage('', '')  // clear inline processing
       closeVideoOverlay()
       await sendAvatarReply(transcript || 'a recorded video', {
         useVoice: false,
         isVideo: true,
+        videoDurationSec: videoDraftSeconds,
         perception: opmResponse,
       })
-    } catch (videoSendError) {
+    } catch (videoSendError: any) {
       console.error(videoSendError)
-      onError('Unable to send this recorded video.')
+      onError(videoSendError?.message || 'processing_error')
     } finally {
       onSending(false)
     }
@@ -447,6 +561,12 @@ export function useVideoCapture({
     videoCanRecord,
     videoPreviewUrl,
     videoDraftSeconds,
+    videoTimeWarning,
+    progressRingOffset,
+    manualRotation,
+
+    // Constants
+    PROGRESS_RING_CIRCUMFERENCE,
 
     // Refs (exposed for JSX binding)
     videoPreviewRef,
@@ -459,5 +579,6 @@ export function useVideoCapture({
     startLiveVideoRecording,
     stopLiveVideoRecording,
     sendRecordedVideoDraft,
+    rotatePreview,
   }
 }

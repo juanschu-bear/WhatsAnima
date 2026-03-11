@@ -105,3 +105,53 @@ select {
   letter-spacing: 0.34em;
   text-transform: uppercase;
 }
+
+/* ========== Video Bubble Animations ========== */
+@keyframes cyanGlowPulse {
+  0%, 100% {
+    box-shadow: 0 0 14px rgba(0, 212, 255, 0.3), 0 0 28px rgba(0, 212, 255, 0.12);
+    border-color: #00d4ff;
+  }
+  50% {
+    box-shadow: 0 0 22px rgba(0, 212, 255, 0.55), 0 0 44px rgba(0, 212, 255, 0.2);
+    border-color: #33e0ff;
+  }
+}
+
+.video-bubble-circle.processing {
+  animation: cyanGlowPulse 2s ease-in-out infinite;
+}
+
+.video-bubble-circle.processed {
+  border-color: rgba(0, 212, 255, 0.4);
+  box-shadow: 0 0 8px rgba(0, 212, 255, 0.15);
+}
+
+/* ========== Inline Processing Spinner ========== */
+@keyframes processingSpinner {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes stageIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.inline-processing-spinner {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid rgba(0, 212, 255, 0.2);
+  border-top-color: #00d4ff;
+  animation: processingSpinner 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+.inline-processing-stage {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  opacity: 0;
+  transform: translateY(6px);
+  animation: stageIn 0.35s ease forwards;
+}

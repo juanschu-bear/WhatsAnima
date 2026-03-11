@@ -22,7 +22,7 @@ import { useSessionMemory } from '../hooks/useSessionMemory'
 import { useMessageSelection } from '../hooks/useMessageSelection'
 import { useVoiceRecording } from '../hooks/useVoiceRecording'
 import { useVideoCapture } from '../hooks/useVideoCapture'
-import { getVoiceListeningDelay, getAvatarFirstName, VOICE_SEEN_DELAY_MS } from '../lib/voiceDelay'
+import { getVoiceListeningDelay, getVideoWatchingDelay, getAvatarFirstName, VOICE_SEEN_DELAY_MS } from '../lib/voiceDelay'
 
 type MessageType = 'text' | 'voice' | 'video' | 'image'
 
@@ -343,6 +343,16 @@ const VoiceMessageBubble = memo(function VoiceMessageBubble({
   )
 })
 
+const VideoPlayOverlay = ({ hidden, rounded }: { hidden?: boolean; rounded?: boolean }) => (
+  <div
+    className={`absolute inset-0 flex items-center justify-center transition-opacity ${rounded ? 'rounded-full' : 'rounded-xl'} ${hidden ? 'pointer-events-none opacity-0' : 'bg-black/25 opacity-100 hover:opacity-80'}`}
+  >
+    <svg className="h-9 w-9 drop-shadow-[0_1px_3px_rgba(0,0,0,0.3)]" viewBox="0 0 24 24" fill="white">
+      <polygon points="5 3 19 12 5 21 5 3" />
+    </svg>
+  </div>
+)
+
 const MediaMessageBubble = memo(function MediaMessageBubble({
   isContact,
   message,
@@ -352,6 +362,9 @@ const MediaMessageBubble = memo(function MediaMessageBubble({
   message: Message
   isRead?: boolean
 }) {
+  const [isVideoPlaying, setIsVideoPlaying] = useState(false)
+  const videoRef = useRef<HTMLVideoElement>(null)
+
   if (!message.media_url) return null
 
   const checkmark = isContact ? (
@@ -389,22 +402,71 @@ const MediaMessageBubble = memo(function MediaMessageBubble({
   }
 
   const recorded = isRecordedVideoMessage(message)
+  const isSelfie = recorded
+
+  function handleVideoClick() {
+    const video = videoRef.current
+    if (!video) return
+    if (video.paused) {
+      video.play().catch(() => undefined)
+      setIsVideoPlaying(true)
+    } else {
+      video.pause()
+      setIsVideoPlaying(false)
+    }
+  }
+
+  if (recorded) {
+    // Recorded videos: circular bubble with cyan glow (like ANIMA Connect)
+    return (
+      <div className="w-[180px] bg-transparent p-1">
+        <div
+          className="video-bubble-circle relative h-[172px] w-[172px] cursor-pointer overflow-hidden rounded-full border-[3px] border-[#00d4ff] shadow-[0_0_14px_rgba(0,212,255,0.3),0_0_28px_rgba(0,212,255,0.12)] transition-shadow duration-600"
+          onClick={handleVideoClick}
+        >
+          <video
+            ref={videoRef}
+            src={message.media_url ?? undefined}
+            playsInline
+            muted
+            loop
+            preload="metadata"
+            className={`h-full w-full object-cover rounded-full ${isSelfie ? '-scale-x-100' : ''}`}
+            onPlay={() => setIsVideoPlaying(true)}
+            onPause={() => setIsVideoPlaying(false)}
+            onEnded={() => setIsVideoPlaying(false)}
+          />
+          <VideoPlayOverlay hidden={isVideoPlaying} rounded />
+        </div>
+        <div className={`text-center text-[12px] pt-1.5 pb-0.5 ${isContact ? 'text-white/40' : 'text-white/30'}`}>
+          {message.duration_sec ? formatClock(message.duration_sec) : ''}
+        </div>
+      </div>
+    )
+  }
+
+  // Gallery videos: rectangular player with custom play overlay
   return (
-    <div
-      className={`relative overflow-hidden border shadow-[0_2px_8px_rgba(0,0,0,0.12)] ${
-        recorded ? 'rounded-full' : 'rounded-[20px]'
-      } ${isContact
-        ? `${recorded ? '' : 'rounded-tr-[6px]'} border-[#00a884]/15 bg-[#005c4b]`
-        : `${recorded ? '' : 'rounded-tl-[6px]'} border-white/[0.06] bg-[#1a2332]`}`}
-    >
-      <video
-        src={message.media_url ?? undefined}
-        controls
-        playsInline
-        preload="auto"
-        className={recorded ? 'h-52 w-52 object-cover' : 'max-h-96 max-w-full'}
-      />
-      <div className="px-4 pb-2 pt-2">
+    <div className="w-[260px] max-w-[75vw] bg-transparent p-1">
+      <div
+        className="relative cursor-pointer overflow-hidden rounded-xl bg-[#1c1c1e]"
+        onClick={handleVideoClick}
+      >
+        <video
+          ref={videoRef}
+          src={message.media_url ?? undefined}
+          playsInline
+          muted
+          loop
+          preload="metadata"
+          className="block w-full max-h-[300px] object-contain rounded-xl"
+          onPlay={() => setIsVideoPlaying(true)}
+          onPause={() => setIsVideoPlaying(false)}
+          onEnded={() => setIsVideoPlaying(false)}
+        />
+        <VideoPlayOverlay hidden={isVideoPlaying} />
+      </div>
+      <div className="px-2 pb-1 pt-2">
         {!isPlaceholderContent(message) ? <div className="text-[14px] text-white/90">{message.content}</div> : null}
         <div className={`mt-1 flex items-center justify-between gap-4 text-[10px] ${isContact ? 'text-white/40' : 'text-white/30'}`}>
           <span>{message.duration_sec ? formatClock(message.duration_sec) : ''}</span>
@@ -431,6 +493,7 @@ export default function Chat() {
   const [mediaMenuOpen, setMediaMenuOpen] = useState(false)
   const [isDesktopLayout, setIsDesktopLayout] = useState(false)
   const [liveCallState, setLiveCallState] = useState<'idle' | 'starting' | 'joining' | 'active'>('idle')
+  const [inlineProcessing, setInlineProcessing] = useState<{ emoji: string; text: string } | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const videoInputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
@@ -486,12 +549,16 @@ export default function Chat() {
     videoOverlayOpen, videoOverlayMode, videoPermissionPending,
     videoValidationText, videoValidationTone, videoCanRecord,
     videoPreviewUrl, videoDraftSeconds,
+    videoTimeWarning, progressRingOffset, manualRotation,
+    PROGRESS_RING_CIRCUMFERENCE,
     videoPreviewRef, videoStreamRef, faceValidationIntervalRef,
     openVideoOverlay, closeVideoOverlay,
     startLiveVideoRecording, stopLiveVideoRecording, sendRecordedVideoDraft,
+    rotatePreview,
   } = useVideoCapture({
     conversationId,
     conversation,
+    avatarDisplayName: conversation?.wa_owners?.display_name,
     shared: {
       setRecordingMode, setCaptureKind, setRecordingSeconds,
       recordTimerRef, speechRecognitionRef, browserTranscriptRef, audioStartRef,
@@ -501,6 +568,7 @@ export default function Chat() {
     onError: setError,
     onMessageSent: (msg) => setMessages((current) => [...current, msg as Message]),
     onTranscript: (id, text) => setTranscriptMap((current) => ({ ...current, [id]: text })),
+    onProcessingStage: (emoji, text) => setInlineProcessing({ emoji, text }),
     sendAvatarReply: (...args) => sendAvatarReplyRef.current(...args),
   })
 
@@ -762,6 +830,7 @@ export default function Chat() {
       isVideo?: boolean
       isVoice?: boolean
       voiceDurationSec?: number
+      videoDurationSec?: number
       perception?: any
     }
   ) {
@@ -787,6 +856,15 @@ export default function Chat() {
         // Phase 2: listen for a realistic duration scaled to message length
         const listeningMs = getVoiceListeningDelay(options.voiceDurationSec)
         await new Promise((r) => setTimeout(r, listeningMs))
+      }
+
+      // --- Realistic video-message delay ---
+      if (options?.isVideo && options.videoDurationSec) {
+        await new Promise((r) => setTimeout(r, VOICE_SEEN_DELAY_MS))
+        setAvatarStatus('watching')
+
+        const watchingMs = getVideoWatchingDelay(options.videoDurationSec)
+        await new Promise((r) => setTimeout(r, watchingMs))
       }
 
       setAvatarStatus('thinking')
@@ -838,6 +916,18 @@ export default function Chat() {
     } finally {
       setSending(false)
     }
+  }
+
+  function getImmersiveError(errorType: string, name: string): string {
+    const errors: Record<string, string> = {
+      processing_timeout: `${name} is in a meeting right now. They'll watch your video as soon as possible.`,
+      api_down: `${name} is currently unavailable. Try again in a moment.`,
+      no_face_detected: `${name} couldn't see your face clearly. Try recording again with better lighting.`,
+      processing_error: `${name} had trouble reading your message. Want to send it again?`,
+      no_transcript: `${name} watched your video but the audio was unclear. Responding based on what they could see.`,
+      video_too_long: `That was a bit long! Keep it under 5 minutes so ${name} can focus.`,
+    }
+    return errors[errorType] || `${name} had trouble reading your message. Want to send it again?`
   }
 
   function handleOpenVideoOverlay() {
@@ -892,9 +982,13 @@ export default function Chat() {
       setAvatarStatus('watching')
       const rotatedFile = await correctVideoOrientation(file)
       const metadata = await readVideoMetadata(rotatedFile)
+      const avatarName = getAvatarFirstName(conversation?.wa_owners?.display_name)
       const [mediaUrl, opmResponse] = await Promise.all([
         uploadMediaToStorage(conversation!, rotatedFile, 'video'),
-        callOpmApi(conversation!, rotatedFile, 'video').catch((error) => {
+        callOpmApi(conversation!, rotatedFile, 'video', {
+          avatarFirstName: avatarName,
+          onStage: (emoji, text, _progress) => setInlineProcessing({ emoji, text }),
+        }).catch((error) => {
           console.error('[Video] OPM uploaded video analysis failed:', error)
           return null
         }),
@@ -917,12 +1011,16 @@ export default function Chat() {
       await sendAvatarReply(videoMessageText, {
         useVoice: false,
         isVideo: true,
+        videoDurationSec: metadata.duration || undefined,
         perception: opmResponse,
       })
+      setInlineProcessing(null)
       maybeAvatarReact((message as Message).id)
-    } catch (draftError) {
+    } catch (draftError: any) {
       console.error(draftError)
-      setError(`Unable to send this ${kind}.`)
+      setInlineProcessing(null)
+      const name = getAvatarFirstName(conversation?.wa_owners?.display_name)
+      setError(getImmersiveError(draftError?.message || 'processing_error', name))
       setAvatarStatus(null)
     } finally {
       setSending(false)
@@ -1271,6 +1369,19 @@ export default function Chat() {
             </div>
           ) : null}
 
+          {/* Inline OPM processing stages */}
+          {inlineProcessing ? (
+            <div className="flex justify-end">
+              <div className="flex items-center gap-2.5 rounded-[20px] rounded-tr-[6px] border border-white/[0.06] bg-[#1a2332] px-4 py-2.5 shadow-[0_2px_8px_rgba(0,0,0,0.12)]">
+                <div className="inline-processing-spinner" />
+                <div className="inline-processing-stage">
+                  <span className="text-[14px] leading-none">{inlineProcessing.emoji}</span>
+                  <span className="text-[13px] text-white/50">{inlineProcessing.text}</span>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
           <div ref={messagesEndRef} />
         </div>
       </main>
@@ -1486,68 +1597,144 @@ export default function Chat() {
       ) : null}
 
       {videoOverlayOpen ? (
-        <div className="absolute inset-0 z-30 bg-[#000d]">
-          <div className="flex h-full w-full flex-col items-center justify-between px-4 pb-[calc(env(safe-area-inset-bottom)+20px)] pt-[calc(env(safe-area-inset-top)+20px)]">
+        <div className="absolute inset-0 z-30 bg-black">
+          <div className="flex h-full w-full flex-col items-center justify-between px-4 pb-[calc(env(safe-area-inset-bottom)+32px)] pt-[calc(env(safe-area-inset-top)+16px)]">
+            {/* Header: Cancel + Timer */}
             <div className="flex w-full max-w-5xl items-center justify-between">
-              <button type="button" onClick={closeVideoOverlay} className="rounded-full bg-white/8 px-4 py-2 text-sm text-white backdrop-blur">
+              <button
+                type="button"
+                onClick={() => { if (videoOverlayMode === 'preview') closeVideoOverlay(); else closeVideoOverlay(); }}
+                className={`text-[17px] font-medium ${videoOverlayMode === 'preview' ? 'text-[#ff6b6b]' : 'text-white'} px-2 py-2`}
+              >
                 Cancel
               </button>
-              <div className="rounded-full bg-black/35 px-4 py-2 text-sm font-medium text-white/90 backdrop-blur">
+              <div className={`text-[20px] font-semibold tabular-nums ${videoTimeWarning ? 'text-[#ff3b30]' : captureKind === 'video' && recordingMode === 'recording' ? 'text-[#00d4ff]' : 'text-white'}`}>
                 {formatClock(videoOverlayMode === 'preview' ? videoDraftSeconds : recordingSeconds)}
               </div>
+              {captureKind === 'video' && recordingMode === 'recording' ? (
+                <span className="text-[13px] text-white/60">Recording...</span>
+              ) : <span />}
             </div>
 
+            {/* Video circle with SVG progress ring */}
             <div className="flex flex-1 flex-col items-center justify-center">
-              <div className={`relative flex items-center justify-center overflow-hidden border border-white/10 bg-[#07111c] shadow-[0_30px_120px_rgba(0,0,0,0.46)] ${isDesktopLayout ? 'h-[420px] w-[420px] rounded-full' : 'h-[300px] w-[300px] rounded-full'}`}>
-                {videoOverlayMode === 'preview' && videoPreviewUrl ? (
-                  <video src={videoPreviewUrl} autoPlay loop controls playsInline className="h-full w-full object-cover" />
-                ) : (
-                  <video ref={videoPreviewRef} autoPlay muted playsInline className="-scale-x-100 h-full w-full object-cover" />
-                )}
-                <div className="pointer-events-none absolute inset-[10%] rounded-full border border-white/12 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]" />
-                {videoPermissionPending ? (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/28 backdrop-blur-sm">
-                    <span className="rounded-full bg-black/40 px-4 py-2 text-sm text-white/85">Waiting for camera permission…</span>
-                  </div>
-                ) : null}
+              <div className="relative flex-shrink-0" style={{ width: isDesktopLayout ? 260 : 248, height: isDesktopLayout ? 260 : 248 }}>
+                {/* SVG Progress Ring */}
+                <svg
+                  className="pointer-events-none absolute z-10"
+                  style={{ inset: -6, width: 'calc(100% + 12px)', height: 'calc(100% + 12px)' }}
+                  viewBox="0 0 260 260"
+                >
+                  <circle cx="130" cy="130" r="124" fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="6" />
+                  <circle
+                    cx="130" cy="130" r="124"
+                    fill="none"
+                    stroke={videoTimeWarning ? '#ff3b30' : '#00d4ff'}
+                    strokeWidth="6"
+                    strokeLinecap="round"
+                    strokeDasharray={PROGRESS_RING_CIRCUMFERENCE}
+                    strokeDashoffset={progressRingOffset}
+                    transform="rotate(-90 130 130)"
+                    className="transition-[stroke-dashoffset] duration-100 linear"
+                    style={{ filter: `drop-shadow(0 0 6px ${videoTimeWarning ? 'rgba(255,59,48,0.5)' : 'rgba(0,212,255,0.5)'})` }}
+                  />
+                </svg>
+
+                {/* Video circle */}
+                <div
+                  className={`overflow-hidden rounded-full border-[3px] bg-[#1c1c1e] ${
+                    videoTimeWarning
+                      ? 'border-[#ff3b30] shadow-[0_0_18px_rgba(255,59,48,0.4),inset_0_0_12px_rgba(255,59,48,0.1)]'
+                      : 'border-[#00d4ff] shadow-[0_0_18px_rgba(0,212,255,0.35),inset_0_0_12px_rgba(0,212,255,0.1)]'
+                  } transition-[border-color,box-shadow] duration-400`}
+                  style={{ width: isDesktopLayout ? 248 : 248, height: isDesktopLayout ? 248 : 248 }}
+                >
+                  {videoOverlayMode === 'preview' && videoPreviewUrl ? (
+                    <video
+                      src={videoPreviewUrl}
+                      autoPlay
+                      loop
+                      playsInline
+                      className="h-full w-full object-cover"
+                      style={{ transform: manualRotation ? `rotate(${manualRotation}deg)` : undefined }}
+                      ref={(el) => {
+                        if (!el) return
+                        // Try unmuted first, fallback to muted
+                        el.muted = false
+                        el.play().catch(() => {
+                          el.muted = true
+                          el.play().catch(() => undefined)
+                        })
+                      }}
+                    />
+                  ) : (
+                    <video ref={videoPreviewRef} autoPlay muted playsInline className="-scale-x-100 h-full w-full object-cover" />
+                  )}
+                </div>
               </div>
-              <div className={`mt-6 rounded-full px-4 py-2 text-sm backdrop-blur ${videoValidationTone === 'error' ? 'bg-red-500/18 text-red-200' : videoValidationTone === 'warning' ? 'bg-amber-400/14 text-amber-100' : videoValidationTone === 'success' ? 'bg-emerald-400/14 text-emerald-100' : 'bg-black/28 text-white/80'}`}>
+
+              {/* Validation message */}
+              <div className={`mt-6 inline-block rounded-[20px] px-5 py-2 text-[17px] font-semibold leading-snug transition-[opacity,color] duration-300 ${
+                videoValidationTone === 'error' ? 'bg-[rgba(80,0,0,0.55)] text-[#ff6b6b]'
+                : videoValidationTone === 'warning' ? 'bg-[rgba(80,60,0,0.6)] text-[#ffcc00]'
+                : videoValidationTone === 'success' ? 'bg-[rgba(0,40,60,0.55)] text-[#00d4ff]'
+                : 'bg-[rgba(0,0,0,0.55)] text-white/90'
+              }`}>
                 {videoValidationText}
               </div>
+
+              {videoPermissionPending ? (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/28 backdrop-blur-sm">
+                  <span className="rounded-full bg-black/40 px-4 py-2 text-sm text-white/85">Waiting for camera permission…</span>
+                </div>
+              ) : null}
             </div>
 
-            <div className="flex w-full max-w-5xl items-center justify-center gap-4">
+            {/* Controls */}
+            <div className="flex w-full max-w-5xl flex-col items-center gap-3">
               {videoOverlayMode === 'preview' ? (
-                <>
+                <div className="flex items-center gap-4">
+                  {/* Rotate button */}
                   <button
                     type="button"
-                    onClick={closeVideoOverlay}
-                    className="rounded-full border border-white/10 bg-white/6 px-5 py-3 text-sm font-semibold text-white/80 backdrop-blur"
+                    onClick={rotatePreview}
+                    className="flex h-12 w-12 items-center justify-center rounded-full bg-white/15 text-white transition active:scale-90 active:bg-white/25"
+                    title="Rotate 90°"
                   >
-                    Discard
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
                   </button>
+                  {/* Send button */}
                   <button
                     type="button"
                     onClick={() => void sendRecordedVideoDraft()}
                     disabled={sending}
-                    className="rounded-full bg-gradient-to-r from-[#11c2a0] to-[#38a9ff] px-6 py-3 text-sm font-semibold text-white shadow-[0_0_36px_rgba(42,196,231,0.22)] disabled:opacity-40"
+                    className="flex h-[72px] w-[72px] items-center justify-center rounded-full bg-[#34c759] text-white shadow-[0_0_18px_rgba(52,199,89,0.3)] transition active:scale-92 disabled:opacity-40"
                   >
-                    Send video
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
                   </button>
-                </>
+                </div>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => void (recordingMode !== 'idle' ? stopLiveVideoRecording() : startLiveVideoRecording())}
-                  disabled={videoPermissionPending || (!videoCanRecord && recordingMode === 'idle')}
-                  className={`flex h-20 w-20 items-center justify-center rounded-full border-4 ${recordingMode !== 'idle' ? 'border-[#ff6b7f] bg-[#ff6b7f]/24' : 'border-white/85 bg-white/10'} shadow-[0_0_40px_rgba(255,255,255,0.12)] disabled:opacity-40`}
-                >
-                  {recordingMode !== 'idle' ? (
-                    <div className="h-6 w-6 rounded-md bg-[#ff6b7f]" />
-                  ) : (
-                    <div className="h-14 w-14 rounded-full bg-white" />
-                  )}
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void (recordingMode !== 'idle' ? stopLiveVideoRecording() : startLiveVideoRecording())}
+                    disabled={videoPermissionPending || (!videoCanRecord && recordingMode === 'idle')}
+                    className={`flex h-[72px] w-[72px] items-center justify-center rounded-full border-4 ${
+                      recordingMode !== 'idle'
+                        ? 'border-[#ff6b7f] bg-[#ff6b7f]/24'
+                        : 'border-white/85 bg-transparent'
+                    } shadow-[0_0_40px_rgba(255,255,255,0.12)] disabled:opacity-40`}
+                  >
+                    {recordingMode !== 'idle' ? (
+                      <div className="h-7 w-7 rounded-md bg-[#ff3b30]" />
+                    ) : (
+                      <div className="h-14 w-14 rounded-full bg-[#ff3b30]" />
+                    )}
+                  </button>
+                  <span className="text-[13px] text-white/50">
+                    {recordingMode !== 'idle' ? 'Tap to stop' : 'Tap to record'}
+                  </span>
+                </>
               )}
             </div>
           </div>
