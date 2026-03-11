@@ -53,25 +53,40 @@ function getDatabaseUrl() {
   )
 }
 
-async function loadOwnerPrompt(conversationId: string | undefined) {
-  if (!conversationId) return DEFAULT_SYSTEM_PROMPT
+async function loadOwnerPromptAndMemory(conversationId: string | undefined): Promise<{ ownerPrompt: string; memory: string }> {
+  if (!conversationId) return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '' }
   const databaseUrl = getDatabaseUrl()
-  if (!databaseUrl) return DEFAULT_SYSTEM_PROMPT
+  if (!databaseUrl) return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '' }
 
   const client = new Client({ connectionString: databaseUrl, ssl: { rejectUnauthorized: false } })
   try {
     await client.connect()
-    const result = await client.query(
-      `
-        select o.system_prompt
-        from public.wa_conversations c
-        join public.wa_owners o on o.id = c.owner_id
-        where c.id = $1
-        limit 1
-      `,
-      [conversationId]
-    )
-    return result.rows[0]?.system_prompt?.trim() || DEFAULT_SYSTEM_PROMPT
+    const [ownerResult, memoryResult] = await Promise.all([
+      client.query(
+        `select o.system_prompt from public.wa_conversations c join public.wa_owners o on o.id = c.owner_id where c.id = $1 limit 1`,
+        [conversationId]
+      ),
+      client.query(
+        `select summary, key_facts from public.wa_conversation_memory where conversation_id = $1 limit 1`,
+        [conversationId]
+      ).catch(() => ({ rows: [] })),
+    ])
+
+    const ownerPrompt = ownerResult.rows[0]?.system_prompt?.trim() || DEFAULT_SYSTEM_PROMPT
+
+    let memory = ''
+    const memRow = memoryResult.rows[0]
+    if (memRow?.summary || (Array.isArray(memRow?.key_facts) && memRow.key_facts.length > 0)) {
+      const lines = ['[CONVERSATION MEMORY — things you remember about this user from previous sessions]']
+      if (memRow.summary) lines.push(`Summary: ${memRow.summary}`)
+      if (Array.isArray(memRow.key_facts) && memRow.key_facts.length > 0) {
+        lines.push(`Key facts: ${memRow.key_facts.join('; ')}`)
+      }
+      lines.push('Use this memory naturally in conversation. Reference past topics when relevant. Never say "according to my memory" — just know these things like a real person would.')
+      memory = '\n\n' + lines.join('\n')
+    }
+
+    return { ownerPrompt, memory }
   } finally {
     await client.end().catch(() => undefined)
   }
@@ -163,8 +178,8 @@ export default async function handler(req: any, res: any) {
     : []
 
   try {
-    const ownerPrompt = await loadOwnerPrompt(conversationId)
-    const systemPrompt = `${ownerPrompt}\n\n${RESPONSE_FORMAT_MATCHING}\n\n${FORMATTING_INSTRUCTION}\n\n${LANGUAGE_INSTRUCTION}${buildPerceptionPrompt(perception)}`
+    const { ownerPrompt, memory } = await loadOwnerPromptAndMemory(conversationId)
+    const systemPrompt = `${ownerPrompt}\n\n${RESPONSE_FORMAT_MATCHING}\n\n${FORMATTING_INSTRUCTION}\n\n${LANGUAGE_INSTRUCTION}${memory}${buildPerceptionPrompt(perception)}`
     const messages: ChatMessage[] = [
       ...priorMessages.slice(-30),
       {

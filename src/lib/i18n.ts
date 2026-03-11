@@ -108,6 +108,25 @@ const translations = {
     exportAsText: 'Export as text file',
     exportToClipboard: 'Copy to clipboard',
 
+    // Reactions
+    reactToMessage: 'React',
+    removeReaction: 'Remove reaction',
+
+    // Read receipts
+    sent: 'Sent',
+    delivered: 'Delivered',
+    read: 'Read',
+
+    // Fun avatar away statuses (shown briefly before "reading" a message)
+    avatarAtLunch: 'is having lunch',
+    avatarOnPhone: 'is on the phone',
+    avatarInMeeting: 'is in a meeting',
+    avatarOnToilet: 'is on the toilet',
+    avatarGettingCoffee: 'is getting coffee',
+    avatarTakingNap: 'is taking a quick nap',
+    avatarWalkingDog: 'is walking the dog',
+    avatarAtGym: 'is at the gym',
+
     // Login flow
     welcome: 'Welcome',
     chooseLanguage: 'Choose your language',
@@ -236,6 +255,25 @@ const translations = {
     exportAsText: 'Exportar como archivo de texto',
     exportToClipboard: 'Copiar al portapapeles',
 
+    // Reactions
+    reactToMessage: 'Reaccionar',
+    removeReaction: 'Quitar reacci\u00f3n',
+
+    // Read receipts
+    sent: 'Enviado',
+    delivered: 'Entregado',
+    read: 'Le\u00eddo',
+
+    // Fun avatar away statuses
+    avatarAtLunch: 'est\u00e1 almorzando',
+    avatarOnPhone: 'est\u00e1 hablando por tel\u00e9fono',
+    avatarInMeeting: 'est\u00e1 en una reuni\u00f3n',
+    avatarOnToilet: 'est\u00e1 en el ba\u00f1o',
+    avatarGettingCoffee: 'est\u00e1 buscando un caf\u00e9',
+    avatarTakingNap: 'se ech\u00f3 una siestita',
+    avatarWalkingDog: 'est\u00e1 paseando al perro',
+    avatarAtGym: 'est\u00e1 en el gimnasio',
+
     // Login flow
     welcome: 'Bienvenido',
     chooseLanguage: 'Elige tu idioma',
@@ -363,6 +401,25 @@ const translations = {
     selectMessages: 'Nachrichten antippen zum Ausw\u00e4hlen',
     exportAsText: 'Als Textdatei exportieren',
     exportToClipboard: 'In Zwischenablage kopieren',
+
+    // Reactions
+    reactToMessage: 'Reagieren',
+    removeReaction: 'Reaktion entfernen',
+
+    // Read receipts
+    sent: 'Gesendet',
+    delivered: 'Zugestellt',
+    read: 'Gelesen',
+
+    // Fun avatar away statuses
+    avatarAtLunch: 'ist beim Mittagessen',
+    avatarOnPhone: 'telefoniert gerade',
+    avatarInMeeting: 'ist in einem Meeting',
+    avatarOnToilet: 'ist auf dem Klo',
+    avatarGettingCoffee: 'holt sich einen Kaffee',
+    avatarTakingNap: 'macht ein Nickerchen',
+    avatarWalkingDog: 'geht mit dem Hund raus',
+    avatarAtGym: 'ist im Fitnessstudio',
 
     // Login flow
     welcome: 'Willkommen',
