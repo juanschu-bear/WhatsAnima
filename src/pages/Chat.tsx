@@ -1345,14 +1345,21 @@ export default function Chat() {
       })
 
       let replyText = ''
+      let generatedImageUrl: string | null = null
       const chatData = await chatResponse.json().catch(() => ({}))
       if (chatResponse.ok) {
         replyText = typeof chatData?.content === 'string' ? chatData.content.trim() : ''
+        generatedImageUrl = typeof chatData?.image_url === 'string' ? chatData.image_url : null
       } else {
         console.error('[getAvatarReply] Chat API error:', chatData?.error || chatResponse.status)
       }
-      if (!replyText) {
+      if (!replyText && !generatedImageUrl) {
         replyText = 'Honestly? Give me the interesting part first.'
+      }
+
+      // If an image was generated, return it directly (no TTS needed for image responses)
+      if (generatedImageUrl) {
+        return { content: replyText, mediaUrl: generatedImageUrl, isGeneratedImage: true }
       }
 
       if (!useVoice) {
@@ -1448,6 +1455,21 @@ export default function Chat() {
 
       setAvatarStatus('thinking')
       const replyPayload = await getAvatarReply(seedText, options)
+
+      // Handle generated image responses
+      if ((replyPayload as any).isGeneratedImage && replyPayload.mediaUrl) {
+        // Send text part first if present
+        if (replyPayload.content) {
+          const textReply = await sendMessage(conversationId, 'avatar', 'text', replyPayload.content)
+          setMessages((current) => [...current, textReply as Message])
+          markAsInstantlyRead(String((textReply as Message).id))
+        }
+        // Send image message
+        const imageReply = await sendMessage(conversationId, 'avatar', 'image', '', replyPayload.mediaUrl)
+        setMessages((current) => [...current, imageReply as Message])
+        markAsInstantlyRead(String((imageReply as Message).id))
+        return
+      }
 
       // Detect special response types (flashcard, quiz, lesson, fillin)
       const specialMatch = replyPayload.content.match(/```(flashcard|quiz|lesson|fillin)\s*\n?[\s\S]*?\n?```/)
