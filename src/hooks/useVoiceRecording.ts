@@ -6,25 +6,6 @@ import {
   callOpmApi, transcribeServerSide,
 } from '../lib/mediaUtils'
 
-interface BrowserSpeechRecognitionResult {
-  isFinal: boolean
-  0: { transcript: string }
-}
-
-interface BrowserSpeechRecognitionEvent {
-  resultIndex: number
-  results: ArrayLike<BrowserSpeechRecognitionResult>
-}
-
-interface BrowserSpeechRecognition {
-  continuous: boolean
-  interimResults: boolean
-  lang: string
-  onresult: ((event: BrowserSpeechRecognitionEvent) => void) | null
-  start(): void
-  stop(): void
-}
-
 type RecordingMode = 'idle' | 'recording' | 'stopping'
 type CaptureKind = 'none' | 'voice' | 'video'
 
@@ -45,7 +26,6 @@ interface ConversationRef {
 }
 
 interface UseVoiceRecordingOptions {
-  locale: string
   conversationId: string | undefined
   conversation: ConversationRef | null
   onSending: (sending: boolean) => void
@@ -58,7 +38,6 @@ interface UseVoiceRecordingOptions {
 }
 
 export function useVoiceRecording({
-  locale,
   conversationId,
   conversation,
   onSending,
@@ -74,7 +53,7 @@ export function useVoiceRecording({
   const [captureKind, setCaptureKind] = useState<CaptureKind>('none')
   const [recordingSeconds, setRecordingSeconds] = useState(0)
   const recordTimerRef = useRef<number | null>(null)
-  const speechRecognitionRef = useRef<BrowserSpeechRecognition | null>(null)
+  const speechRecognitionRef = useRef<{ stop(): void } | null>(null)
   const browserTranscriptRef = useRef('')
   const audioStartRef = useRef(0)
 

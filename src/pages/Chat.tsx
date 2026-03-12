@@ -1113,7 +1113,6 @@ export default function Chat() {
     openVoiceOverlay, closeVoiceOverlay, stopVoiceIntoDraft, sendVoiceDraft,
     finishVoiceRecording,
   } = useVoiceRecording({
-    locale,
     conversationId,
     conversation,
     onSending: setSending,
