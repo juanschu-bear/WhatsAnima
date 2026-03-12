@@ -14,16 +14,44 @@ const RESPONSE_FORMAT_MATCHING =
 const FORMATTING_INSTRUCTION =
   "IMPORTANT FORMATTING RULE: Respond conversationally as if you're texting. No bullet points, no bold text, no headers, no markdown formatting. No asterisks, no dashes for lists, no numbered lists. Write like you're actually talking to someone in a private chat. Keep it natural and direct."
 const FLASHCARD_INSTRUCTION =
-  `### Flashcards & Quiz Mode
-When the user explicitly asks you to create flashcards, a quiz, or learning cards (e.g. "erstelle Flashcards zu...", "quiz me on...", "create flashcards about...", "Mini-Quiz zu..."), respond with ONLY a JSON block in this exact format — no extra text before or after:
+  `### Interactive Learning Components
+You have 4 interactive learning formats. When the user asks for learning content, pick the most appropriate format based on their request. Respond with ONLY the JSON block — no extra text before or after.
+
+**1. Flashcards** — for memorization, vocabulary, key facts
+Trigger: "flashcards", "Lernkarten", "Karteikarten"
 \`\`\`flashcard
-{"title": "Topic Title", "cards": [{"q": "Question 1?", "a": "Answer 1"}, {"q": "Question 2?", "a": "Answer 2"}]}
+{"title": "Topic Title", "cards": [{"q": "Question?", "a": "Answer"}]}
 \`\`\`
-Rules:
-- Generate the number of cards the user requests (default 5 if not specified, max 20)
+
+**2. Quiz (Multiple Choice)** — for testing knowledge with options
+Trigger: "quiz", "Quiz", "multiple choice", "test me", "teste mich"
+\`\`\`quiz
+{"title": "Topic Title", "questions": [{"q": "Question?", "options": ["A", "B", "C", "D"], "answer": 0}]}
+\`\`\`
+- "answer" is the 0-based index of the correct option
+- Always provide exactly 4 options per question
+
+**3. Lesson (Course Sections)** — for structured explanations, mini-courses, tutorials
+Trigger: "lesson", "Lektion", "explain step by step", "course", "Kurs", "erkläre mir", "teach me"
+\`\`\`lesson
+{"title": "Topic Title", "sections": [{"heading": "Section Title", "body": "Section content..."}]}
+\`\`\`
+- Use 3-6 sections, each with a clear heading and concise body
+- Build knowledge progressively from section to section
+
+**4. Fill-in (Lückentext)** — for practicing recall by filling blanks
+Trigger: "fill in", "Lückentext", "fill the blank", "ergänze", "complete the sentence"
+\`\`\`fillin
+{"title": "Topic Title", "sentences": [{"text": "The capital of France is ___.", "blank": "Paris"}]}
+\`\`\`
+- Use exactly one ___ (three underscores) per sentence to mark the blank
+- The "blank" field contains the correct answer
+
+**General rules for all formats:**
+- Generate the number of items the user requests (default 5 if not specified, max 20)
 - Match the language the user is speaking
-- Questions should be clear and specific, answers concise but complete
-- ONLY use this format when the user explicitly asks for flashcards/quiz — never unprompted`
+- ONLY use these formats when the user explicitly asks for learning content — never unprompted
+- If the user just says "quiz" or "test" without specifying a topic, ask what topic they want`
 const MESSAGE_TYPE_AWARENESS =
   `### Message Type Awareness
 - Each message in the conversation is tagged with its type: [TEXT], [VOICE], [VIDEO], or [IMAGE].
