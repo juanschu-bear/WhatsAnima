@@ -9,6 +9,7 @@ interface Message {
 interface UseSessionMemoryOptions {
   conversationId: string | undefined
   ownerId: string | undefined
+  contactId: string | undefined
   messages: Message[]
   sending: boolean
   avatarStatus: string | null
@@ -85,6 +86,7 @@ function detectUserBusy(text: string): { isBusy: boolean; cooldownMs: number | n
 export function useSessionMemory({
   conversationId,
   ownerId,
+  contactId,
   messages,
   sending,
   avatarStatus,
@@ -108,7 +110,7 @@ export function useSessionMemory({
     fetch('/api/update-memory', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ conversationId, recentMessages: recent, ownerId }),
+      body: JSON.stringify({ conversationId, recentMessages: recent, ownerId, contactId }),
     }).catch((err) => console.error('[Memory] Update failed:', err))
   }
 

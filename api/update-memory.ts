@@ -27,7 +27,7 @@ export default async function handler(req: any, res: any) {
     return res.status(503).json({ error: `DB not configured – missing ${missing}` })
   }
 
-  const { conversationId, recentMessages, ownerId } = req.body ?? {}
+  const { conversationId, recentMessages, ownerId, contactId } = req.body ?? {}
   if (!conversationId || !Array.isArray(recentMessages)) {
     return res.status(400).json({ error: 'conversationId and recentMessages are required' })
   }
@@ -36,7 +36,7 @@ export default async function handler(req: any, res: any) {
     // Load existing memory (gracefully handle missing table)
     const { data: existing, error: loadError } = await supabase
       .from('wa_conversation_memory')
-      .select('summary, key_facts')
+      .select('summary, key_facts, behavioral_profile')
       .eq('conversation_id', conversationId)
       .maybeSingle()
 
@@ -47,6 +47,7 @@ export default async function handler(req: any, res: any) {
 
     const existingSummary = existing?.summary || ''
     const existingFacts = existing?.key_facts || []
+    const existingBehavioral = existing?.behavioral_profile || {}
 
     // Separate user profile facts from timeline events
     const existingProfile: string[] = []
@@ -66,7 +67,93 @@ export default async function handler(req: any, res: any) {
       .map((m: any) => `${m.role === 'user' ? 'User' : 'Avatar'}: ${m.content}`)
       .join('\n')
 
-    const prompt = `You are a memory extraction system for an AI avatar that has ongoing conversations with a user. Extract and organize memories into three layers.
+    // --- Load OPM perception logs for this session ---
+    // These contain the behavioral/prosodic data that Canon and OPM captured
+    let perceptionExcerpt = ''
+    let canonContext = ''
+    try {
+      // Get perception logs from the last session window (last 4 hours)
+      const sessionCutoff = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString()
+      const { data: perceptionLogs } = await supabase
+        .from('wa_perception_logs')
+        .select('primary_emotion, secondary_emotion, behavioral_summary, prosodic_summary, conversation_hooks, fired_rules, audio_duration_sec, created_at')
+        .eq('conversation_id', conversationId)
+        .gte('created_at', sessionCutoff)
+        .order('created_at', { ascending: true })
+
+      if (perceptionLogs && perceptionLogs.length > 0) {
+        const perceptionLines: string[] = []
+        for (const log of perceptionLogs) {
+          const parts: string[] = []
+          if (log.primary_emotion) parts.push(`emotion: ${log.primary_emotion}`)
+          if (log.secondary_emotion) parts.push(`secondary: ${log.secondary_emotion}`)
+          if (log.behavioral_summary) parts.push(`behavior: ${log.behavioral_summary}`)
+          if (log.prosodic_summary) {
+            const p = log.prosodic_summary
+            const prosodicParts: string[] = []
+            if (p.speaking_rate) prosodicParts.push(`speed: ${p.speaking_rate}`)
+            if (p.mean_pitch) prosodicParts.push(`pitch: ${p.mean_pitch}`)
+            if (p.volume_mean) prosodicParts.push(`volume: ${p.volume_mean}`)
+            if (p.mean_pause_duration) prosodicParts.push(`pauses: ${p.mean_pause_duration}`)
+            if (prosodicParts.length > 0) parts.push(`prosody: [${prosodicParts.join(', ')}]`)
+          }
+          if (log.fired_rules?.length > 0) {
+            const ruleNames = log.fired_rules.map((r: any) => typeof r === 'string' ? r : r.name || r.rule || '').filter(Boolean)
+            if (ruleNames.length > 0) parts.push(`signals: ${ruleNames.join(', ')}`)
+          }
+          if (log.conversation_hooks?.length > 0) parts.push(`hooks: ${log.conversation_hooks.join(', ')}`)
+          if (parts.length > 0) perceptionLines.push(`- ${parts.join(' | ')}`)
+        }
+        if (perceptionLines.length > 0) {
+          perceptionExcerpt = perceptionLines.join('\n')
+        }
+      }
+
+      // Load Canon baseline info if available
+      if (contactId && ownerId) {
+        const { data: baseline } = await supabase
+          .from('wa_voice_baseline')
+          .select('current_tier, tier_name, confidence, baseline_data, cumulative_audio_sec')
+          .eq('contact_id', contactId)
+          .eq('owner_id', ownerId)
+          .maybeSingle()
+
+        if (baseline && baseline.current_tier >= 1) {
+          const bd = baseline.baseline_data
+          canonContext = `Canon baseline: Tier ${baseline.current_tier}/5 "${baseline.tier_name}" (${Math.round(baseline.confidence * 100)}% confidence, ${Math.round(baseline.cumulative_audio_sec)}s audio)`
+          if (bd?.emotion_distribution) {
+            const topEmotions = Object.entries(bd.emotion_distribution)
+              .sort(([, a]: any, [, b]: any) => b - a)
+              .slice(0, 4)
+              .map(([e, f]: any) => `${e} ${Math.round(f * 100)}%`)
+            canonContext += `\nTypical emotion distribution: ${topEmotions.join(', ')}`
+          }
+        }
+      }
+    } catch (err: any) {
+      console.warn('[update-memory] Perception log load failed (non-blocking):', err.message)
+    }
+
+    // Build existing behavioral profile text for merging
+    const existingBehavioralText = (() => {
+      if (!existingBehavioral || Object.keys(existingBehavioral).length === 0) return '(none yet)'
+      const parts: string[] = []
+      if (existingBehavioral.emotional_patterns?.length > 0) {
+        parts.push(`Emotional patterns: ${existingBehavioral.emotional_patterns.join('; ')}`)
+      }
+      if (existingBehavioral.prosodic_tendencies?.length > 0) {
+        parts.push(`Prosodic tendencies: ${existingBehavioral.prosodic_tendencies.join('; ')}`)
+      }
+      if (existingBehavioral.topic_reactions?.length > 0) {
+        parts.push(`Topic-specific reactions: ${existingBehavioral.topic_reactions.join('; ')}`)
+      }
+      if (existingBehavioral.authenticity_markers?.length > 0) {
+        parts.push(`Authenticity markers: ${existingBehavioral.authenticity_markers.join('; ')}`)
+      }
+      return parts.length > 0 ? parts.join('\n') : '(none yet)'
+    })()
+
+    const prompt = `You are a memory extraction system for an AI avatar that has ongoing conversations with a user. Extract and organize memories into FOUR layers — content AND behavior.
 
 TODAY'S DATE: ${today}
 
@@ -76,14 +163,20 @@ ${existingProfile.length > 0 ? existingProfile.join('\n') : '(none yet)'}
 EXISTING TIMELINE (dated events and milestones):
 ${existingTimeline.length > 0 ? existingTimeline.join('\n') : '(none yet)'}
 
+EXISTING BEHAVIORAL PROFILE (how this user communicates — from OPM/Canon data):
+${existingBehavioralText}
+${canonContext ? `\n${canonContext}` : ''}
+
 EXISTING SESSION SUMMARY:
 ${existingSummary || '(none yet)'}
 
 SESSION CONVERSATION:
 ${conversationExcerpt}
+${perceptionExcerpt ? `\nOPM PERCEPTION DATA FOR THIS SESSION (real-time emotional/prosodic readings per message):
+${perceptionExcerpt}` : ''}
 
 INSTRUCTIONS:
-Extract memories into three categories:
+Extract memories into FOUR categories:
 
 1. **summary**: A 2-4 sentence summary of THIS session — what was discussed, the user's mood, any decisions made. This replaces the previous session summary.
 
@@ -92,13 +185,20 @@ Extract memories into three categories:
 3. **timeline_events**: Important events, milestones, or dated information as a JSON array of strings. Each entry MUST start with a date prefix in format "[YYYY-MM] description". Examples:
    - "[2026-02] Passed math exam with grade B+"
    - "[2026-03] Started preparing for physics final"
-   - "[2026-03] Mentioned feeling stressed about workload"
    Merge with existing timeline — add new events, never remove old ones, update if corrected. Keep max 30 most relevant entries.
 
-IMPORTANT: Only extract information the user actually shared. Never invent or assume facts.
+4. **behavioral_profile**: HOW the user communicates — extracted from the OPM perception data above. This is NOT about what they say, but HOW they say it. JSON object with these arrays:
+   - **emotional_patterns**: Recurring emotional states and what triggers them. E.g. "Gets excited (high energy, faster speech) when discussing AI/technology", "Becomes quieter and more measured when discussing business challenges", "Default resting state is calm-focused"
+   - **prosodic_tendencies**: Voice/speech patterns. E.g. "Speaks faster when passionate (rate increases 20-30%)", "Uses longer pauses when thinking deeply", "Volume increases during storytelling"
+   - **topic_reactions**: How specific topics affect their emotional/prosodic state. E.g. "Perception/OPM topics → high energy + authenticity spike", "Business strategy → measured, analytical tone", "Personal stories → warmer, softer voice"
+   - **authenticity_markers**: What makes this person more or less authentic. E.g. "More authentic when improvising than reading", "Authenticity drops when discussing topics they're unsure about", "Most genuine during casual conversation"
+
+   Merge with existing behavioral profile. Keep max 8 entries per category. Update entries that evolved, add new ones, keep unchanged ones. If no OPM perception data is available for this session, return the existing behavioral profile unchanged.
+
+IMPORTANT: Only extract information from actual data. For behavioral_profile, ONLY use the OPM perception readings — never invent behavioral patterns from text alone.
 
 Respond in EXACTLY this JSON format:
-{"summary": "...", "profile_facts": ["fact 1", "fact 2"], "timeline_events": ["[YYYY-MM] event 1", "[YYYY-MM] event 2"]}`
+{"summary": "...", "profile_facts": ["..."], "timeline_events": ["[YYYY-MM] ..."], "behavioral_profile": {"emotional_patterns": ["..."], "prosodic_tendencies": ["..."], "topic_reactions": ["..."], "authenticity_markers": ["..."]}}`
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -109,7 +209,7 @@ Respond in EXACTLY this JSON format:
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 800,
+        max_tokens: 1200,
         messages: [{ role: 'user', content: prompt }],
       }),
     })
@@ -121,7 +221,7 @@ Respond in EXACTLY this JSON format:
     }
 
     const rawText = result.content?.[0]?.text?.trim() || ''
-    let parsed: { summary: string; profile_facts: string[]; timeline_events: string[] }
+    let parsed: { summary: string; profile_facts: string[]; timeline_events: string[]; behavioral_profile?: any }
     try {
       const jsonMatch = rawText.match(/\{[\s\S]*\}/)
       parsed = JSON.parse(jsonMatch?.[0] || rawText)
@@ -137,7 +237,12 @@ Respond in EXACTLY this JSON format:
       ...(parsed.timeline_events || existingTimeline),
     ]
 
-    // Upsert memory
+    // Merge behavioral profile — keep existing if LLM returned nothing
+    const behavioralProfile = parsed.behavioral_profile && Object.keys(parsed.behavioral_profile).length > 0
+      ? parsed.behavioral_profile
+      : existingBehavioral
+
+    // Upsert memory (behavioral_profile column is JSONB, added via ALTER TABLE)
     const { error: upsertError } = await supabase
       .from('wa_conversation_memory')
       .upsert(
@@ -145,6 +250,7 @@ Respond in EXACTLY this JSON format:
           conversation_id: conversationId,
           summary: parsed.summary || existingSummary,
           key_facts: mergedFacts,
+          behavioral_profile: behavioralProfile,
           updated_at: new Date().toISOString(),
         },
         { onConflict: 'conversation_id' }
@@ -231,6 +337,7 @@ Respond in EXACTLY this JSON format:
       summary: parsed.summary,
       profile_facts: parsed.profile_facts,
       timeline_events: parsed.timeline_events,
+      behavioral_profile: behavioralProfile,
     })
   } catch (err: any) {
     console.error('[update-memory] Error:', err.message)
