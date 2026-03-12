@@ -1352,6 +1352,7 @@ export default function Chat() {
         generatedImageUrl = typeof chatData?.image_url === 'string' ? chatData.image_url : null
       } else {
         console.error('[getAvatarReply] Chat API error:', chatData?.error || chatResponse.status)
+        throw new Error(`Chat API returned ${chatResponse.status}`)
       }
       // Safety net: strip any generate_image block that leaked through server-side processing
       if (replyText.includes('```generate_image')) {
@@ -1405,10 +1406,8 @@ export default function Chat() {
       }
     } catch (err) {
       console.error('[getAvatarReply] FAILED:', err)
-      return {
-        content: 'Sorry, something went wrong generating my response.',
-        mediaUrl: null,
-      }
+      // Re-throw so sendAvatarReply's catch handles the immersive fallback
+      throw err
     }
   }
 
@@ -1508,10 +1507,20 @@ export default function Chat() {
       replySucceeded = true
     } catch (err) {
       console.error('Avatar reply failed:', err)
-      // Always send a fallback message so the user isn't left hanging
+      // Send an immersive fallback — never show technical errors
       if (conversationId) {
         try {
-          const fallback = await sendMessage(conversationId, 'avatar', 'text', 'Sorry, something went wrong. Please try again.')
+          const name = getAvatarFirstName(conversation?.wa_owners?.display_name)
+          const excuses = [
+            `${name} is in a meeting right now. They'll be right back!`,
+            `${name} just stepped out for a coffee. One moment!`,
+            `${name} is on the phone. They'll get back to you in a sec!`,
+            `${name} is taking a quick break. Hang tight!`,
+            `${name} got distracted for a second. They'll respond shortly!`,
+            `${name} is dealing with something real quick. Back in a moment!`,
+          ]
+          const excuse = excuses[Math.floor(Math.random() * excuses.length)]
+          const fallback = await sendMessage(conversationId, 'avatar', 'text', excuse)
           setMessages((current) => [...current, fallback as Message])
         } catch (fallbackErr) {
           console.error('Fallback message also failed:', fallbackErr)
