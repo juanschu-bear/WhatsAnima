@@ -1,180 +1,443 @@
-# WhatsAnima Full Audit Report
-
-**Date:** 2026-03-09
-
----
-
-## 1. Vercel Environment Variables
-
-> **Note:** Vercel CLI is not authenticated in this environment. Could not run `vercel env ls`.
-> The table below lists what the codebase **expects**. You must manually verify SET/MISSING status in the Vercel dashboard.
-
-| Variable Name | Purpose | Environments (Prod/Preview/Dev) | Status |
-|---|---|---|---|
-| `OPENAI_API_KEY` | OpenAI LLM calls (`api/chat.ts`) | Verify in dashboard | **UNKNOWN — verify manually** |
-| `OPENAI_KEY` | Fallback name for OpenAI key | Verify in dashboard | **UNKNOWN — verify manually** |
-| `OPENAI_SECRET_KEY` | Fallback name for OpenAI key | Verify in dashboard | **UNKNOWN — verify manually** |
-| `OPENAI_CHAT_MODEL` | Model selection (defaults to `gpt-4.1-mini`) | Verify in dashboard | **UNKNOWN — verify manually** |
-| `ELEVENLABS_API_KEY` | ElevenLabs TTS (`api/tts.ts`) | Verify in dashboard | **UNKNOWN — verify manually** |
-| `POSTGRES_URL` | Database connection (`api/bootstrap-persona.ts`) | Verify in dashboard | **UNKNOWN — verify manually** |
-| `DATABASE_URL` | Fallback DB connection | Verify in dashboard | **UNKNOWN — verify manually** |
-| `SUPABASE_DB_URL` | Fallback DB connection | Verify in dashboard | **UNKNOWN — verify manually** |
-| `SUPABASE_DATABASE_URL` | Fallback DB connection | Verify in dashboard | **UNKNOWN — verify manually** |
-| `POSTGRES_PRISMA_URL` | Fallback DB connection | Verify in dashboard | **UNKNOWN — verify manually** |
-| `VITE_SUPABASE_URL` | Supabase project URL (client-side) | Verify in dashboard | **UNKNOWN — verify manually** |
-| `VITE_SUPABASE_ANON_KEY` | Supabase anon key (client-side) | Verify in dashboard | **UNKNOWN — verify manually** |
+# WhatsAnima — Full System Audit Report
+**Datum:** 2026-03-12
+**Status:** Production Readiness Assessment
+**Ziel:** The Greatest of All Time
 
 ---
 
-## 2. Required API Keys
+## EXECUTIVE SUMMARY
 
-| Variable Name | What It's For | Required? | Currently Set on Vercel |
-|---|---|---|---|
-| `OPENAI_API_KEY` (or `OPENAI_KEY` / `OPENAI_SECRET_KEY`) | LLM chat completions via OpenAI | Yes — without it, fallback hardcoded replies are used | **UNKNOWN — verify manually** |
-| `OPENAI_CHAT_MODEL` | Selects which OpenAI model to use | No — defaults to `gpt-4.1-mini` | **UNKNOWN — verify manually** |
-| `ELEVENLABS_API_KEY` | Text-to-speech via ElevenLabs | Yes — without it, `/api/tts` returns HTTP 500 | **UNKNOWN — verify manually** |
-| `POSTGRES_URL` (or `DATABASE_URL` / `SUPABASE_DB_URL` / `SUPABASE_DATABASE_URL` / `POSTGRES_PRISMA_URL`) | PostgreSQL database for persona bootstrap | Yes — for `/api/bootstrap-persona` | **UNKNOWN — verify manually** |
-| `VITE_SUPABASE_URL` | Supabase client initialization | Yes — all database reads/writes use this | **UNKNOWN — verify manually** |
-| `VITE_SUPABASE_ANON_KEY` | Supabase client auth | Yes — all database reads/writes use this | **UNKNOWN — verify manually** |
+WhatsAnima ist architektonisch ambitioniert und intelligent designed. Das System hat **7 ineinandergreifende Intelligenz-Layer**, die zusammen einen Avatar schaffen, der über Zeit immer authentischer wird. Aber: Es gibt **kritische Lücken** bei Datenintegrität, Sicherheit und Skalierung, die das System bei wachsender Nutzung destabilisieren werden.
 
-**Note:** `.env.example` also lists `VITE_ELEVENLABS_API_KEY` and `VITE_ELEVENLABS_VOICE_ID`, but these are **not used anywhere in the codebase**. The backend uses `ELEVENLABS_API_KEY` (server-side, no `VITE_` prefix).
+**Gesamtbewertung: 65/100 — Solide Basis, aber nicht production-ready für Scale.**
 
 ---
 
-## 3. Endpoint Status
+## 1. WAS WIR HABEN (Inventory)
 
-> **Note:** No outbound network access from this environment. Could not curl the live deployment.
-> You must test these manually against your deployment URL.
+### 1.1 Intelligenz-Systeme (7 Layer)
 
-| Route | Method | What It Does | Live Status |
-|---|---|---|---|
-| `/api/chat` | POST | Sends user message + history to OpenAI, returns AI text reply. Falls back to hardcoded multilingual responses if no API key. | **UNTESTABLE — no network access** |
-| `/api/tts` | POST | Converts text to speech via ElevenLabs API. Returns MP3 audio. Returns 500 if `ELEVENLABS_API_KEY` missing. | **UNTESTABLE — no network access** |
-| `/api/bootstrap-persona` | POST | Reads `AVATAR_SOUL.md`, upserts persona record (Juan Schubert) into PostgreSQL with system prompt and voice ID. | **UNTESTABLE — no network access** |
+| # | System | Speicherort | Status |
+|---|--------|------------|--------|
+| 1 | **Conversation Memory** | `wa_conversation_memory.summary` + `key_facts` | ✅ Aktiv |
+| 2 | **Behavioral Profile** | `wa_conversation_memory.behavioral_profile` | ✅ Aktiv |
+| 3 | **Canon Voice Baseline** (5-Tier) | `wa_voice_baseline` | ✅ Aktiv |
+| 4 | **Self-Avatar Communication Style** | `wa_owners.communication_style` | ✅ Aktiv (nur Self-Avatars) |
+| 5 | **Proaktive Erinnerungen** | `wa_reminders` | ✅ Aktiv |
+| 6 | **OPM Perception** (Echtzeit) | `wa_perception_logs` | ✅ Aktiv |
+| 7 | **Session Memory Hook** | `useSessionMemory.ts` | ✅ Aktiv (3min Inaktivität) |
 
-### Manual Test Commands
+### 1.2 API-Endpunkte
 
-Replace `$URL` with your Vercel deployment URL:
+| Endpunkt | Funktion | Modell |
+|----------|----------|--------|
+| `/api/chat` | Haupt-Chat mit Memory + Perception Injection | Claude Sonnet 4 |
+| `/api/update-memory` | Memory-Extraktion + Merge | Claude Haiku 4.5 |
+| `/api/create-perception-log` | OPM-Logging + Canon Baseline | — |
+| `/api/opm-process` | Audio/Video Perception-Analyse | OPM v4.0 + LLM Fallback |
+| `/api/check-reminders` | Erinnerungen abfragen + Nudge generieren | Claude Haiku 4.5 |
 
-```bash
-# Test /api/chat
-curl -X POST "$URL/api/chat" \
-  -H "Content-Type: application/json" \
-  -d '{"message":"Hello","history":[]}' \
-  -w "\nHTTP %{http_code}\n"
+### 1.3 Frontend-Architektur
 
-# Test /api/tts
-curl -X POST "$URL/api/tts" \
-  -H "Content-Type: application/json" \
-  -d '{"text":"Hello world"}' \
-  -o /dev/null -w "HTTP %{http_code}\n"
+| Komponente | Zeilen | Funktion |
+|-----------|--------|----------|
+| `Chat.tsx` | 2.522 | Monolithische Haupt-Chat-Seite |
+| `useSessionMemory.ts` | 244 | Memory-Trigger + Nudging + Reminders |
+| `useVoiceRecording.ts` | — | Audio-Aufnahme + OPM-Integration |
+| `useVideoCapture.ts` | — | Video-Aufnahme |
+| `useReactions.ts` | — | Emoji-Reaktionen |
+| `useReadReceipts.ts` | — | Lesebestätigungen |
+| `useMessageSelection.ts` | — | Nachrichten-Auswahl |
 
-# Test /api/bootstrap-persona
-curl -X POST "$URL/api/bootstrap-persona" \
-  -w "\nHTTP %{http_code}\n"
+### 1.4 Datenbank-Schema (Supabase)
+
+| Tabelle | Zweck | RLS |
+|---------|-------|-----|
+| `wa_owners` | Avatar-Besitzer + Config | ✅ Korrekt |
+| `wa_contacts` | Kontakte/Gesprächspartner | ⚠️ Insert offen |
+| `wa_conversations` | Chat-Sessions | ❌ Komplett offen |
+| `wa_messages` | Nachrichten | ❌ Komplett offen |
+| `wa_perception_logs` | OPM-Daten pro Nachricht | ⚠️ Insert offen |
+| `wa_conversation_memory` | Memory + Behavioral Profile | ❌ Komplett offen |
+| `wa_voice_baseline` | Canon 5-Tier Baseline | ⚠️ Nicht geprüft |
+| `wa_reminders` | Proaktive Erinnerungen | ❌ Komplett offen |
+| `wa_reactions` | Emoji-Reaktionen | ❌ Komplett offen |
+| `wa_invitation_links` | Einladungslinks | ⚠️ Update zu offen |
+
+---
+
+## 2. WAS SEHR GUT LÄUFT ✅
+
+### 2.1 Multi-Layer Intelligence Design
+Das 7-Schichten-System ist **architektonisch brilliant**:
+- Content Memory (Fakten + Timeline) → Was der User sagt
+- Behavioral Profile (Emotional + Prosodic) → Wie der User kommuniziert
+- Canon Baseline (5-Tier) → Persönliche Stimm-Signatur
+- OPM Echtzeit-Perception → Momentane Stimmung
+- Delta-Erkennung (Abweichung von Baseline) → Erkennung ungewöhnlicher Zustände
+- Self-Avatar Learning → Owner-Stil für Klone
+- Proaktive Reminders → Avatar initiiert Gespräche
+
+**Kein Konkurrenzprodukt hat diese Tiefe.**
+
+### 2.2 Persistent Memory
+- Memory überlebt Tab-Close ✅
+- Automatischer 3-Minuten-Inaktivitäts-Trigger ✅
+- Supabase-Storage = permanent ✅
+- Memory wird bei jedem Chat-Start geladen ✅
+
+### 2.3 Canon Voice Baseline Konzept
+- 5-Tier Progression von "building" bis "deep" ist elegant
+- 14 prosodische Parameter = umfassend
+- Emotion Distribution = statistisch fundiert
+- Delta-Erkennung = Avatar "merkt" wenn jemand anders klingt
+
+### 2.4 Prompt Engineering
+- System-Prompt baut 8+ Kontext-Blöcke zusammen
+- Memory, Behavioral Profile, Perception, Canon Delta = alles injiziert
+- Sprach-Erkennung multilingual
+- Flashcard-System eingebaut
+- Image-Generation-Fähigkeit
+
+### 2.5 OPM + Fallback-Strategie
+- Primär: OPM v4.0 (Audio/Video-Analyse)
+- Fallback 1: Deepgram STT → LLM-Analyse
+- Fallback 2: ElevenLabs STT → LLM-Analyse
+- System degradiert gracefully statt zu crashen
+
+### 2.6 Session Memory Hook
+- Nudging-System (Avatar meldet sich proaktiv)
+- Busy-Detection (erkennt "bin busy" in DE/EN/ES)
+- Cooldown-Logik (verhindert Spam)
+- Reminder-Polling alle 60s
+
+---
+
+## 3. KRITISCHE SCHWACHSTELLEN 🔴
+
+### 3.1 SICHERHEIT — RLS Policies komplett offen
+
+**Schweregrad: KRITISCH**
+
+Fast alle Tabellen haben `USING (TRUE)` Policies. Das bedeutet:
+- **Jeder authentifizierte User kann ALLE Nachrichten ALLER User lesen**
+- **Jeder kann JEDE Conversation Memory lesen/ändern**
+- **Jeder kann Behavioral Profiles anderer User einsehen**
+- **Jeder kann Erinnerungen anderer User sehen/modifizieren**
+- **Jeder kann Nachrichten in fremde Conversations einfügen**
+
+**Betroffene Tabellen:**
+- `wa_messages` — SELECT/INSERT: `USING (TRUE)` ❌
+- `wa_conversations` — SELECT/INSERT: `USING (TRUE)` ❌
+- `wa_conversation_memory` — SELECT/INSERT/UPDATE: `USING (TRUE)` ❌
+- `wa_reminders` — SELECT/INSERT/UPDATE: `USING (TRUE)` ❌
+- `wa_reactions` — SELECT/INSERT/UPDATE/DELETE: `USING (TRUE)` ❌
+
+**Impact:** Ein einziger böswilliger User kann das gesamte System kompromittieren.
+
+### 3.2 DATENBANK — Fehlende Indexes
+
+**Schweregrad: HOCH (Performance)**
+
+Nur 1 expliziter Index existiert (`idx_reminders_due`). Fehlende Indexes:
+
+| Query-Pattern | Fehlender Index | Frequenz |
+|--------------|-----------------|----------|
+| Messages per Conversation | `wa_messages(conversation_id, created_at)` | Jeder Chat-Load |
+| Conversations per Owner | `wa_conversations(owner_id, updated_at)` | Jeder Dashboard-Load |
+| Perception Logs per Conversation | `wa_perception_logs(conversation_id, created_at)` | Jedes Memory-Update |
+| Voice Baseline Lookup | `wa_voice_baseline(contact_id, owner_id)` | Jede OPM-Analyse |
+| Contacts per Owner | `wa_contacts(owner_id)` | Dashboard + Chat |
+| Reactions per Message | `wa_reactions(message_id)` | Jede Nachricht |
+
+**Impact:** Bei 10.000+ Nachrichten → Full Table Scans → Sekunden-lange Ladezeiten.
+
+### 3.3 MEMORY MERGE — Unbegrenztes Wachstum + Duplikate
+
+**Schweregrad: HOCH**
+
+```
+Session 1: key_facts = ["Lebt in Berlin"]
+Session 2: key_facts = ["Lebt in Berlin", "Lebt in Berlin, Deutschland"]
+Session 50: key_facts = ["Lebt in Berlin", "Lebt in Berlin, Deutschland",
+                         "Wohnt in Berlin", "Berlin-Bewohner", ...]
 ```
 
----
+**Probleme:**
+- Keine Deduplizierung bei Merge (einfache Array-Konkatenation)
+- Keine Obergrenze für key_facts Array
+- Widersprüchliche Fakten werden nicht aufgelöst
+- Bei 200+ Fakten: Token-Limit des LLM-Prompts überschritten
+- Summary wird komplett überschrieben (keine History)
 
-## 4. Features Ported from ANIMA Connect
+### 3.4 BEHAVIORAL PROFILE — Keine Obergrenze erzwungen
 
-| Feature | Present in WhatsAnima | Details |
-|---|---|---|
-| Voice recording | **YES** | `navigator.mediaDevices.getUserMedia({ audio: true })`, MediaRecorder with WebM/Opus, waveform visualization, recording timer. (`Chat.tsx:671`) |
-| Voice playback with working timer | **YES** | `VoiceMessageBubble` component with HTML Audio element, `ontimeupdate` progress tracking, MM:SS timer display, 15-bar waveform progress visualization. (`Chat.tsx:150`) |
-| Transcribe button | **YES** | Web Speech Recognition API during recording for live transcription. Stored in `transcriptMap`. Toggle button shows/hides transcript below voice message. (`Chat.tsx:258-269`) |
-| Video recording | **YES** | Camera capture with `getUserMedia({ video, audio })`, MediaRecorder (WebM/VP9 or fallback), face validation with skin-tone detection, recording timer, orientation correction. (`Chat.tsx:760, 1109`) |
-| Video upload | **YES** | File input with `accept="video/*"`, 500MB size limit, orientation auto-correction, caption draft modal, Supabase Storage upload to `video-uploads` bucket. (`Chat.tsx:1268`) |
-| Image upload | **YES** | File input with `accept="image/*"`, caption draft modal, Supabase Storage upload to `image-uploads` bucket. (`Chat.tsx:1257`) |
-| Date separators | **YES** | `groupedTimeline` groups messages by day using `dateKey()`. Shows "Today", "Yesterday", or full date (e.g., "Monday, January 15"). Rendered as centered pill-shaped dividers. (`Chat.tsx:445, 101`) |
+**Schweregrad: HOCH**
 
-**All 7 features are present.**
+LLM wird gebeten "max 8 Einträge pro Kategorie" zu halten, aber:
+- **Keine Code-Validierung** — wenn LLM 15 zurückgibt, werden 15 gespeichert
+- Keine Timestamps auf einzelnen Patterns
+- Keine Konfidenz-Scores
+- Widersprüchliche Patterns werden nie aufgelöst
+- Veraltete Patterns werden nie entfernt
 
----
+### 3.5 CANON BASELINE — Keine Outlier-Erkennung
 
-## 5. Current Chat Flow
-
-### Exact flow when a user sends a text message:
+**Schweregrad: MITTEL-HOCH**
 
 ```
-USER TYPES MESSAGE
-        │
-        ▼
-handleSendText() (Chat.tsx:575)
-  ├─ Trims input, clears text field
-  ├─ Sets sending=true (disables UI)
-  │
-  ▼
-sendMessage() via Supabase (Chat.tsx:583)
-  ├─ INSERT into wa_messages table:
-  │    sender='contact', type='text', content=message
-  ├─ Adds message to local state immediately
-  │
-  ▼
-sendAvatarReply() (Chat.tsx:553)
-  ├─ Sets avatarTyping=true (shows typing indicator)
-  │
-  ▼
-getAvatarReply() (Chat.tsx:481)
-  ├─ Builds history from last 10 messages
-  ├─ Loads system prompt from owner record
-  │
-  ├─── POST /api/chat ──────────────────────────────┐
-  │    Body: { message, systemPrompt, history }      │
-  │                                                   ▼
-  │                                          api/chat.ts:
-  │                                          ├─ Detects language (DE/ES/EN)
-  │                                          ├─ If NO OpenAI key → return
-  │                                          │   hardcoded fallback reply
-  │                                          ├─ If key exists → call OpenAI
-  │                                          │   model: gpt-4.1-mini
-  │                                          │   temp: 0.8, max_tokens: 180
-  │                                          └─ Returns { content: "..." }
-  │                                                   │
-  │    ◄────────────────────────────────────────────  │
-  │
-  ├─── POST /api/tts ───────────────────────────────┐
-  │    Body: { text: replyText, voiceId }            │
-  │                                                   ▼
-  │                                          api/tts.ts:
-  │                                          ├─ If NO ElevenLabs key → 500
-  │                                          ├─ Calls ElevenLabs API
-  │                                          │   model: eleven_multilingual_v2
-  │                                          └─ Returns MP3 audio blob
-  │                                                   │
-  │    ◄────────────────────────────────────────────  │
-  │
-  ├─ Uploads MP3 to Supabase Storage (voice-messages bucket)
-  ├─ Gets public URL for audio
-  │
-  ▼
-INSERT avatar reply into wa_messages:
-  sender='avatar', type='voice',
-  content=replyText, media_url=audioURL
-        │
-        ▼
-Update local state:
-  ├─ Add reply to messages array
-  ├─ Add transcript to transcriptMap
-  ├─ Set avatarTyping=false
-  └─ Set sending=false
+Normal: mean_pitch = [180, 185, 182, 188, 183]
+Mit Outlier: mean_pitch = [180, 185, 999, 188, 183]
+Baseline: (180+185+999+188+183)/5 = 347 Hz  ← FALSCH
 ```
 
-### Key observations:
+- Kein Z-Score oder IQR-Filter
+- Ein einzelner Ausreißer (Mikro-Feedback, Hintergrundgeräusch) korrumpiert die Baseline
+- Recalibration bei Tier-Advance fetcht ALLE Logs ohne Limit
+- Keine Range-Validierung für prosodische Werte
 
-1. **There IS a real LLM call** — `POST /api/chat` calls OpenAI's `gpt-4.1-mini` model.
-2. **There IS a hardcoded fallback** — if `OPENAI_API_KEY` (or fallbacks) is not set, the API returns canned multilingual responses instead of calling OpenAI. The user would see replies like "Hey, was geht?" or "Tell me something interesting" but would have no indication these are not AI-generated.
-3. **Avatar always replies as voice** — even for text input, the reply is type `voice` with a TTS-generated audio file attached. The text content is stored as transcript.
-4. **If ElevenLabs key is missing**, the TTS call fails with HTTP 500. The `getAvatarReply` function has a try/catch but still attempts to store a reply with `null` media_url — the voice message bubble would render without playable audio.
+### 3.6 JSON-PARSING — Fragil überall
+
+**Schweregrad: MITTEL-HOCH**
+
+Überall dasselbe Pattern:
+```typescript
+const jsonMatch = rawText.match(/\{[\s\S]*\}/)
+parsed = JSON.parse(jsonMatch?.[0] || rawText)
+```
+
+**Probleme:**
+- Regex greift erstes `{}` — wenn LLM mehrere JSON-Blöcke ausgibt, falsch
+- Fallback auf `rawText` → kein JSON → crash
+- Kein try-catch um `.match()` in manchen Stellen
+- Betrifft: `update-memory.ts`, `opm-process.ts`, `check-reminders.ts`
+
+### 3.7 RACE CONDITIONS
+
+**Schweregrad: MITTEL**
+
+| Szenario | Risiko |
+|----------|--------|
+| 2 Memory-Updates gleichzeitig | Zweites überschreibt erstes |
+| 2 Reminder-Checks gleichzeitig | User erhält Reminder doppelt |
+| Perception-Log + Tier-Advance parallel | Baseline könnte inkonsistent sein |
+
+Keine Locks, keine Versionierung, keine Transactions.
+
+### 3.8 CHAT.TSX — 2.522 Zeilen Monolith
+
+**Schweregrad: MITTEL**
+
+- 11 useState Hooks, 8+ useRef, 7+ Custom Hooks in einer Datei
+- Keine Error Boundaries
+- Prop Drilling über Hooks
+- Komplexe verschachtelte Ternary-Logik im JSX
+- getAvatarReply (113 Zeilen) ruft 3 APIs sequentiell statt parallel auf
+- Keine Message-Virtualisierung → Performance-Probleme bei 500+ Nachrichten
+
+### 3.9 LIVE CALL SYSTEM — Incomplete
+
+**Schweregrad: MITTEL**
+
+- `@daily-co/daily-js` installiert aber nirgends importiert (totes Dependency)
+- Boardroom API hat **keine Auth-Headers**
+- `window.open()` → Popup-Blocker können es blocken
+- State reset nach hardcoded 5 Sekunden, egal ob Call gestartet wurde
+- Kein embedded Call UI — nur externes Fenster
+
+### 3.10 SELF-AVATAR LEARNING — Falsches Target
+
+**Schweregrad: MITTEL**
+
+System analysiert **Avatar-Antworten** statt **Owner-Messages**:
+```typescript
+// update-memory.ts Zeile 334:
+"Analyze only the AVATAR's messages (not the User's)."
+```
+Dadurch lernt es den Stil der AI, nicht den des Owners. Selbstverstärkender Loop.
 
 ---
 
-## Summary of Risks
+## 4. WO WIR NOCH TESTEN MÜSSEN 🧪
 
-| Risk | Severity | Detail |
-|---|---|---|
-| No way to confirm env vars are set | **High** | Vercel CLI not authenticated; must check dashboard manually |
-| Silent fallback to hardcoded replies | **Medium** | If OpenAI key is missing, users get fake-looking canned responses with no warning |
-| TTS failure cascades | **Medium** | Missing ElevenLabs key causes 500; avatar reply saved with null media_url |
-| `.env.example` out of sync | **Low** | Lists `VITE_ELEVENLABS_API_KEY` and `VITE_ELEVENLABS_VOICE_ID` which are unused in code |
-| No health-check endpoint | **Low** | No `/api/health` route to verify deployment is alive and keys are configured |
+### 4.1 Kein Test-Framework vorhanden
+- **0 Unit Tests** im gesamten Repo
+- **0 Integration Tests**
+- **0 E2E Tests**
+- Kein Test-Runner konfiguriert
+
+### 4.2 Kritische Test-Szenarien (Priorität)
+
+**Memory System:**
+- [ ] Memory-Merge nach 100+ Sessions (Duplikate? Token-Overflow?)
+- [ ] Gleichzeitige Memory-Updates (Race Condition)
+- [ ] Tab-Close während Memory-Update (Datenverlust?)
+- [ ] Behavioral Profile mit widersprüchlichen Patterns
+- [ ] key_facts mit 500+ Einträgen
+
+**Canon Baseline:**
+- [ ] Tier-Advance mit nur 1 Sample
+- [ ] Outlier-Injektion (extreme Werte)
+- [ ] 1000+ Perception Logs (Performance)
+- [ ] Prosodische Werte außerhalb menschlicher Bereiche
+
+**Chat Pipeline:**
+- [ ] System-Prompt Token-Budget bei voller Memory + Perception
+- [ ] LLM antwortet mit Nicht-JSON
+- [ ] Anthropic API Timeout/Rate-Limit
+
+**OPM Pipeline:**
+- [ ] Audio > 100MB
+- [ ] OPM Timeout → Fallback-Qualität
+- [ ] Deepgram + ElevenLabs beide down
+
+**Reminder System:**
+- [ ] Timezone-Differenz
+- [ ] 100+ überfällige Reminders
+- [ ] Sonderzeichen in Reminder-Text
+
+**Live Call System:**
+- [ ] Popup-Blocker
+- [ ] Boardroom API Auth
+- [ ] Tavus Persona-Name-Kollision
+
+---
+
+## 5. WO NOCH PLATZ NACH OBEN IST 🚀
+
+### 5.1 Memory System → "GOAT Level"
+
+| Feature | Status | GOAT-Anforderung |
+|---------|--------|-------------------|
+| Fakten speichern | ✅ | — |
+| Fakten deduplizieren | ❌ | Semantische Deduplizierung (Embeddings) |
+| Fakten mit Konfidenz | ❌ | Gewichtung nach Häufigkeit + Recency |
+| Fakten-Konflikte lösen | ❌ | Neuerer Fakt überschreibt älteren |
+| Timeline-Validierung | ❌ | Format-Check + Datum-Validierung |
+| Summary-History | ❌ | Append-only Log statt Overwrite |
+| Memory-Suche | ❌ | Vector-Embeddings für semantische Suche |
+| Memory-Kapazität | ❌ | Tiered Storage (Hot/Warm/Cold) |
+| Cross-Session Insights | ❌ | "User spricht montags anders als freitags" |
+
+### 5.2 Behavioral Profile → "GOAT Level"
+
+| Feature | Status | GOAT-Anforderung |
+|---------|--------|-------------------|
+| Emotionale Muster | ✅ | — |
+| Timestamps pro Pattern | ❌ | created_at, last_seen, frequency |
+| Konfidenz-Scores | ❌ | Sample-Count basiert |
+| Trigger-Spezifität | ❌ | "AI-Themen → aufgeregt" mit Kontext |
+| Temporal Decay | ❌ | Ältere Patterns verlieren Gewicht |
+| Konflikt-Resolution | ❌ | Widersprüche automatisch auflösen |
+| Canon-Linkage | ❌ | Baseline-Daten in Profile integrieren |
+| Stimmungs-Kurven | ❌ | Emotionale Verläufe über Zeit |
+| Konversations-Graphen | ❌ | Themen → Emotionen Mapping |
+
+### 5.3 Canon Baseline → "GOAT Level"
+
+| Feature | Status | GOAT-Anforderung |
+|---------|--------|-------------------|
+| 5-Tier System | ✅ | — |
+| Outlier-Detection | ❌ | Z-Score / IQR Filtering |
+| Personalisierte Schwellwerte | ❌ | Basierend auf persönlicher Variabilität |
+| Temporal Weighting | ❌ | Neuere Daten stärker gewichten |
+| Context Tags | ❌ | "War krank", "War müde" markieren |
+| Emotion Transitions | ❌ | Wechselgeschwindigkeit tracken |
+| Circadian Patterns | ❌ | Stimme morgens vs. abends |
+| Statistical Significance | ❌ | Echte Tests statt %-Schwellwerte |
+
+### 5.4 Self-Avatar Learning → "GOAT Level"
+
+| Feature | Status | GOAT-Anforderung |
+|---------|--------|-------------------|
+| Style-Extraktion | ✅ | — |
+| Owner-Messages analysieren | ❌ | Aktuell analysiert es Avatar-Antworten |
+| Cross-Session Verification | ❌ | Pattern muss 3+ mal auftreten |
+| A/B Testing | ❌ | Avatar vs. echte Owner vergleichen |
+| Tonalitäts-Adaptation | ❌ | Verschiedene Stile pro Kontakt |
+| Lern-Feedback | ❌ | Owner kann korrigieren |
+
+### 5.5 Frontend → "GOAT Level"
+
+| Feature | Status | GOAT-Anforderung |
+|---------|--------|-------------------|
+| Chat UI | ✅ | — |
+| Component-Splitting | ❌ | Chat.tsx aufteilen (<500 Zeilen/Datei) |
+| Error Boundaries | ❌ | Graceful Degradation |
+| Offline Support | ❌ | Service Worker + lokaler Cache |
+| Message Virtualization | ❌ | react-window für 1000+ Messages |
+| Embedded Live Calls | ❌ | Statt externes Fenster |
+| Typing Indicators | ❌ | Avatar "tippt..." |
+| Voice Waveform | ❌ | Echtzeit bei Audio |
+
+### 5.6 Infrastructure → "GOAT Level"
+
+| Feature | Status | GOAT-Anforderung |
+|---------|--------|-------------------|
+| Deployment | ✅ Vercel | — |
+| Tests | ❌ 0 Tests | Unit + Integration + E2E |
+| CI/CD Pipeline | ❌ | GitHub Actions |
+| Error Monitoring | ❌ | Sentry o.ä. |
+| Performance Monitoring | ❌ | DB Query Monitoring |
+| Rate Limiting | ❌ | Pro-User API Limits |
+| Audit Logging | ❌ | Wer hat wann was geändert? |
+| Backup Strategy | ❌ | Automatische DB-Backups |
+
+---
+
+## 6. PRIORITÄTEN-ROADMAP
+
+### Phase 1: SICHERHEIT (Sofort) 🔴
+1. RLS Policies auf allen Tabellen fixen (owner-scoped)
+2. Input-Validierung auf allen API-Endpunkten
+3. JSON-Parsing absichern (try-catch + Validierung)
+4. API-Key Handling überprüfen
+
+### Phase 2: DATENINTEGRITÄT (Diese Woche) 🟠
+5. Fehlende Datenbank-Indexes hinzufügen
+6. Foreign Key Constraints vervollständigen
+7. Memory-Merge Deduplizierung implementieren
+8. Behavioral Profile Capping erzwingen (im Code)
+9. Canon Baseline Outlier-Filtering
+
+### Phase 3: TESTING (Nächste Woche) 🟡
+10. Vitest + Testing Library aufsetzen
+11. Unit Tests für Memory-Merge, Canon Baseline, OPM Fallback
+12. Integration Tests für Chat-Pipeline
+13. E2E Tests für kritische User-Flows
+
+### Phase 4: PERFORMANCE (Laufend) 🟢
+14. Chat.tsx aufteilen
+15. Message Virtualization
+16. Canon Baseline Recalculation optimieren
+17. Memory Token-Budget Monitoring
+
+### Phase 5: GOAT FEATURES (Mittelfristig) 🔵
+18. Semantische Memory-Suche (Vector Embeddings)
+19. Personalisierte Canon-Schwellwerte
+20. Owner-Style Learning von echten Owner-Messages
+21. Cross-Session Behavioral Insights
+22. Embedded Live Calls
+23. Offline Support
+24. Error Monitoring + CI/CD
+
+---
+
+## 7. ZUSAMMENFASSUNG
+
+### Was funktioniert gut:
+- Die Vision und Architektur sind **herausragend** — 7 Intelligenz-Layer
+- Persistent Memory überlebt Tab-Close ✅
+- Canon 5-Tier Voice Baseline ist einzigartig am Markt
+- OPM → STT → LLM Fallback-Kette ist durchdacht
+- Session Memory Hook mit Nudging und Reminders
+
+### Was uns vom GOAT trennt:
+1. **Sicherheit** — RLS Policies sind ein offenes Tor
+2. **Skalierung** — Fehlende Indexes + unbegrenztes Memory-Wachstum
+3. **Datenqualität** — Keine Deduplizierung, Outlier-Detection, Validierung
+4. **Testing** — 0 Tests = 0 Vertrauen
+5. **Observability** — Kein Monitoring
+
+### GOAT-Potential:
+Das Fundament ist **stark**. Kein anderes Produkt hat diese Kombination aus emotionaler Analyse, Voice Baseline, Behavioral Learning und proaktivem Memory. Mit den Fixes und Features aus der Roadmap wird WhatsAnima das, was es sein soll: **The Greatest of All Time.**
