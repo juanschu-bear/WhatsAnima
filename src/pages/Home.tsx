@@ -105,10 +105,10 @@ export default function Home() {
             </button>
             <button
               type="button"
-              onClick={signOut}
+              onClick={() => navigate('/settings')}
               className="rounded-2xl border border-white/10 bg-[#1f2c34]/80 px-6 py-3 text-sm font-medium transition hover:border-[#00a884]/60 hover:text-[#00a884]"
             >
-              Sign Out
+              Settings
             </button>
           </div>
         </div>
