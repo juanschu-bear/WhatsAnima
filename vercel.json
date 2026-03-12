@@ -4,7 +4,9 @@
     "api/upload-media.ts": { "maxDuration": 60 },
     "api/opm-process.ts": { "maxDuration": 120 },
     "api/ingest-video.ts": { "maxDuration": 120 },
-    "api/transcribe.ts": { "maxDuration": 60 }
+    "api/transcribe.ts": { "maxDuration": 60 },
+    "api/chat.ts": { "maxDuration": 120 },
+    "api/generate-image.ts": { "maxDuration": 120 }
   },
   "headers": [
     {
