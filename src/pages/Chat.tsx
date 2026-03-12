@@ -716,7 +716,7 @@ export default function Chat() {
     onError: setError,
     onMessageSent: (msg) => setMessages((current) => [...current, msg as Message]),
     onTranscript: (id, text) => setTranscriptMap((current) => ({ ...current, [id]: text })),
-    onProcessingStage: (emoji, text) => setInlineProcessing({ emoji, text }),
+    onProcessingStage: (emoji, text) => setInlineProcessing(emoji || text ? { emoji, text } : null),
     sendAvatarReply: (...args) => sendAvatarReplyRef.current(...args),
   })
 
@@ -1140,7 +1140,7 @@ export default function Chat() {
         uploadMediaToStorage(conversation!, rotatedFile, 'video'),
         callOpmApi(conversation!, rotatedFile, 'video', {
           avatarFirstName: avatarName,
-          onStage: (emoji, text, _progress) => setInlineProcessing({ emoji, text }),
+          onStage: (emoji, text, _progress) => setInlineProcessing(emoji || text ? { emoji, text } : null),
         }).catch((error) => {
           console.error('[Video] OPM uploaded video analysis failed:', error)
           return null

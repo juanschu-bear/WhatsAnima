@@ -20,6 +20,8 @@ export default function Login() {
 
   // Email form state
   const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [authMode, setAuthMode] = useState<'password' | 'magic-link'>('password')
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -85,7 +87,7 @@ export default function Login() {
     setStep('new-user-details')
   }
 
-  // Send magic link
+  // Send magic link or sign in with password
   async function handleSendLink(event: FormEvent) {
     event.preventDefault()
     if (!email.trim()) {
@@ -95,6 +97,28 @@ export default function Login() {
     setError(null)
     setLoading(true)
 
+    // Password-based sign in
+    if (authMode === 'password') {
+      if (!password) {
+        setError(t(locale, 'passwordPlaceholder'))
+        setLoading(false)
+        return
+      }
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      })
+      if (signInError) {
+        setError(t(locale, 'invalidCredentials'))
+        setLoading(false)
+        return
+      }
+      // onAuthStateChange will handle navigation
+      setLoading(false)
+      return
+    }
+
+    // Magic link flow
     const redirectTo = role === 'owner'
       ? `${window.location.origin}/`
       : `${window.location.origin}/avatars`
@@ -121,7 +145,7 @@ export default function Login() {
     setLoading(false)
   }
 
-  // New user: create contact + send magic link
+  // New user: create contact + sign up with password or magic link
   async function handleNewUserSubmit(event: FormEvent) {
     event.preventDefault()
     if (!firstName.trim() || !lastName.trim() || !email.trim()) {
@@ -129,6 +153,19 @@ export default function Login() {
       return
     }
     if (!selectedOwner) return
+
+    // Password validation for new users
+    if (authMode === 'password') {
+      if (!password) {
+        setError(t(locale, 'passwordPlaceholder'))
+        return
+      }
+      if (password.length < 6) {
+        setError(t(locale, 'passwordTooShort'))
+        return
+      }
+    }
+
     setError(null)
     setLoading(true)
 
@@ -144,7 +181,29 @@ export default function Login() {
       // Create conversation
       const conversationId = await findOrCreateConversation(selectedOwner.id, contact.id)
 
-      // Send magic link — redirect to chat
+      if (authMode === 'password' && password) {
+        // Sign up with password — no email redirect needed, stays in PWA
+        const { error: signUpError } = await supabase.auth.signUp({
+          email: email.trim(),
+          password,
+          options: {
+            data: {
+              first_name: firstName.trim(),
+              last_name: lastName.trim(),
+            },
+          },
+        })
+        if (signUpError) {
+          setError(signUpError.message)
+          setLoading(false)
+          return
+        }
+        // onAuthStateChange will handle navigation
+        setLoading(false)
+        return
+      }
+
+      // Magic link fallback — redirect to chat
       const redirectTo = `${window.location.origin}/chat/${conversationId}`
       const { error: otpError } = await supabase.auth.signInWithOtp({
         email: email.trim(),
@@ -329,6 +388,22 @@ export default function Login() {
               />
             </div>
 
+            {authMode === 'password' && (
+              <div>
+                <label htmlFor="login-password" className="mb-2 block text-sm font-medium text-white/82">
+                  {t(locale, 'password')}
+                </label>
+                <input
+                  id="login-password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="brand-inset w-full rounded-2xl px-4 py-3.5 text-white placeholder-white/28 outline-none transition focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20"
+                  placeholder={t(locale, 'passwordPlaceholder')}
+                />
+              </div>
+            )}
+
             {error && (
               <p className="rounded-2xl border border-red-400/15 bg-red-500/15 px-4 py-3 text-sm text-red-200">
                 {error}
@@ -340,7 +415,17 @@ export default function Login() {
               disabled={loading}
               className="w-full rounded-2xl bg-[#00a884] py-3.5 text-lg font-semibold text-[#07141a] transition hover:brightness-110 disabled:opacity-50"
             >
-              {loading ? t(locale, 'sending') : t(locale, 'sendVerificationEmail')}
+              {loading
+                ? (authMode === 'password' ? t(locale, 'signingIn') : t(locale, 'sending'))
+                : (authMode === 'password' ? t(locale, 'signInWithPassword') : t(locale, 'sendVerificationEmail'))}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => { setAuthMode(authMode === 'password' ? 'magic-link' : 'password'); setError(null) }}
+              className="w-full text-center text-sm text-white/50 transition hover:text-white/80"
+            >
+              {authMode === 'password' ? t(locale, 'useMagicLink') : t(locale, 'usePassword')}
             </button>
           </form>
         )}
@@ -423,6 +508,22 @@ export default function Login() {
               />
             </div>
 
+            {authMode === 'password' && (
+              <div>
+                <label htmlFor="user-password" className="mb-2 block text-sm font-medium text-white/82">
+                  {t(locale, 'password')}
+                </label>
+                <input
+                  id="user-password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="brand-inset w-full rounded-2xl px-4 py-3.5 text-white placeholder-white/28 outline-none transition focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20"
+                  placeholder={t(locale, 'passwordPlaceholder')}
+                />
+              </div>
+            )}
+
             {error && (
               <p className="rounded-2xl border border-red-400/15 bg-red-500/15 px-4 py-3 text-sm text-red-200">
                 {error}
@@ -434,7 +535,17 @@ export default function Login() {
               disabled={loading}
               className="w-full rounded-2xl bg-[#00a884] py-3.5 text-lg font-semibold text-[#07141a] transition hover:brightness-110 disabled:opacity-50"
             >
-              {loading ? t(locale, 'sending') : t(locale, 'sendVerificationEmail')}
+              {loading
+                ? (authMode === 'password' ? t(locale, 'signingIn') : t(locale, 'sending'))
+                : (authMode === 'password' ? t(locale, 'signInWithPassword') : t(locale, 'sendVerificationEmail'))}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => { setAuthMode(authMode === 'password' ? 'magic-link' : 'password'); setError(null) }}
+              className="w-full text-center text-sm text-white/50 transition hover:text-white/80"
+            >
+              {authMode === 'password' ? t(locale, 'useMagicLink') : t(locale, 'usePassword')}
             </button>
           </form>
         )}
@@ -580,6 +691,22 @@ export default function Login() {
               />
             </div>
 
+            {authMode === 'password' && (
+              <div>
+                <label htmlFor="new-password" className="mb-2 block text-sm font-medium text-white/80">
+                  {t(locale, 'password')}
+                </label>
+                <input
+                  id="new-password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="brand-inset w-full rounded-2xl px-4 py-3 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20"
+                  placeholder={t(locale, 'passwordPlaceholder')}
+                />
+              </div>
+            )}
+
             {error && (
               <p className="rounded-2xl border border-red-400/15 bg-red-500/15 px-4 py-3 text-sm text-red-200">
                 {error}
@@ -591,7 +718,17 @@ export default function Login() {
               disabled={loading}
               className="w-full rounded-2xl bg-[#00a884] py-3.5 font-semibold text-[#07141a] transition hover:brightness-110 disabled:opacity-50"
             >
-              {loading ? t(locale, 'sending') : t(locale, 'sendVerificationEmail')}
+              {loading
+                ? (authMode === 'password' ? t(locale, 'signingIn') : t(locale, 'sending'))
+                : (authMode === 'password' ? t(locale, 'signInWithPassword') : t(locale, 'sendVerificationEmail'))}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => { setAuthMode(authMode === 'password' ? 'magic-link' : 'password'); setError(null) }}
+              className="w-full text-center text-sm text-white/50 transition hover:text-white/80"
+            >
+              {authMode === 'password' ? t(locale, 'useMagicLink') : t(locale, 'usePassword')}
             </button>
           </form>
         )}
