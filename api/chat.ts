@@ -288,7 +288,7 @@ function getMessageTypeTag(msg: ChatMessage): string {
 async function callAnthropic(apiKey: string, systemPrompt: string, messages: ChatMessage[]) {
   const payload = {
     model: 'claude-sonnet-4-20250514',
-    max_tokens: 600,
+    max_tokens: 2048,
     system: systemPrompt,
     messages: messages.map((message) => {
       const tag = message.role === 'user' ? getMessageTypeTag(message) : ''
@@ -443,7 +443,7 @@ export default async function handler(req: any, res: any) {
 
     let content = await callAnthropic(apiKey, systemPrompt, messages)
     if (!content) {
-      return res.status(200).json({ content: 'Sorry, I could not generate a response.' })
+      return res.status(502).json({ error: 'Empty response from AI' })
     }
 
     // Check for generate_image block and generate image server-side
@@ -465,6 +465,6 @@ export default async function handler(req: any, res: any) {
     return res.status(200).json({ content })
   } catch (error) {
     console.error('Chat API error:', error instanceof Error ? error.message : error)
-    return res.status(200).json({ content: 'Sorry, something went wrong. Try again.' })
+    return res.status(500).json({ error: 'Chat processing failed' })
   }
 }
