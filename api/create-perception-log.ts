@@ -69,30 +69,50 @@ function getNextTier(cumulativeSec: number) {
 }
 
 /**
+ * Remove outliers from a numeric array using IQR (Interquartile Range).
+ * Returns only values within [Q1 - 1.5*IQR, Q3 + 1.5*IQR].
+ * With fewer than 4 samples, no filtering is applied (not enough data).
+ */
+function removeOutliers(values: number[]): number[] {
+  if (values.length < 4) return values
+  const sorted = [...values].sort((a, b) => a - b)
+  const q1 = sorted[Math.floor(sorted.length * 0.25)]
+  const q3 = sorted[Math.floor(sorted.length * 0.75)]
+  const iqr = q3 - q1
+  const lower = q1 - 1.5 * iqr
+  const upper = q3 + 1.5 * iqr
+  return values.filter((v) => v >= lower && v <= upper)
+}
+
+/**
  * Compute personal baseline from ALL perception logs.
  * Full recalculation every time a new tier is reached.
+ * Uses IQR outlier filtering so a single noisy sample can't corrupt the baseline.
  */
 function computeBaseline(logs: any[]) {
   const withProsody = logs.filter((l) => l.prosodic_summary)
   if (withProsody.length === 0) return null
 
-  const sums: Record<string, number> = {}
-  const counts: Record<string, number> = {}
+  // Collect all values per key, then filter outliers before averaging
+  const allValues: Record<string, number[]> = {}
 
   for (const log of withProsody) {
     const p = log.prosodic_summary
     for (const key of PROSODIC_KEYS) {
       const val = typeof p[key] === 'number' ? p[key] : parseFloat(p[key])
       if (!isNaN(val)) {
-        sums[key] = (sums[key] || 0) + val
-        counts[key] = (counts[key] || 0) + 1
+        if (!allValues[key]) allValues[key] = []
+        allValues[key].push(val)
       }
     }
   }
 
   const baseline: Record<string, number> = {}
-  for (const key of Object.keys(sums)) {
-    baseline[key] = Math.round((sums[key] / counts[key]) * 1000) / 1000
+  for (const [key, values] of Object.entries(allValues)) {
+    const cleaned = removeOutliers(values)
+    if (cleaned.length === 0) continue
+    const sum = cleaned.reduce((a, b) => a + b, 0)
+    baseline[key] = Math.round((sum / cleaned.length) * 1000) / 1000
   }
 
   // Emotion distribution across all logs

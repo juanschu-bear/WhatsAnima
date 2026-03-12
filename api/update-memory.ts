@@ -27,7 +27,8 @@ export default async function handler(req: any, res: any) {
     return res.status(503).json({ error: `DB not configured – missing ${missing}` })
   }
 
-  const { conversationId, recentMessages, ownerId, contactId } = req.body ?? {}
+  const { conversationId, recentMessages, ownerId, contactId, timezone } = req.body ?? {}
+  const userTimezone = timezone || 'UTC'
   if (!conversationId || !Array.isArray(recentMessages)) {
     return res.status(400).json({ error: 'conversationId and recentMessages are required' })
   }
@@ -199,11 +200,11 @@ IMPORTANT: Only extract information from actual data. For behavioral_profile, ON
 
 5. **reminders**: Future-dated events the user mentioned that the avatar should proactively remind them about. JSON array of objects with:
    - **text**: What to remind about (e.g. "You wanted to finish your chapter today")
-   - **due_at**: ISO 8601 datetime for when to send the reminder. Use reasonable defaults:
-     - "morgen" / "tomorrow" → next day at 09:00 local time
-     - "nächste Woche" / "next week" → next Monday at 09:00
-     - Specific date/time → use that
-     - "heute Abend" / "tonight" → same day at 19:00
+   - **due_at**: ISO 8601 datetime for when to send the reminder. IMPORTANT: The user's timezone is ${userTimezone}. All times must be in this timezone, then converted to UTC for the ISO string. Use reasonable defaults:
+     - "morgen" / "tomorrow" → next day at 09:00 ${userTimezone}
+     - "nächste Woche" / "next week" → next Monday at 09:00 ${userTimezone}
+     - Specific date/time → use that time in ${userTimezone}, convert to UTC
+     - "heute Abend" / "tonight" → same day at 19:00 ${userTimezone}
    - **source**: The original user quote or context
    Only extract reminders for FUTURE events that are actionable. Do NOT create reminders for past events or vague statements. If no reminders are appropriate, return an empty array.
 
@@ -357,16 +358,27 @@ Respond in EXACTLY this JSON format:
         if (owner?.is_self_avatar) {
           const existingStyle = owner.communication_style || { traits: [], speech_patterns: [], thinking_style: [] }
 
-          const stylePrompt = `You are a communication style analyzer. Study how the AVATAR responds in this conversation and extract personality & style patterns. The avatar is a clone of a real person — we want to learn how that person communicates.
+          // Filter to only User (contact) messages — these are the real human's words
+          const userOnlyExcerpt = recentMessages
+            .filter((m: any) => m.role === 'user')
+            .map((m: any) => `User: ${m.content}`)
+            .join('\n')
+
+          if (!userOnlyExcerpt.trim()) {
+            // No user messages to learn from — skip style extraction
+            return
+          }
+
+          const stylePrompt = `You are a communication style analyzer. Study how the USER writes in this conversation and extract personality & style patterns. The user is the real person whose communication style we want to capture for their AI avatar clone.
 
 EXISTING STYLE PROFILE:
 ${JSON.stringify(existingStyle, null, 2)}
 
-CONVERSATION:
-${conversationExcerpt}
+USER MESSAGES:
+${userOnlyExcerpt}
 
 INSTRUCTIONS:
-Analyze only the AVATAR's messages (not the User's). Extract:
+Analyze only the USER's messages. Extract:
 
 1. **traits**: General communication traits (e.g. "Uses humor and irony", "Very direct, no fluff", "Empathetic listener")
 2. **speech_patterns**: Specific phrases, words, or language habits (e.g. "Says 'mega' and 'krass'", "Mixes German and Spanish", "Uses rhetorical questions")

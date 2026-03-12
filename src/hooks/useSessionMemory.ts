@@ -108,7 +108,8 @@ export function useSessionMemory({
     })).filter((m) => m.content.length > 0)
     if (recent.length < 3) return
     console.log('[Memory] Session ended — saving memory (%d messages)', recent.length)
-    const payload = JSON.stringify({ conversationId, recentMessages: recent, ownerId, contactId })
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+    const payload = JSON.stringify({ conversationId, recentMessages: recent, ownerId, contactId, timezone })
 
     // Use sendBeacon when available — it survives page unload reliably.
     // Regular fetch() is often cancelled by the browser when the tab closes.
