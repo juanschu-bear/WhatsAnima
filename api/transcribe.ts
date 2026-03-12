@@ -29,9 +29,10 @@ export default async function handler(req: any, res: any) {
     const formData = new FormData()
     formData.append('file', blob, `audio.${ext}`)
     formData.append('model_id', 'scribe_v1')
-    if (languageCode) {
-      formData.append('language_code', languageCode)
-    }
+    // Do NOT force a language — let ElevenLabs auto-detect.
+    // Forcing a wrong language (e.g. 'eng' when user speaks German)
+    // causes misdetection (often returns Spanish instead).
+    // ElevenLabs Scribe v1 auto-detects language reliably.
 
     const response = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
       method: 'POST',
