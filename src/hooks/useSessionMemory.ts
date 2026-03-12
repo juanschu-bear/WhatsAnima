@@ -108,11 +108,28 @@ export function useSessionMemory({
     })).filter((m) => m.content.length > 0)
     if (recent.length < 3) return
     console.log('[Memory] Session ended — saving memory (%d messages)', recent.length)
-    fetch('/api/update-memory', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ conversationId, recentMessages: recent, ownerId, contactId }),
-    }).catch((err) => console.error('[Memory] Update failed:', err))
+    const payload = JSON.stringify({ conversationId, recentMessages: recent, ownerId, contactId })
+
+    // Use sendBeacon when available — it survives page unload reliably.
+    // Regular fetch() is often cancelled by the browser when the tab closes.
+    if (navigator.sendBeacon) {
+      const blob = new Blob([payload], { type: 'application/json' })
+      const sent = navigator.sendBeacon('/api/update-memory', blob)
+      if (!sent) {
+        // sendBeacon can fail if payload is too large; fall back to fetch
+        fetch('/api/update-memory', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: payload,
+        }).catch((err) => console.error('[Memory] Update failed:', err))
+      }
+    } else {
+      fetch('/api/update-memory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload,
+      }).catch((err) => console.error('[Memory] Update failed:', err))
+    }
   }
 
   function maybeAvatarNudge() {

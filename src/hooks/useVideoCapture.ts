@@ -128,15 +128,34 @@ export function useVideoCapture({
     setVideoCanRecord(!blockRecording)
   }
 
-  function runFaceValidation() {
+  // ML-based face detection via the browser FaceDetector API (Chromium).
+  // Falls back to brightness-only check on unsupported browsers.
+  const faceDetectorRef = useRef<any>(null)
+  const faceDetectorSupported = useRef<boolean | null>(null)
+
+  function initFaceDetector() {
+    if (faceDetectorSupported.current !== null) return
+    try {
+      if (typeof (window as any).FaceDetector === 'function') {
+        faceDetectorRef.current = new (window as any).FaceDetector({ fastMode: true, maxDetectedFaces: 1 })
+        faceDetectorSupported.current = true
+      } else {
+        faceDetectorSupported.current = false
+      }
+    } catch {
+      faceDetectorSupported.current = false
+    }
+  }
+
+  async function runFaceValidation() {
     const video = videoPreviewRef.current
     if (!video || !videoStreamRef.current || videoOverlayMode !== 'live') return
     if (!video.videoWidth || !video.videoHeight) return
 
+    // Check brightness via a small canvas sample
     if (!faceCanvasRef.current) {
       faceCanvasRef.current = document.createElement('canvas')
     }
-
     const canvas = faceCanvasRef.current
     const context = canvas.getContext('2d', { willReadFrequently: true })
     if (!context) return
@@ -151,82 +170,95 @@ export function useVideoCapture({
     const centerX = width / 2
     const centerY = height / 2
     const radius = width * 0.35
-    let skinPixels = 0
-    let totalPixels = 0
     let brightnessSum = 0
-    let skinXSum = 0
-    let skinYSum = 0
-    let leftSkinPixels = 0
-    let rightSkinPixels = 0
+    let totalPixels = 0
 
-    for (let y = 0; y < height; y += 1) {
-      for (let x = 0; x < width; x += 1) {
-        const index = (y * width + x) * 4
-        const red = data[index]
-        const green = data[index + 1]
-        const blue = data[index + 2]
-        const brightness = (red + green + blue) / 3
+    for (let y = 0; y < height; y += 2) {
+      for (let x = 0; x < width; x += 2) {
         const dx = x - centerX
         const dy = y - centerY
-
         if (dx * dx + dy * dy <= radius * radius) {
-          brightnessSum += brightness
+          const index = (y * width + x) * 4
+          brightnessSum += (data[index] + data[index + 1] + data[index + 2]) / 3
           totalPixels += 1
-        }
-
-        if (
-          red > 60 &&
-          green > 40 &&
-          blue > 20 &&
-          red > green &&
-          red > blue &&
-          Math.abs(red - green) > 10 &&
-          brightness > 50 &&
-          brightness < 240
-        ) {
-          skinPixels += 1
-          skinXSum += x
-          skinYSum += y
-          if (x < centerX) leftSkinPixels += 1
-          else rightSkinPixels += 1
         }
       }
     }
 
-    const totalFramePixels = width * height
-    const skinRatio = skinPixels / totalFramePixels
     const averageBrightness = totalPixels > 0 ? brightnessSum / totalPixels : 0
 
     if (averageBrightness < 40) {
       setVideoValidation(`We need more light so ${avatarFirstName} can see you clearly`, 'warning', true)
       return
     }
-    if (skinRatio < 0.02) {
+
+    // Try ML-based FaceDetector (works across all skin tones)
+    initFaceDetector()
+    if (faceDetectorSupported.current && faceDetectorRef.current) {
+      try {
+        const faces = await faceDetectorRef.current.detect(video)
+        if (!faces || faces.length === 0) {
+          setVideoValidation('Position your face in the circle', '', true)
+          return
+        }
+
+        const face = faces[0]
+        const bb = face.boundingBox
+        const faceCenterX = (bb.x + bb.width / 2) / video.videoWidth
+        const faceCenterY = (bb.y + bb.height / 2) / video.videoHeight
+        const faceArea = (bb.width * bb.height) / (video.videoWidth * video.videoHeight)
+
+        // Check centering (face center should be near frame center)
+        const offsetX = Math.abs(faceCenterX - 0.5)
+        const offsetY = Math.abs(faceCenterY - 0.5)
+
+        if (offsetX > 0.25 || offsetY > 0.25) {
+          setVideoValidation('Center your face in the circle', 'warning', true)
+          return
+        }
+
+        if (faceArea < 0.03) {
+          setVideoValidation('Move closer to the camera', 'warning', true)
+          return
+        }
+
+        if (averageBrightness < 70) {
+          setVideoValidation('A bit more light would help', 'warning', false)
+          return
+        }
+
+        setVideoValidation('Ready to record', 'success', false)
+        return
+      } catch {
+        // FaceDetector failed (e.g. ImageBitmap issue) — fall through to fallback
+      }
+    }
+
+    // Fallback: brightness-based presence check (no skin-color dependency)
+    // Instead of checking skin color, we detect motion/contrast in the center region
+    let contrastSum = 0
+    let contrastPixels = 0
+    for (let y = 1; y < height - 1; y += 2) {
+      for (let x = 1; x < width - 1; x += 2) {
+        const dx = x - centerX
+        const dy = y - centerY
+        if (dx * dx + dy * dy <= radius * radius) {
+          const index = (y * width + x) * 4
+          const curr = (data[index] + data[index + 1] + data[index + 2]) / 3
+          const right = (data[index + 4] + data[index + 5] + data[index + 6]) / 3
+          const below = (data[((y + 1) * width + x) * 4] + data[((y + 1) * width + x) * 4 + 1] + data[((y + 1) * width + x) * 4 + 2]) / 3
+          contrastSum += Math.abs(curr - right) + Math.abs(curr - below)
+          contrastPixels += 1
+        }
+      }
+    }
+
+    const avgContrast = contrastPixels > 0 ? contrastSum / contrastPixels : 0
+
+    // A face has more local contrast than an empty wall
+    if (avgContrast < 3) {
       setVideoValidation('Position your face in the circle', '', true)
       return
-    }
-
-    const faceCenterX = skinPixels > 0 ? skinXSum / skinPixels : centerX
-    const faceCenterY = skinPixels > 0 ? skinYSum / skinPixels : centerY
-    const offsetX = Math.abs(faceCenterX - centerX) / (width / 2)
-    const offsetY = Math.abs(faceCenterY - centerY) / (height / 2)
-
-    if (offsetX > 0.35 || offsetY > 0.35) {
-      setVideoValidation('Center your face in the circle', 'warning', true)
-      return
-    }
-    if (skinRatio < 0.05) {
-      setVideoValidation('Move closer to the camera', 'warning', true)
-      return
-    }
-
-    const totalSideSkin = leftSkinPixels + rightSkinPixels
-    if (totalSideSkin > 0) {
-      const asymmetry = Math.abs(leftSkinPixels - rightSkinPixels) / totalSideSkin
-      if (asymmetry > 0.4) {
-        setVideoValidation(`Look into the camera so ${avatarFirstName} can read your expression`, 'warning', false)
-        return
-      }
     }
 
     if (averageBrightness < 70) {
