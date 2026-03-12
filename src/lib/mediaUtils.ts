@@ -78,7 +78,6 @@ export async function uploadMediaToStorage(
   mediaType: 'image' | 'video',
   isRecorded = false
 ) {
-  const mediaBase64 = await blobToBase64(file)
   const ext = file.name?.split('.').pop() || (mediaType === 'image' ? 'jpg' : 'webm')
   const rawType = (file.type || '').split(';')[0] || (mediaType === 'image' ? 'image/jpeg' : 'video/webm')
   const filename = `${mediaType}-${Date.now()}.${ext}`
@@ -89,29 +88,23 @@ export async function uploadMediaToStorage(
       ? 'video-messages'
       : 'video-uploads'
 
-  const response = await fetch('/api/upload-media', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      media: mediaBase64,
-      conversationId: conversation.id,
-      filename,
-      contentType: rawType,
-      mediaType,
-      bucket,
-    }),
-  })
+  // Upload directly to Supabase Storage from browser to bypass
+  // Vercel's 4.5MB serverless function body size limit.
+  // This matches the pattern used by uploadAudioToStorage.
+  const { supabase } = await import('./supabase')
+  const storagePath = `${conversation.id}/${filename}`
 
-  const data = await response.json().catch(() => ({}))
-  if (!response.ok) {
-    const msg = data?.error || `Media upload failed (HTTP ${response.status})`
-    console.error('[uploadMedia] FAILED:', msg)
-    throw new Error(msg)
+  const { error } = await supabase.storage
+    .from(bucket)
+    .upload(storagePath, file, { contentType: rawType, upsert: true })
+
+  if (error) {
+    console.error('[uploadMedia] Supabase storage error:', error.message)
+    throw new Error('Upload failed: ' + error.message)
   }
-  if (typeof data.url !== 'string') {
-    throw new Error('Media upload returned no URL')
-  }
-  return data.url
+
+  const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(storagePath)
+  return urlData.publicUrl
 }
 
 export async function getOpmConfig() {

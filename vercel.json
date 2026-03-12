@@ -6,6 +6,27 @@
     "api/ingest-video.ts": { "maxDuration": 120 },
     "api/transcribe.ts": { "maxDuration": 60 }
   },
+  "headers": [
+    {
+      "source": "/index.html",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" },
+        { "key": "Pragma", "value": "no-cache" }
+      ]
+    },
+    {
+      "source": "/assets/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
+    },
+    {
+      "source": "/manifest.json",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-cache, must-revalidate" }
+      ]
+    }
+  ],
   "rewrites": [
     { "source": "/((?!api/|assets/).*)", "destination": "/index.html" }
   ]

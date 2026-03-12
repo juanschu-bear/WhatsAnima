@@ -66,43 +66,76 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
-  const apiKey = process.env.ELEVENLABS_API_KEY || process.env.VITE_ELEVENLABS_API_KEY
-  if (!apiKey) {
-    return res.status(503).json({ error: 'Missing ELEVENLABS_API_KEY' })
+  // Prefer Deepgram Nova-3 for STT (best multilingual code-switching: DE/EN/ES
+  // natively supported with language=multi). Falls back to ElevenLabs Scribe.
+  const deepgramKey = process.env.DEEPGRAM_API_KEY
+  const elevenLabsKey = process.env.ELEVENLABS_API_KEY || process.env.VITE_ELEVENLABS_API_KEY
+  if (!deepgramKey && !elevenLabsKey) {
+    return res.status(503).json({ error: 'Missing DEEPGRAM_API_KEY or ELEVENLABS_API_KEY' })
   }
 
   try {
     const { buffer, contentType } = await parseRequestBody(req)
 
-    const blob = new Blob([buffer], { type: contentType })
-    const ext = contentType.includes('mp4') ? 'm4a'
-      : contentType.includes('ogg') ? 'ogg'
-      : 'webm'
+    let transcript = ''
+    let detectedLanguage: string | null = null
 
-    const formData = new FormData()
-    formData.append('file', blob, `audio.${ext}`)
-    formData.append('model_id', 'scribe_v1')
-    // Do NOT force a language — let ElevenLabs auto-detect.
-    // Forcing a wrong language (e.g. 'eng' when user speaks German)
-    // causes misdetection (often returns Spanish instead).
+    if (deepgramKey) {
+      // Deepgram Nova-3 with language=multi — native code-switching support
+      // for DE/EN/ES in the same audio stream. Sends raw binary, not FormData.
+      const dgContentType = contentType.includes('mp4') ? 'audio/mp4'
+        : contentType.includes('ogg') ? 'audio/ogg'
+        : contentType.includes('mpeg') ? 'audio/mpeg'
+        : 'audio/webm'
 
-    const response = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
-      method: 'POST',
-      headers: {
-        'xi-api-key': apiKey,
-      },
-      body: formData,
-    })
+      const response = await fetch(
+        'https://api.deepgram.com/v1/listen?model=nova-3&language=multi&smart_format=true&detect_language=true',
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Token ${deepgramKey}`,
+            'Content-Type': dgContentType,
+          },
+          body: buffer,
+        }
+      )
 
-    if (!response.ok) {
-      const errText = await response.text().catch(() => '')
-      console.error('[transcribe] ElevenLabs STT error:', response.status, errText)
-      return res.status(502).json({ error: `STT failed (${response.status})`, details: errText })
+      if (!response.ok) {
+        const errText = await response.text().catch(() => '')
+        console.error('[transcribe] Deepgram STT error:', response.status, errText)
+        return res.status(502).json({ error: `STT failed (${response.status})`, details: errText })
+      }
+
+      const data = await response.json()
+      const alt = data.results?.channels?.[0]?.alternatives?.[0]
+      transcript = (alt?.transcript || '').trim()
+      detectedLanguage = data.results?.channels?.[0]?.detected_language || null
+    } else {
+      // Fallback: ElevenLabs Scribe v1
+      const blob = new Blob([buffer], { type: contentType })
+      const ext = contentType.includes('mp4') ? 'm4a'
+        : contentType.includes('ogg') ? 'ogg'
+        : 'webm'
+      const formData = new FormData()
+      formData.append('file', blob, `audio.${ext}`)
+      formData.append('model_id', 'scribe_v1')
+
+      const response = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
+        method: 'POST',
+        headers: { 'xi-api-key': elevenLabsKey! },
+        body: formData,
+      })
+
+      if (!response.ok) {
+        const errText = await response.text().catch(() => '')
+        console.error('[transcribe] ElevenLabs STT error:', response.status, errText)
+        return res.status(502).json({ error: `STT failed (${response.status})`, details: errText })
+      }
+
+      const data = await response.json()
+      transcript = (data.text || '').trim()
+      detectedLanguage = data.language_code || null
     }
-
-    const data = await response.json()
-    const transcript = data.text?.trim() || ''
-    const detectedLanguage = data.language_code || null
 
     return res.status(200).json({
       transcript,

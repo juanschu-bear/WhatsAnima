@@ -17,6 +17,7 @@ import {
 } from '../lib/api'
 import { resolveAvatarUrl } from '../lib/avatars'
 import { type Locale, getStoredLocale, setStoredLocale, t } from '../lib/i18n'
+import { supabase } from '../lib/supabase'
 
 interface InvitationLink {
   id: string
@@ -306,6 +307,11 @@ export default function Dashboard() {
     totalMessages: 0,
   })
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
+  const [showPasswordForm, setShowPasswordForm] = useState(false)
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [passwordLoading, setPasswordLoading] = useState(false)
+  const [passwordMessage, setPasswordMessage] = useState<string | null>(null)
 
   const L = useCallback((key: Parameters<typeof t>[1]) => t(locale, key), [locale])
 
@@ -313,6 +319,29 @@ export default function Dashboard() {
     const next: Locale = locale === 'en' ? 'es' : 'en'
     setLocale(next)
     setStoredLocale(next)
+  }
+
+  async function handleSetPassword() {
+    if (newPassword.length < 6) {
+      setPasswordMessage(L('passwordTooShort'))
+      return
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordMessage(L('passwordMismatch'))
+      return
+    }
+    setPasswordLoading(true)
+    setPasswordMessage(null)
+    const { error: updateError } = await supabase.auth.updateUser({ password: newPassword })
+    if (updateError) {
+      setPasswordMessage(updateError.message)
+    } else {
+      setPasswordMessage(L('passwordSet'))
+      setNewPassword('')
+      setConfirmPassword('')
+      setTimeout(() => setShowPasswordForm(false), 2000)
+    }
+    setPasswordLoading(false)
   }
 
   const userEmail = String(user?.email ?? '').trim()
@@ -651,12 +680,50 @@ export default function Dashboard() {
                 {L('home')}
               </Link>
               <button
+                type="button"
+                onClick={() => { setShowPasswordForm(!showPasswordForm); setPasswordMessage(null) }}
+                className="brand-inset rounded-2xl px-4 py-3 text-sm font-medium transition hover:border-[#00a884]/60 hover:text-[#00a884]"
+              >
+                {L('setPassword')}
+              </button>
+              <button
                 onClick={signOut}
                 className="rounded-2xl bg-[#00a884] px-4 py-3 text-sm font-semibold text-[#07141a] transition hover:brightness-110"
               >
                 {L('signOut')}
               </button>
             </div>
+            {showPasswordForm && (
+              <div className="mt-3 flex flex-wrap items-end gap-2">
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder={L('newPassword')}
+                  className="brand-inset rounded-xl px-3 py-2 text-sm text-white placeholder-white/35 outline-none focus:border-[#00a884]"
+                />
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder={L('confirmPassword')}
+                  className="brand-inset rounded-xl px-3 py-2 text-sm text-white placeholder-white/35 outline-none focus:border-[#00a884]"
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleSetPassword()}
+                  disabled={passwordLoading}
+                  className="rounded-xl bg-[#00a884] px-4 py-2 text-sm font-semibold text-[#07141a] transition hover:brightness-110 disabled:opacity-50"
+                >
+                  {passwordLoading ? L('savingPassword') : L('savePassword')}
+                </button>
+                {passwordMessage && (
+                  <span className={`text-sm ${passwordMessage === L('passwordSet') ? 'text-[#00a884]' : 'text-red-300'}`}>
+                    {passwordMessage}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </header>
 

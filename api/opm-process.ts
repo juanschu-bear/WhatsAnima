@@ -267,8 +267,32 @@ export default async function handler(req: any, res: any) {
       let transcript: string | null = null;
       let audioDurationSec: number | null = null;
       try {
+        const deepgramKey = process.env.DEEPGRAM_API_KEY;
         const elevenLabsKey = process.env.ELEVENLABS_API_KEY || process.env.VITE_ELEVENLABS_API_KEY;
-        if (elevenLabsKey) {
+
+        if (deepgramKey) {
+          // Prefer Deepgram Nova-3 with language=multi for code-switching
+          const blobBuffer = Buffer.from(await blob.arrayBuffer());
+          const dgContentType = (blob.type || 'audio/webm').split(';')[0];
+
+          const sttRes = await fetch(
+            'https://api.deepgram.com/v1/listen?model=nova-3&language=multi&smart_format=true',
+            {
+              method: 'POST',
+              headers: {
+                'Authorization': `Token ${deepgramKey}`,
+                'Content-Type': dgContentType,
+              },
+              body: blobBuffer,
+            }
+          );
+
+          if (sttRes.ok) {
+            const sttData = await sttRes.json();
+            transcript = sttData.results?.channels?.[0]?.alternatives?.[0]?.transcript?.trim() || null;
+          }
+        } else if (elevenLabsKey) {
+          // Fallback: ElevenLabs Scribe v1
           const sttForm = new FormData();
           sttForm.append('file', blob, finalFilename);
           sttForm.append('model_id', 'scribe_v1');
