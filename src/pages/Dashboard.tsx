@@ -17,7 +17,6 @@ import {
 } from '../lib/api'
 import { resolveAvatarUrl } from '../lib/avatars'
 import { type Locale, getStoredLocale, setStoredLocale, t } from '../lib/i18n'
-import { supabase } from '../lib/supabase'
 
 interface InvitationLink {
   id: string
