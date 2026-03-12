@@ -14,7 +14,7 @@ interface UseSessionMemoryOptions {
   sending: boolean
   avatarStatus: string | null
   conversation: { id: string } | null
-  sendAvatarReply: (text: string, options?: { useVoice?: boolean }) => Promise<void>
+  sendAvatarReply: (text: string, options?: { useVoice?: boolean }) => Promise<boolean>
 }
 
 const SESSION_TIMEOUT_MS = 180_000 // 3 minutes

@@ -52,7 +52,7 @@ interface UseVoiceRecordingOptions {
   onError: (error: string | null) => void
   onMessageSent: (message: Message) => void
   onTranscript: (messageId: string, transcript: string) => void
-  sendAvatarReply: (text: string, options?: { isVoice?: boolean; voiceDurationSec?: number; perception?: any }) => Promise<void>
+  sendAvatarReply: (text: string, options?: { isVoice?: boolean; voiceDurationSec?: number; perception?: any }) => Promise<boolean>
   simulateAvatarRead: (messageId: string) => void
   maybeAvatarReact: (messageId: string) => void
 }
@@ -189,12 +189,12 @@ export function useVoiceRecording({
         onTranscript(message.id, finalTranscript)
       }
 
-      await sendAvatarReply(finalTranscript !== '[Voice message]' ? finalTranscript : 'a voice message', {
+      const voiceReplied = await sendAvatarReply(finalTranscript !== '[Voice message]' ? finalTranscript : 'a voice message', {
         isVoice: true,
         voiceDurationSec: durationSeconds,
         perception: opmResponse,
       })
-      maybeAvatarReact(message.id)
+      if (voiceReplied) maybeAvatarReact(message.id)
     } catch (recordingError: any) {
       console.error('[sendVoiceMessage]', recordingError)
       onError(recordingError?.message || 'Unable to send this voice note.')

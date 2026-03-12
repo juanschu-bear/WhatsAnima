@@ -1,5 +1,7 @@
 {
   "functions": {
+    "api/chat.ts": { "maxDuration": 60 },
+    "api/generate-image.ts": { "maxDuration": 120 },
     "api/upload-audio.ts": { "maxDuration": 60 },
     "api/upload-media.ts": { "maxDuration": 60 },
     "api/opm-process.ts": { "maxDuration": 120 },

@@ -1099,7 +1099,7 @@ export default function Chat() {
   } = useMessageSelection(messages as any, conversation as any)
 
   // sendAvatarReply is defined later — use a ref for hooks that need it
-  const sendAvatarReplyRef = useRef<(text: string, options?: { useVoice?: boolean; isVoice?: boolean; perception?: any }) => Promise<void>>(async () => {})
+  const sendAvatarReplyRef = useRef<(text: string, options?: { useVoice?: boolean; isVoice?: boolean; perception?: any }) => Promise<boolean>>(async () => false)
 
   const {
     recordingMode, setRecordingMode, captureKind, setCaptureKind,
@@ -1425,7 +1425,8 @@ export default function Chat() {
       perception?: any
     }
   ) {
-    if (!conversationId) return
+    if (!conversationId) return false
+    let replySucceeded = false
     // Set initial status based on context
     if (options?.isVoice) setAvatarStatus('listening')
     else if (options?.isVideo) setAvatarStatus('watching')
@@ -1479,7 +1480,8 @@ export default function Chat() {
         const imageReply = await sendMessage(conversationId, 'avatar', 'image', '', replyPayload.mediaUrl)
         setMessages((current) => [...current, imageReply as Message])
         markAsInstantlyRead(String((imageReply as Message).id))
-        return
+        replySucceeded = true
+        return replySucceeded
       }
 
       // Detect special response types (flashcard, quiz, lesson, fillin)
@@ -1503,11 +1505,22 @@ export default function Chat() {
       }
       // Mark avatar reply as instantly read by contact
       markAsInstantlyRead(String((reply as Message).id))
+      replySucceeded = true
     } catch (err) {
       console.error('Avatar reply failed:', err)
+      // Always send a fallback message so the user isn't left hanging
+      if (conversationId) {
+        try {
+          const fallback = await sendMessage(conversationId, 'avatar', 'text', 'Sorry, something went wrong. Please try again.')
+          setMessages((current) => [...current, fallback as Message])
+        } catch (fallbackErr) {
+          console.error('Fallback message also failed:', fallbackErr)
+        }
+      }
     } finally {
       setAvatarStatus(null)
     }
+    return replySucceeded
   }
 
   // Keep ref in sync for useSessionMemory's nudge callback
@@ -1524,8 +1537,8 @@ export default function Chat() {
       const message = await sendMessage(conversationId, 'contact', 'text', content)
       setMessages((current) => [...current, message as Message])
       simulateAvatarRead((message as Message).id)
-      await sendAvatarReply(content, { useVoice: false })
-      maybeAvatarReact((message as Message).id)
+      const replied = await sendAvatarReply(content, { useVoice: false })
+      if (replied) maybeAvatarReact((message as Message).id)
     } catch (sendError: any) {
       console.error(sendError)
       setError(sendError?.message || 'Unable to send your message.')
@@ -1586,12 +1599,12 @@ export default function Chat() {
         const message = await sendMessage(conversationId, 'contact', 'image', caption || '[Image]', mediaUrl)
         setMessages((current) => [...current, message as Message])
         simulateAvatarRead((message as Message).id)
-        await sendAvatarReply(caption || 'The user shared this image.', {
+        const imgReplied = await sendAvatarReply(caption || 'The user shared this image.', {
           useVoice: true,
           imageUrl: mediaUrl,
           isImage: true,
         })
-        maybeAvatarReact((message as Message).id)
+        if (imgReplied) maybeAvatarReact((message as Message).id)
         return
       }
 
@@ -1641,14 +1654,14 @@ export default function Chat() {
       const videoMessageText = caption
         ? (transcript ? `${caption}\n\n[Transcribed from video]: ${transcript}` : caption)
         : transcript || 'an uploaded video'
-      await sendAvatarReply(videoMessageText, {
+      const vidReplied = await sendAvatarReply(videoMessageText, {
         useVoice: false,
         isVideo: true,
         videoDurationSec: metadata.duration || undefined,
         perception: opmResponse,
       })
       setInlineProcessing(null)
-      maybeAvatarReact((message as Message).id)
+      if (vidReplied) maybeAvatarReact((message as Message).id)
     } catch (draftError: any) {
       console.error(draftError)
       setInlineProcessing(null)
