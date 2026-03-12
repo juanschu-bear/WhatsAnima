@@ -2,7 +2,12 @@ export const config = {
   api: { bodyParser: { sizeLimit: '500mb' } },
 }
 
-const OPM_URL = 'https://boardroom-api.onioko.com/api/v1/process';
+// OPM v4.0 — async job-based API (was /api/v1/process, now POST /analyze)
+const OPM_BASE = 'https://boardroom-api.onioko.com';
+const OPM_POLL_INTERVAL_MS = 3000;
+const OPM_TIMEOUT_MS = 180000; // 3 min max
+
+function delay(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
 
 /**
  * LLM-based fallback when the external OPM API is unreachable.
@@ -88,6 +93,79 @@ Base your analysis ONLY on the transcript text. Be accurate — if the tone is a
   }
 }
 
+/**
+ * Call OPM v4.0 async API: POST /analyze → poll /status/{job_id} → GET /results/{job_id}
+ * Matches the same flow as the direct path in mediaUtils.ts callOpmApi().
+ *
+ * OpenAPI spec (OPM v4.0):
+ *   POST /analyze — multipart/form-data { video (binary, required), session_id, preset, orientation }
+ *   GET /status/{job_id} — { status, stage, ... }
+ *   GET /results/{job_id} — full analysis result
+ */
+async function callOpmV4(blob: Blob, filename: string, sessionId: string, preset: string): Promise<any> {
+  // 1. Submit job — POST /analyze
+  const formData = new FormData();
+  formData.append('video', blob, filename);   // field name is "video" per OpenAPI spec
+  formData.append('session_id', sessionId);
+  formData.append('preset', preset);
+
+  const submitController = new AbortController();
+  const submitTimeout = setTimeout(() => submitController.abort(), 15000);
+
+  const submitRes = await fetch(`${OPM_BASE}/analyze`, {
+    method: 'POST',
+    body: formData,
+    signal: submitController.signal,
+  });
+  clearTimeout(submitTimeout);
+
+  if (!submitRes.ok) {
+    const errData = await submitRes.json().catch(() => ({}));
+    throw new Error(`OPM /analyze returned ${submitRes.status}: ${errData.error || errData.detail || ''}`);
+  }
+
+  const submitData = await submitRes.json();
+  const jobId = submitData.job_id;
+  if (!jobId) throw new Error('OPM /analyze returned no job_id');
+
+  console.log('[opm-process] OPM job submitted:', jobId);
+
+  // 2. Poll status — GET /status/{job_id}
+  const startTime = Date.now();
+  let jobComplete = false;
+  while (Date.now() - startTime < OPM_TIMEOUT_MS) {
+    await delay(OPM_POLL_INTERVAL_MS);
+
+    const statusRes = await fetch(`${OPM_BASE}/status/${jobId}`);
+    if (!statusRes.ok) continue;
+
+    const statusData = await statusRes.json();
+    const jobStatus = String(statusData.status || '').toLowerCase();
+
+    if (jobStatus === 'complete' || jobStatus === 'completed' || jobStatus === 'done') {
+      jobComplete = true;
+      break;
+    }
+    if (jobStatus === 'failed' || jobStatus === 'error') {
+      throw new Error(`OPM job failed: ${statusData.error || 'unknown'}`);
+    }
+
+    console.log('[opm-process] OPM job status:', jobStatus, statusData.stage || '');
+  }
+
+  if (!jobComplete) {
+    throw new Error('OPM job timed out after 180s');
+  }
+
+  // 3. Get results — GET /results/{job_id}
+  const resultsRes = await fetch(`${OPM_BASE}/results/${jobId}`);
+  if (!resultsRes.ok) {
+    throw new Error(`OPM /results/${jobId} returned ${resultsRes.status}`);
+  }
+
+  return await resultsRes.json();
+}
+
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
@@ -99,48 +177,28 @@ export default async function handler(req: any, res: any) {
 
     const buffer = Buffer.from(audio, 'base64');
     const blob = new Blob([buffer], { type: contentType || 'audio/webm' });
+    const finalFilename = filename || 'audio.webm';
 
-    const formData = new FormData();
-    formData.append('file', blob, filename || 'audio.webm');
-    formData.append('session_id', conversationId);
-    formData.append('user_hash', contactId);
-
-    // Try external OPM API with timeout
+    // Try OPM v4.0 async API: POST /analyze → poll /status → GET /results
     let opmData: any = null;
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10000); // 10s timeout
-
-      const opmResponse = await fetch(OPM_URL, {
-        method: 'POST',
-        body: formData,
-        signal: controller.signal,
-      });
-      clearTimeout(timeout);
-
-      if (opmResponse.ok) {
-        opmData = await opmResponse.json().catch(() => null);
-        console.log('[opm-process] External OPM responded OK');
-      } else {
-        const errText = await opmResponse.text().catch(() => '');
-        console.warn('[opm-process] OPM returned', opmResponse.status, errText);
-      }
-    } catch (fetchErr: any) {
-      console.warn('[opm-process] External OPM unreachable:', fetchErr.message);
+      opmData = await callOpmV4(blob, finalFilename, conversationId, 'echo');
+      console.log('[opm-process] OPM v4.0 returned results');
+    } catch (opmErr: any) {
+      console.warn('[opm-process] OPM v4.0 failed:', opmErr.message);
     }
 
-    // If external OPM failed, run LLM fallback on transcript
+    // If OPM failed, run LLM fallback on transcript
     if (!opmData) {
-      console.log('[opm-process] External OPM failed — running LLM fallback analysis');
+      console.log('[opm-process] Running LLM fallback analysis');
 
-      // Get transcript from ElevenLabs STT (same audio)
       let transcript: string | null = null;
       let audioDurationSec: number | null = null;
       try {
         const elevenLabsKey = process.env.ELEVENLABS_API_KEY || process.env.VITE_ELEVENLABS_API_KEY;
         if (elevenLabsKey) {
           const sttForm = new FormData();
-          sttForm.append('file', blob, filename || 'audio.webm');
+          sttForm.append('file', blob, finalFilename);
           sttForm.append('model_id', 'scribe_v1');
 
           const sttRes = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {

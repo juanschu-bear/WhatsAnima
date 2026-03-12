@@ -240,7 +240,7 @@ export async function callOpmApi(
   onStage('\uD83D\uDCE1', uploadLabel, 10)
   const formData = new FormData()
   formData.append('video', mediaBlob, fileName)
-  formData.append('user_id', conversation.contact_id || 'guest')
+  formData.append('session_id', conversation.id || '')
   formData.append('preset', preset)
   if (opts?.orientation) formData.append('orientation', String(opts.orientation))
 
