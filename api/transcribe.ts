@@ -1,5 +1,63 @@
 export const config = {
-  api: { bodyParser: { sizeLimit: '500mb' } },
+  api: {
+    bodyParser: false, // Handle raw body ourselves to support both JSON and FormData (avoids 4.5MB limit)
+  },
+}
+
+/**
+ * Parse incoming request body — supports both:
+ * 1. FormData with 'file' field (preferred, avoids Vercel 4.5MB JSON body limit)
+ * 2. JSON with 'audio' base64 string (legacy fallback for short clips)
+ */
+async function parseRequestBody(req: any): Promise<{ buffer: Buffer; contentType: string }> {
+  const ct = (req.headers['content-type'] || '').toLowerCase()
+
+  // Read raw body
+  const chunks: Buffer[] = []
+  for await (const chunk of req) {
+    chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk)
+  }
+  const rawBody = Buffer.concat(chunks)
+
+  if (ct.includes('multipart/form-data')) {
+    // Parse multipart boundary
+    const boundaryMatch = ct.match(/boundary=(.+?)(?:;|$)/)
+    if (!boundaryMatch) throw new Error('No boundary in multipart request')
+    const boundary = boundaryMatch[1]
+
+    // Find the file part in the multipart body
+    const delimiter = Buffer.from(`--${boundary}`)
+    const headerSep = Buffer.from('\r\n\r\n')
+    let pos = 0
+    while (pos < rawBody.length) {
+      const delimIdx = rawBody.indexOf(delimiter, pos)
+      if (delimIdx === -1) break
+      const partStart = delimIdx + delimiter.length + 2 // skip delimiter + \r\n
+      const headerEndIdx = rawBody.indexOf(headerSep, partStart)
+      if (headerEndIdx === -1) { pos = partStart; continue }
+      const headers = rawBody.subarray(partStart, headerEndIdx).toString('utf-8')
+      if (headers.includes('name="file"')) {
+        const dataStart = headerEndIdx + headerSep.length
+        // Find the next delimiter
+        const nextDelim = rawBody.indexOf(delimiter, dataStart)
+        const dataEnd = nextDelim !== -1 ? nextDelim - 2 : rawBody.length // -2 for \r\n before delimiter
+        const partContentType = headers.match(/Content-Type:\s*(.+?)(?:\r\n|$)/i)?.[1]?.trim() || 'audio/webm'
+        return { buffer: rawBody.subarray(dataStart, dataEnd), contentType: partContentType }
+      }
+      pos = partStart
+    }
+    throw new Error('No file field in FormData')
+  }
+
+  // JSON body
+  const json = JSON.parse(rawBody.toString('utf-8'))
+  if (!json.audio || typeof json.audio !== 'string') {
+    throw new Error('audio (base64) is required')
+  }
+  return {
+    buffer: Buffer.from(json.audio, 'base64'),
+    contentType: json.contentType || 'audio/webm',
+  }
 }
 
 export default async function handler(req: any, res: any) {
@@ -14,16 +72,11 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const { audio, contentType, languageCode } = req.body || {}
-    if (!audio || typeof audio !== 'string') {
-      return res.status(400).json({ error: 'audio (base64) is required' })
-    }
+    const { buffer, contentType } = await parseRequestBody(req)
 
-    const buffer = Buffer.from(audio, 'base64')
-    const blob = new Blob([buffer], { type: contentType || 'audio/webm' })
-
-    const ext = (contentType || 'audio/webm').includes('mp4') ? 'm4a'
-      : (contentType || '').includes('ogg') ? 'ogg'
+    const blob = new Blob([buffer], { type: contentType })
+    const ext = contentType.includes('mp4') ? 'm4a'
+      : contentType.includes('ogg') ? 'ogg'
       : 'webm'
 
     const formData = new FormData()
@@ -32,7 +85,6 @@ export default async function handler(req: any, res: any) {
     // Do NOT force a language — let ElevenLabs auto-detect.
     // Forcing a wrong language (e.g. 'eng' when user speaks German)
     // causes misdetection (often returns Spanish instead).
-    // ElevenLabs Scribe v1 auto-detects language reliably.
 
     const response = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
       method: 'POST',

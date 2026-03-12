@@ -1,5 +1,80 @@
 export const config = {
-  api: { bodyParser: { sizeLimit: '500mb' } },
+  api: {
+    bodyParser: false, // Handle raw body ourselves to support FormData (avoids 4.5MB limit)
+  },
+}
+
+/**
+ * Parse incoming request — supports both FormData and JSON.
+ */
+async function parseOpmRequest(req: any): Promise<{ blob: Blob; conversationId: string; contactId: string; filename: string }> {
+  const ct = (req.headers['content-type'] || '').toLowerCase();
+
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) {
+    chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+  }
+  const rawBody = Buffer.concat(chunks);
+
+  if (ct.includes('multipart/form-data')) {
+    const boundaryMatch = ct.match(/boundary=(.+?)(?:;|$)/);
+    if (!boundaryMatch) throw new Error('No boundary in multipart request');
+    const boundary = boundaryMatch[1];
+    const delimiter = Buffer.from(`--${boundary}`);
+    const headerSep = Buffer.from('\r\n\r\n');
+
+    let fileBlob: Blob | null = null;
+    let fileName = 'audio.webm';
+    const fields: Record<string, string> = {};
+
+    let pos = 0;
+    while (pos < rawBody.length) {
+      const delimIdx = rawBody.indexOf(delimiter, pos);
+      if (delimIdx === -1) break;
+      const partStart = delimIdx + delimiter.length + 2;
+      if (partStart >= rawBody.length) break;
+      const headerEndIdx = rawBody.indexOf(headerSep, partStart);
+      if (headerEndIdx === -1) { pos = partStart; continue; }
+      const headers = rawBody.subarray(partStart, headerEndIdx).toString('utf-8');
+      const dataStart = headerEndIdx + headerSep.length;
+      const nextDelim = rawBody.indexOf(delimiter, dataStart);
+      const dataEnd = nextDelim !== -1 ? nextDelim - 2 : rawBody.length;
+
+      const nameMatch = headers.match(/name="([^"]+)"/);
+      if (!nameMatch) { pos = partStart; continue; }
+      const name = nameMatch[1];
+
+      if (headers.includes('filename=')) {
+        // File part
+        const partCt = headers.match(/Content-Type:\s*(.+?)(?:\r\n|$)/i)?.[1]?.trim() || 'audio/webm';
+        const fnMatch = headers.match(/filename="([^"]+)"/);
+        if (fnMatch) fileName = fnMatch[1];
+        fileBlob = new Blob([rawBody.subarray(dataStart, dataEnd)], { type: partCt });
+      } else {
+        // Text field
+        fields[name] = rawBody.subarray(dataStart, dataEnd).toString('utf-8');
+      }
+      pos = partStart;
+    }
+
+    if (!fileBlob) throw new Error('No file in FormData');
+    return {
+      blob: fileBlob,
+      conversationId: fields.conversationId || '',
+      contactId: fields.contactId || '',
+      filename: fileName,
+    };
+  }
+
+  // JSON body (legacy)
+  const json = JSON.parse(rawBody.toString('utf-8'));
+  const buffer = Buffer.from(json.audio, 'base64');
+  return {
+    blob: new Blob([buffer], { type: json.contentType || 'audio/webm' }),
+    conversationId: json.conversationId || '',
+    contactId: json.contactId || '',
+    filename: json.filename || 'audio.webm',
+  };
 }
 
 // OPM v4.0 — async job-based API (was /api/v1/process, now POST /analyze)
@@ -170,13 +245,10 @@ export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const { audio, conversationId, contactId, filename, contentType } = req.body;
-    if (!audio || !conversationId || !contactId) {
-      return res.status(400).json({ error: 'audio, conversationId, and contactId are required' });
+    const { blob, conversationId, contactId, filename } = await parseOpmRequest(req);
+    if (!conversationId || !contactId) {
+      return res.status(400).json({ error: 'conversationId and contactId are required' });
     }
-
-    const buffer = Buffer.from(audio, 'base64');
-    const blob = new Blob([buffer], { type: contentType || 'audio/webm' });
     const finalFilename = filename || 'audio.webm';
 
     // Try OPM v4.0 async API: POST /analyze → poll /status → GET /results

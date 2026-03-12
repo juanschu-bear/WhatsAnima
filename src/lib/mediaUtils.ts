@@ -46,31 +46,30 @@ interface ConversationRef {
   contact_id: string
 }
 
-export async function uploadAudioToStorage(conversation: ConversationRef, audioBase64: string, mimeType: string) {
+/**
+ * Upload audio directly to Supabase Storage from the browser.
+ * Bypasses Vercel Serverless Functions to avoid the 4.5MB request body limit
+ * that causes HTTP 413 on longer voice messages (>~1.5 min).
+ */
+export async function uploadAudioToStorage(conversation: ConversationRef, audioBlob: Blob, mimeType: string) {
+  const { supabase } = await import('./supabase')
   const cleanType = (mimeType || 'audio/webm').split(';')[0]
   const ext = cleanType === 'audio/mpeg' ? 'mp3' : cleanType === 'audio/mp4' ? 'm4a' : 'webm'
   const filename = `voice-${Date.now()}.${ext}`
+  const storagePath = `${conversation.id}/${filename}`
+  const bucket = 'voice-messages'
 
-  const response = await fetch('/api/upload-audio', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      audio: audioBase64,
-      conversationId: conversation.id,
-      filename,
-    }),
-  })
+  const { error } = await supabase.storage
+    .from(bucket)
+    .upload(storagePath, audioBlob, { contentType: cleanType, upsert: true })
 
-  const data = await response.json().catch(() => ({}))
-  if (!response.ok) {
-    const msg = data?.error || `Upload failed (HTTP ${response.status})`
-    console.error('[uploadAudio] FAILED:', msg)
-    throw new Error(msg)
+  if (error) {
+    console.error('[uploadAudio] Supabase storage error:', error.message)
+    throw new Error('Upload failed: ' + error.message)
   }
-  if (typeof data.url !== 'string') {
-    throw new Error('Upload returned no URL')
-  }
-  return data.url
+
+  const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(storagePath)
+  return urlData.publicUrl
 }
 
 export async function uploadMediaToStorage(
@@ -209,19 +208,16 @@ export async function callOpmApi(
     : `${firstName} is watching your message...`
 
   if (!opmUrl) {
+    // Send Blob as FormData to avoid Vercel's 4.5MB JSON body limit
     onStage('\uD83D\uDCE1', uploadLabel, 10)
-    const audioBase64 = await blobToBase64(mediaBlob)
+    const proxyForm = new FormData()
+    proxyForm.append('file', mediaBlob, fileName)
+    proxyForm.append('conversationId', conversation.id)
+    proxyForm.append('contactId', conversation.contact_id || '')
+    proxyForm.append('ownerId', conversation.owner_id || '')
     const opmRes = await fetch('/api/opm-process', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        audio: audioBase64,
-        conversationId: conversation.id,
-        contactId: conversation.contact_id,
-        ownerId: conversation.owner_id,
-        filename: fileName,
-        contentType: mediaBlob.type || 'audio/webm',
-      }),
+      body: proxyForm,
     })
     onStage('\uD83D\uDD2C', watchingLabel, 40)
     const opmJson = await opmRes.json().catch(() => ({}))
@@ -307,18 +303,28 @@ export async function callOpmApi(
   return normalizeOpmResponse(rawResults)
 }
 
-export async function transcribeServerSide(audioBase64: string, contentType: string, _locale?: string): Promise<string> {
+/**
+ * Transcribe audio server-side via ElevenLabs Scribe v1.
+ * Accepts either a Blob (preferred, avoids Vercel 4.5MB body limit)
+ * or a base64 string (legacy fallback).
+ */
+export async function transcribeServerSide(audioData: Blob | string, contentType: string, _locale?: string): Promise<string> {
   try {
-    // Language auto-detected by ElevenLabs Scribe v1 — no forced language hint.
-    // Forcing a wrong locale (e.g. 'eng' when user speaks German) caused misdetection.
-    const response = await fetch('/api/transcribe', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        audio: audioBase64,
-        contentType,
-      }),
-    })
+    let response: Response
+    if (audioData instanceof Blob) {
+      // Send as FormData — no body size limit issues
+      const formData = new FormData()
+      const ext = contentType.includes('mp4') ? 'm4a' : contentType.includes('ogg') ? 'ogg' : 'webm'
+      formData.append('file', audioData, `audio.${ext}`)
+      response = await fetch('/api/transcribe', { method: 'POST', body: formData })
+    } else {
+      // Legacy base64 path
+      response = await fetch('/api/transcribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ audio: audioData, contentType }),
+      })
+    }
     const data = await response.json().catch(() => ({}))
     if (!response.ok) {
       console.warn('[transcribe] Server STT failed:', data.error)
