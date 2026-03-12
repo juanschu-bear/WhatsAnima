@@ -180,12 +180,12 @@ Extract memories into FOUR categories:
 
 1. **summary**: A 2-4 sentence summary of THIS session — what was discussed, the user's mood, any decisions made. This replaces the previous session summary.
 
-2. **profile_facts**: Permanent facts about the user as a JSON array of short strings (MAX ${MAX_PROFILE_FACTS} entries). Things like: name, age, occupation, goals, learning style, interests, preferences, strengths, weaknesses. These should be stable over time. Merge with existing profile — update facts that changed, add new ones, keep unchanged ones. DEDUPLICATE aggressively: if an existing fact says "Lives in Berlin" and a new one says "Lebt in Berlin, Deutschland", keep only the newer/more complete version. Remove outdated facts that have been superseded (e.g. if user moved from Berlin to Madrid, remove the Berlin entry).
+2. **profile_facts**: Permanent facts about the user as a JSON array of short strings. Things like: name, age, occupation, goals, learning style, interests, preferences, strengths, weaknesses. These should be stable over time. Merge with existing profile — update facts that changed, add new ones, keep unchanged ones. DEDUPLICATE aggressively: if an existing fact says "Lives in Berlin" and a new one says "Lebt in Berlin, Deutschland", keep only the newer/more complete version. Remove outdated facts that have been superseded (e.g. if user moved from Berlin to Madrid, remove the Berlin entry). There is NO hard limit — keep all unique facts.
 
 3. **timeline_events**: Important events, milestones, or dated information as a JSON array of strings. Each entry MUST start with a date prefix in format "[YYYY-MM] description". Examples:
    - "[2026-02] Passed math exam with grade B+"
    - "[2026-03] Started preparing for physics final"
-   Merge with existing timeline — add new events, never remove old ones, update if corrected. Keep max ${MAX_TIMELINE_EVENTS} most relevant entries. DEDUPLICATE: if two entries describe the same event, keep only the more detailed one.
+   Merge with existing timeline — add new events, never remove old ones, update if corrected. DEDUPLICATE: if two entries describe the same event, keep only the more detailed one. There is NO hard limit — keep all unique events.
 
 4. **behavioral_profile**: HOW the user communicates — extracted from the OPM perception data above. This is NOT about what they say, but HOW they say it. JSON object with these arrays:
    - **emotional_patterns**: Recurring emotional states and what triggers them. E.g. "Gets excited (high energy, faster speech) when discussing AI/technology", "Becomes quieter and more measured when discussing business challenges", "Default resting state is calm-focused"
@@ -193,7 +193,7 @@ Extract memories into FOUR categories:
    - **topic_reactions**: How specific topics affect their emotional/prosodic state. E.g. "Perception/OPM topics → high energy + authenticity spike", "Business strategy → measured, analytical tone", "Personal stories → warmer, softer voice"
    - **authenticity_markers**: What makes this person more or less authentic. E.g. "More authentic when improvising than reading", "Authenticity drops when discussing topics they're unsure about", "Most genuine during casual conversation"
 
-   Merge with existing behavioral profile. Keep max ${MAX_BEHAVIORAL_PER_CATEGORY} entries per category — this is a HARD limit, never exceed it. Update entries that evolved, add new ones, keep unchanged ones. DEDUPLICATE similar entries. If no OPM perception data is available for this session, return the existing behavioral profile unchanged.
+   Merge with existing behavioral profile. There is NO hard limit per category — keep all unique observations. The more behavioral data, the better the avatar understands the user. Update entries that evolved, add new ones, keep unchanged ones. DEDUPLICATE similar entries (merge near-identical observations into one). If no OPM perception data is available for this session, return the existing behavioral profile unchanged.
 
 IMPORTANT: Only extract information from actual data. For behavioral_profile, ONLY use the OPM perception readings — never invent behavioral patterns from text alone.
 
@@ -240,12 +240,13 @@ Respond in EXACTLY this JSON format:
       return res.status(500).json({ error: 'Failed to parse memory update' })
     }
 
-    // --- Deduplicate and enforce hard limits ---
-    const MAX_PROFILE_FACTS = 40
-    const MAX_TIMELINE_EVENTS = 30
-    const MAX_BEHAVIORAL_PER_CATEGORY = 8
+    // --- Deduplicate (no hard limits — let the profile grow naturally) ---
+    // Deduplication removes near-duplicates but keeps all unique information.
+    // The behavioral profile, facts, and timeline can grow unbounded because:
+    // - Even 200 entries ≈ 4K tokens, which is ~2% of Claude's 200K context
+    // - Cutting valuable observations is worse than using a few extra tokens
+    // - The LLM already merges/evolves entries during extraction
 
-    // Simple deduplication: normalize and remove near-duplicates
     function deduplicateStrings(items: string[]): string[] {
       const seen = new Map<string, string>() // normalized → original
       for (const item of items) {
@@ -272,26 +273,19 @@ Respond in EXACTLY this JSON format:
       return Array.from(seen.values())
     }
 
-    const profileFacts = deduplicateStrings(parsed.profile_facts || existingProfile).slice(0, MAX_PROFILE_FACTS)
-    const timelineEvents = deduplicateStrings(parsed.timeline_events || existingTimeline).slice(0, MAX_TIMELINE_EVENTS)
+    const profileFacts = deduplicateStrings(parsed.profile_facts || existingProfile)
+    const timelineEvents = deduplicateStrings(parsed.timeline_events || existingTimeline)
 
     // Merge profile facts and timeline events into a single key_facts array
     // Timeline events are prefixed with [YYYY-MM] so they can be separated on read
     const mergedFacts = [...profileFacts, ...timelineEvents]
 
     // Merge behavioral profile — keep existing if LLM returned nothing
-    let behavioralProfile = parsed.behavioral_profile && Object.keys(parsed.behavioral_profile).length > 0
+    // No hard limits: all unique behavioral observations are valuable.
+    // Deduplication in the LLM prompt handles merging similar entries.
+    const behavioralProfile = parsed.behavioral_profile && Object.keys(parsed.behavioral_profile).length > 0
       ? parsed.behavioral_profile
       : existingBehavioral
-
-    // Enforce hard limit per behavioral category (LLM may exceed the "max 8" suggestion)
-    if (behavioralProfile && typeof behavioralProfile === 'object') {
-      for (const key of ['emotional_patterns', 'prosodic_tendencies', 'topic_reactions', 'authenticity_markers']) {
-        if (Array.isArray(behavioralProfile[key]) && behavioralProfile[key].length > MAX_BEHAVIORAL_PER_CATEGORY) {
-          behavioralProfile[key] = behavioralProfile[key].slice(-MAX_BEHAVIORAL_PER_CATEGORY)
-        }
-      }
-    }
 
     // Upsert memory (behavioral_profile column is JSONB, added via ALTER TABLE)
     const { error: upsertError } = await supabase
