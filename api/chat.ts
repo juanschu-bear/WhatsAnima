@@ -1,5 +1,4 @@
 import { Client } from 'pg'
-import { createClient } from '@supabase/supabase-js'
 
 const DEFAULT_SYSTEM_PROMPT = 'You are a helpful assistant.'
 const LANGUAGE_INSTRUCTION =
@@ -53,19 +52,6 @@ Trigger: "fill in", "Lückentext", "fill the blank", "ergänze", "complete the s
 - Match the language the user is speaking
 - ONLY use these formats when the user explicitly asks for learning content — never unprompted
 - If the user just says "quiz" or "test" without specifying a topic, ask what topic they want`
-const IMAGE_GENERATION_INSTRUCTION =
-  `### Image Generation
-You CAN generate images. When the user asks you to create, generate, draw, or make an image/picture/photo/illustration, respond with a generate_image block containing a detailed English prompt for the image generator. You may add a short conversational message before or after the block.
-
-Format:
-\`\`\`generate_image
-A detailed English description of the image to generate. Be specific about style, composition, colors, and content.
-\`\`\`
-
-- ALWAYS write the prompt in English regardless of conversation language (the image model works best in English)
-- Be detailed and descriptive — the more specific, the better the result
-- NEVER say you cannot create/generate images. You can.
-- NEVER suggest the user go to Midjourney, DALL-E, or any other service. You generate images directly.`
 const MESSAGE_TYPE_AWARENESS =
   `### Message Type Awareness
 - Each message in the conversation is tagged with its type: [TEXT], [VOICE], [VIDEO], or [IMAGE].
@@ -326,74 +312,6 @@ async function callAnthropic(apiKey: string, systemPrompt: string, messages: Cha
   return text
 }
 
-async function generateImageFromPrompt(prompt: string, conversationId?: string): Promise<string | null> {
-  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID
-  const apiToken = process.env.CLOUDFLARE_AI_TOKEN
-  if (!accountId || !apiToken) {
-    console.warn('[chat] No Cloudflare AI credentials for image generation')
-    return null
-  }
-
-  try {
-    const formData = new FormData()
-    formData.append('prompt', prompt)
-    formData.append('steps', '25')
-    formData.append('width', '1024')
-    formData.append('height', '1024')
-
-    const cfResponse = await fetch(
-      `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/black-forest-labs/flux-2-dev`,
-      {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${apiToken}` },
-        body: formData,
-      }
-    )
-
-    if (!cfResponse.ok) {
-      console.error('[chat] Image generation failed:', cfResponse.status)
-      return null
-    }
-
-    const imageBuffer = Buffer.from(await cfResponse.arrayBuffer())
-
-    // Upload to Supabase Storage
-    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY
-    if (!supabaseUrl || !supabaseKey) return null
-
-    const supabase = createClient(supabaseUrl, supabaseKey)
-    const filename = `generated/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`
-
-    const { error: uploadError } = await supabase.storage
-      .from('media')
-      .upload(filename, imageBuffer, { contentType: 'image/png', upsert: false })
-
-    if (uploadError) {
-      console.error('[chat] Image upload error:', uploadError)
-      return null
-    }
-
-    const { data: urlData } = supabase.storage.from('media').getPublicUrl(filename)
-
-    // Store as image message if conversation context exists
-    if (conversationId) {
-      await supabase.from('wa_messages').insert({
-        conversation_id: conversationId,
-        sender: 'avatar',
-        type: 'image',
-        content: prompt,
-        media_url: urlData.publicUrl,
-      })
-    }
-
-    return urlData.publicUrl
-  } catch (err: any) {
-    console.error('[chat] Image generation error:', err.message)
-    return null
-  }
-}
-
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST')
@@ -441,7 +359,7 @@ export default async function handler(req: any, res: any) {
 
   try {
     const { ownerPrompt, memory, stylePrompt, behavioralMemory } = await loadOwnerPromptAndMemory(conversationId)
-    const systemPrompt = `${ownerPrompt}\n\n${RESPONSE_FORMAT_MATCHING}\n\n${FORMATTING_INSTRUCTION}\n\n${FLASHCARD_INSTRUCTION}\n\n${IMAGE_GENERATION_INSTRUCTION}\n\n${MESSAGE_TYPE_AWARENESS}\n\n${LANGUAGE_INSTRUCTION}${stylePrompt}${memory}${behavioralMemory}${buildPerceptionPrompt(perception)}`
+    const systemPrompt = `${ownerPrompt}\n\n${RESPONSE_FORMAT_MATCHING}\n\n${FORMATTING_INSTRUCTION}\n\n${FLASHCARD_INSTRUCTION}\n\n${MESSAGE_TYPE_AWARENESS}\n\n${LANGUAGE_INSTRUCTION}${stylePrompt}${memory}${behavioralMemory}${buildPerceptionPrompt(perception)}`
     const messages: ChatMessage[] = [
       ...priorMessages.slice(-30),
       {
@@ -454,21 +372,9 @@ export default async function handler(req: any, res: any) {
       },
     ]
 
-    let content = await callAnthropic(apiKey, systemPrompt, messages)
+    const content = await callAnthropic(apiKey, systemPrompt, messages)
     if (!content) {
       return res.status(200).json({ content: 'Sorry, I could not generate a response.' })
-    }
-
-    // Check for generate_image block and generate image server-side
-    const imageMatch = content.match(/```generate_image\s*\n?([\s\S]*?)\n?```/)
-    if (imageMatch) {
-      const imagePrompt = imageMatch[1].trim()
-      const imageUrl = await generateImageFromPrompt(imagePrompt, conversationId)
-      if (imageUrl) {
-        // Remove the generate_image block and add the image URL
-        const textPart = content.replace(/```generate_image\s*\n?[\s\S]*?\n?```/, '').trim()
-        return res.status(200).json({ content: textPart || '', image_url: imageUrl })
-      }
     }
 
     return res.status(200).json({ content })
