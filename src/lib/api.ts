@@ -1,6 +1,6 @@
 import { supabase } from './supabase'
 
-export type MessageType = 'text' | 'voice' | 'video' | 'image'
+export type MessageType = 'text' | 'voice' | 'video' | 'image' | 'flashcard'
 
 export interface ContactConversationPayload {
   ownerId: string

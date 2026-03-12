@@ -23,7 +23,7 @@ import { useVoiceRecording } from '../hooks/useVoiceRecording'
 import { useVideoCapture } from '../hooks/useVideoCapture'
 import { getVoiceListeningDelay, getVideoWatchingDelay, getAvatarFirstName, VOICE_SEEN_DELAY_MS } from '../lib/voiceDelay'
 
-type MessageType = 'text' | 'voice' | 'video' | 'image'
+type MessageType = 'text' | 'voice' | 'video' | 'image' | 'flashcard'
 
 interface Message {
   id: string
@@ -351,6 +351,155 @@ const VideoPlayOverlay = ({ hidden, rounded }: { hidden?: boolean; rounded?: boo
     </svg>
   </div>
 )
+
+// --- Flashcard / Quiz Bubble ---
+interface FlashcardData {
+  title: string
+  cards: Array<{ q: string; a: string }>
+}
+
+function parseFlashcardContent(content: string | null): FlashcardData | null {
+  if (!content) return null
+  const match = content.match(/```flashcard\s*\n?([\s\S]*?)\n?```/)
+  if (!match) return null
+  try {
+    const data = JSON.parse(match[1])
+    if (data.title && Array.isArray(data.cards) && data.cards.length > 0) return data
+  } catch {}
+  return null
+}
+
+const FlashcardBubble = memo(function FlashcardBubble({
+  message,
+  isRead,
+}: {
+  message: Message
+  isRead: boolean
+}) {
+  const data = parseFlashcardContent(message.content)
+  const [currentIndex, setCurrentIndex] = useState(0)
+  const [flipped, setFlipped] = useState(false)
+  const [completed, setCompleted] = useState<Set<number>>(new Set())
+
+  if (!data) return null
+
+  const card = data.cards[currentIndex]
+  const total = data.cards.length
+  const progress = completed.size
+
+  function handleFlip() {
+    setFlipped(!flipped)
+  }
+
+  function handleNext() {
+    setCompleted((prev) => new Set([...prev, currentIndex]))
+    setFlipped(false)
+    if (currentIndex < total - 1) {
+      setCurrentIndex(currentIndex + 1)
+    }
+  }
+
+  function handlePrev() {
+    if (currentIndex > 0) {
+      setFlipped(false)
+      setCurrentIndex(currentIndex - 1)
+    }
+  }
+
+  function handleReset() {
+    setCurrentIndex(0)
+    setFlipped(false)
+    setCompleted(new Set())
+  }
+
+  const allDone = progress === total
+
+  return (
+    <div className="w-[300px] overflow-hidden rounded-[20px] rounded-tl-[6px] border border-white/[0.06] bg-[#1a2332] shadow-[0_2px_8px_rgba(0,0,0,0.12)]">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-2.5">
+        <span className="text-[13px] font-medium text-white/80">{data.title}</span>
+        <span className="text-[11px] text-white/40">{progress}/{total}</span>
+      </div>
+
+      {/* Progress bar */}
+      <div className="h-1 bg-white/[0.04]">
+        <div
+          className="h-full bg-[#00a884] transition-all duration-300"
+          style={{ width: `${(progress / total) * 100}%` }}
+        />
+      </div>
+
+      {allDone ? (
+        /* Completion state */
+        <div className="flex flex-col items-center gap-3 px-4 py-8">
+          <span className="text-3xl">{'\u2705'}</span>
+          <span className="text-[14px] font-medium text-white/80">All {total} cards done!</span>
+          <button
+            type="button"
+            onClick={handleReset}
+            className="rounded-full bg-[#00a884]/20 px-4 py-1.5 text-[12px] font-medium text-[#00a884] transition hover:bg-[#00a884]/30"
+          >
+            Restart
+          </button>
+        </div>
+      ) : (
+        <>
+          {/* Card */}
+          <button
+            type="button"
+            onClick={handleFlip}
+            className="w-full cursor-pointer px-4 py-6 text-center transition-all duration-200 active:scale-[0.98]"
+          >
+            <div className="mb-2 text-[10px] font-medium uppercase tracking-wider text-white/30">
+              {flipped ? 'Answer' : 'Question'} {currentIndex + 1}/{total}
+            </div>
+            <div className={`text-[15px] leading-relaxed ${flipped ? 'text-[#00a884]' : 'text-white/90'}`}>
+              {flipped ? card.a : card.q}
+            </div>
+            {!flipped && (
+              <div className="mt-3 text-[11px] text-white/25">Tap to reveal answer</div>
+            )}
+          </button>
+
+          {/* Navigation */}
+          <div className="flex items-center justify-between border-t border-white/[0.06] px-3 py-2">
+            <button
+              type="button"
+              onClick={handlePrev}
+              disabled={currentIndex === 0}
+              className="rounded-full px-3 py-1 text-[12px] text-white/40 transition hover:bg-white/[0.06] hover:text-white/70 disabled:opacity-30"
+            >
+              {'\u2190'} Prev
+            </button>
+            <button
+              type="button"
+              onClick={handleFlip}
+              className="rounded-full bg-white/[0.06] px-3 py-1 text-[12px] text-white/60 transition hover:bg-white/10"
+            >
+              Flip
+            </button>
+            <button
+              type="button"
+              onClick={handleNext}
+              className="rounded-full px-3 py-1 text-[12px] text-[#00a884] transition hover:bg-[#00a884]/10"
+            >
+              {currentIndex < total - 1 ? 'Next \u2192' : 'Done \u2713'}
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* Timestamp */}
+      <div className="flex justify-end px-3 pb-2">
+        <span className="text-[10px] text-white/30">
+          {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          {isRead && ' \u2713'}
+        </span>
+      </div>
+    </div>
+  )
+})
 
 const MediaMessageBubble = memo(function MediaMessageBubble({
   isContact,
@@ -869,8 +1018,12 @@ export default function Chat() {
 
       setAvatarStatus('thinking')
       const replyPayload = await getAvatarReply(seedText, options)
-      const hasAudio = useVoice && !!replyPayload.mediaUrl
-      const msgType = hasAudio ? 'voice' : 'text'
+
+      // Detect flashcard response
+      const flashcardMatch = replyPayload.content.match(/```flashcard\s*\n?([\s\S]*?)\n?```/)
+      const isFlashcard = !!flashcardMatch
+      const hasAudio = !isFlashcard && useVoice && !!replyPayload.mediaUrl
+      const msgType = isFlashcard ? 'flashcard' as MessageType : hasAudio ? 'voice' : 'text'
       const reply = await sendMessage(
         conversationId,
         'avatar',
@@ -1298,6 +1451,8 @@ export default function Chat() {
                       transcript={transcriptMap[message.id] || (!isPlaceholderContent(message) ? message.content || '' : '')}
                       isRead={isRead}
                     />
+                  ) : message.type === 'flashcard' ? (
+                    <FlashcardBubble message={message} isRead={isRead} />
                   ) : message.type === 'image' || message.type === 'video' ? (
                     <MediaMessageBubble isContact={isContact} message={message} isRead={isRead} />
                   ) : (

@@ -197,8 +197,18 @@ Extract memories into FOUR categories:
 
 IMPORTANT: Only extract information from actual data. For behavioral_profile, ONLY use the OPM perception readings — never invent behavioral patterns from text alone.
 
+5. **reminders**: Future-dated events the user mentioned that the avatar should proactively remind them about. JSON array of objects with:
+   - **text**: What to remind about (e.g. "You wanted to finish your chapter today")
+   - **due_at**: ISO 8601 datetime for when to send the reminder. Use reasonable defaults:
+     - "morgen" / "tomorrow" → next day at 09:00 local time
+     - "nächste Woche" / "next week" → next Monday at 09:00
+     - Specific date/time → use that
+     - "heute Abend" / "tonight" → same day at 19:00
+   - **source**: The original user quote or context
+   Only extract reminders for FUTURE events that are actionable. Do NOT create reminders for past events or vague statements. If no reminders are appropriate, return an empty array.
+
 Respond in EXACTLY this JSON format:
-{"summary": "...", "profile_facts": ["..."], "timeline_events": ["[YYYY-MM] ..."], "behavioral_profile": {"emotional_patterns": ["..."], "prosodic_tendencies": ["..."], "topic_reactions": ["..."], "authenticity_markers": ["..."]}}`
+{"summary": "...", "profile_facts": ["..."], "timeline_events": ["[YYYY-MM] ..."], "behavioral_profile": {"emotional_patterns": ["..."], "prosodic_tendencies": ["..."], "topic_reactions": ["..."], "authenticity_markers": ["..."]}, "reminders": [{"text": "...", "due_at": "2026-03-13T09:00:00Z", "source": "..."}]}`
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -221,7 +231,7 @@ Respond in EXACTLY this JSON format:
     }
 
     const rawText = result.content?.[0]?.text?.trim() || ''
-    let parsed: { summary: string; profile_facts: string[]; timeline_events: string[]; behavioral_profile?: any }
+    let parsed: { summary: string; profile_facts: string[]; timeline_events: string[]; behavioral_profile?: any; reminders?: Array<{ text: string; due_at: string; source?: string }> }
     try {
       const jsonMatch = rawText.match(/\{[\s\S]*\}/)
       parsed = JSON.parse(jsonMatch?.[0] || rawText)
@@ -264,6 +274,40 @@ Respond in EXACTLY this JSON format:
       }
       console.error('[update-memory] Upsert error:', upsertError.message)
       return res.status(200).json({ ok: false, error: upsertError.message })
+    }
+
+    // --- Save extracted reminders ---
+    if (parsed.reminders && parsed.reminders.length > 0) {
+      try {
+        const reminderRows = parsed.reminders
+          .filter((r) => r.text && r.due_at)
+          .map((r) => ({
+            conversation_id: conversationId,
+            reminder_text: r.text,
+            due_at: r.due_at,
+            source_fact: r.source || null,
+            fired: false,
+          }))
+
+        if (reminderRows.length > 0) {
+          const { error: reminderError } = await supabase
+            .from('wa_reminders')
+            .insert(reminderRows)
+
+          if (reminderError) {
+            // Table might not exist yet — non-blocking
+            if (reminderError.code === '42P01' || reminderError.message?.includes('does not exist')) {
+              console.warn('[update-memory] wa_reminders table not found — skipping reminder save')
+            } else {
+              console.warn('[update-memory] Reminder insert error:', reminderError.message)
+            }
+          } else {
+            console.log('[update-memory] Saved %d reminders', reminderRows.length)
+          }
+        }
+      } catch (reminderErr: any) {
+        console.warn('[update-memory] Reminder save failed (non-blocking):', reminderErr.message)
+      }
     }
 
     // --- Communication Style Learning (only for self-avatars) ---
