@@ -10,7 +10,8 @@ export const config = {
  * 2. JSON with 'audio' base64 string (legacy fallback for short clips)
  */
 async function parseRequestBody(req: any): Promise<{ buffer: Buffer; contentType: string }> {
-  const ct = (req.headers['content-type'] || '').toLowerCase()
+  const rawCt = req.headers['content-type'] || ''
+  const ct = rawCt.toLowerCase()
 
   // Read raw body
   const chunks: Buffer[] = []
@@ -20,8 +21,8 @@ async function parseRequestBody(req: any): Promise<{ buffer: Buffer; contentType
   const rawBody = Buffer.concat(chunks)
 
   if (ct.includes('multipart/form-data')) {
-    // Parse multipart boundary
-    const boundaryMatch = ct.match(/boundary=(.+?)(?:;|$)/)
+    // Parse multipart boundary from the ORIGINAL header (boundary is case-sensitive)
+    const boundaryMatch = rawCt.match(/boundary=(.+?)(?:;|$)/)
     if (!boundaryMatch) throw new Error('No boundary in multipart request')
     const boundary = boundaryMatch[1]
 
