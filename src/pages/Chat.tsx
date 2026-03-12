@@ -11,7 +11,6 @@ import { getConversation, listMessages, listPerceptionLogs, sendMessage, createP
 import { resolveAvatarUrl } from '../lib/avatars'
 import { t } from '../lib/i18n'
 import {
-  blobToBase64,
   uploadAudioToStorage, uploadMediaToStorage,
   callOpmApi,
   readVideoMetadata, correctVideoOrientation,
@@ -807,8 +806,7 @@ export default function Chat() {
         console.error('[getAvatarReply] TTS returned empty audio blob')
         return { content: '[TTS ERROR: empty audio] ' + replyText, mediaUrl: null }
       }
-      const audioBase64 = await blobToBase64(audioBlob)
-      const uploadedUrl = await uploadAudioToStorage(conversation!, audioBase64, 'audio/mpeg')
+      const uploadedUrl = await uploadAudioToStorage(conversation!, audioBlob, 'audio/mpeg')
 
       return {
         content: replyText,

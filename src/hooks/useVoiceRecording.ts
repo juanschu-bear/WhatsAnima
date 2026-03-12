@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { createPerceptionLog, sendMessage } from '../lib/api'
 import {
-  getFileExtension, blobToBase64,
+  getFileExtension,
   uploadAudioToStorage,
   callOpmApi, transcribeServerSide,
 } from '../lib/mediaUtils'
@@ -133,12 +133,12 @@ export function useVoiceRecording({
     onSending(true)
     onError(null)
     try {
-      const audioBase64 = await blobToBase64(file)
       const contentType = file.type || 'audio/webm'
 
+      // Send Blob directly — avoids Vercel's 4.5MB JSON body limit on long voice notes
       const [mediaUrl, serverTranscript, opmResponse] = await Promise.all([
-        uploadAudioToStorage(conversation, audioBase64, contentType),
-        transcribeServerSide(audioBase64, contentType, locale),
+        uploadAudioToStorage(conversation, file, contentType),
+        transcribeServerSide(file, contentType),
         callOpmApi(conversation, file, 'audio').catch((error) => {
           console.error('[Voice] OPM voice analysis failed:', error)
           return null
