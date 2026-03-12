@@ -27,7 +27,8 @@ export default async function handler(req: any, res: any) {
     return res.status(503).json({ error: `DB not configured – missing ${missing}` })
   }
 
-  const { conversationId, recentMessages, ownerId, contactId } = req.body ?? {}
+  const { conversationId, recentMessages, ownerId, contactId, timezone } = req.body ?? {}
+  const userTimezone = timezone || 'UTC'
   if (!conversationId || !Array.isArray(recentMessages)) {
     return res.status(400).json({ error: 'conversationId and recentMessages are required' })
   }
@@ -180,12 +181,12 @@ Extract memories into FOUR categories:
 
 1. **summary**: A 2-4 sentence summary of THIS session — what was discussed, the user's mood, any decisions made. This replaces the previous session summary.
 
-2. **profile_facts**: Permanent facts about the user as a JSON array of short strings (MAX ${MAX_PROFILE_FACTS} entries). Things like: name, age, occupation, goals, learning style, interests, preferences, strengths, weaknesses. These should be stable over time. Merge with existing profile — update facts that changed, add new ones, keep unchanged ones. DEDUPLICATE aggressively: if an existing fact says "Lives in Berlin" and a new one says "Lebt in Berlin, Deutschland", keep only the newer/more complete version. Remove outdated facts that have been superseded (e.g. if user moved from Berlin to Madrid, remove the Berlin entry).
+2. **profile_facts**: Permanent facts about the user as a JSON array of short strings. Things like: name, age, occupation, goals, learning style, interests, preferences, strengths, weaknesses. These should be stable over time. Merge with existing profile — update facts that changed, add new ones, keep unchanged ones. DEDUPLICATE aggressively: if an existing fact says "Lives in Berlin" and a new one says "Lebt in Berlin, Deutschland", keep only the newer/more complete version. Remove outdated facts that have been superseded (e.g. if user moved from Berlin to Madrid, remove the Berlin entry). There is NO hard limit — keep all unique facts.
 
 3. **timeline_events**: Important events, milestones, or dated information as a JSON array of strings. Each entry MUST start with a date prefix in format "[YYYY-MM] description". Examples:
    - "[2026-02] Passed math exam with grade B+"
    - "[2026-03] Started preparing for physics final"
-   Merge with existing timeline — add new events, never remove old ones, update if corrected. Keep max ${MAX_TIMELINE_EVENTS} most relevant entries. DEDUPLICATE: if two entries describe the same event, keep only the more detailed one.
+   Merge with existing timeline — add new events, never remove old ones, update if corrected. DEDUPLICATE: if two entries describe the same event, keep only the more detailed one. There is NO hard limit — keep all unique events.
 
 4. **behavioral_profile**: HOW the user communicates — extracted from the OPM perception data above. This is NOT about what they say, but HOW they say it. JSON object with these arrays:
    - **emotional_patterns**: Recurring emotional states and what triggers them. E.g. "Gets excited (high energy, faster speech) when discussing AI/technology", "Becomes quieter and more measured when discussing business challenges", "Default resting state is calm-focused"
@@ -193,17 +194,17 @@ Extract memories into FOUR categories:
    - **topic_reactions**: How specific topics affect their emotional/prosodic state. E.g. "Perception/OPM topics → high energy + authenticity spike", "Business strategy → measured, analytical tone", "Personal stories → warmer, softer voice"
    - **authenticity_markers**: What makes this person more or less authentic. E.g. "More authentic when improvising than reading", "Authenticity drops when discussing topics they're unsure about", "Most genuine during casual conversation"
 
-   Merge with existing behavioral profile. Keep max ${MAX_BEHAVIORAL_PER_CATEGORY} entries per category — this is a HARD limit, never exceed it. Update entries that evolved, add new ones, keep unchanged ones. DEDUPLICATE similar entries. If no OPM perception data is available for this session, return the existing behavioral profile unchanged.
+   Merge with existing behavioral profile. There is NO hard limit per category — keep all unique observations. The more behavioral data, the better the avatar understands the user. Update entries that evolved, add new ones, keep unchanged ones. DEDUPLICATE similar entries (merge near-identical observations into one). If no OPM perception data is available for this session, return the existing behavioral profile unchanged.
 
 IMPORTANT: Only extract information from actual data. For behavioral_profile, ONLY use the OPM perception readings — never invent behavioral patterns from text alone.
 
 5. **reminders**: Future-dated events the user mentioned that the avatar should proactively remind them about. JSON array of objects with:
    - **text**: What to remind about (e.g. "You wanted to finish your chapter today")
-   - **due_at**: ISO 8601 datetime for when to send the reminder. Use reasonable defaults:
-     - "morgen" / "tomorrow" → next day at 09:00 local time
-     - "nächste Woche" / "next week" → next Monday at 09:00
-     - Specific date/time → use that
-     - "heute Abend" / "tonight" → same day at 19:00
+   - **due_at**: ISO 8601 datetime for when to send the reminder. IMPORTANT: The user's timezone is ${userTimezone}. All times must be in this timezone, then converted to UTC for the ISO string. Use reasonable defaults:
+     - "morgen" / "tomorrow" → next day at 09:00 ${userTimezone}
+     - "nächste Woche" / "next week" → next Monday at 09:00 ${userTimezone}
+     - Specific date/time → use that time in ${userTimezone}, convert to UTC
+     - "heute Abend" / "tonight" → same day at 19:00 ${userTimezone}
    - **source**: The original user quote or context
    Only extract reminders for FUTURE events that are actionable. Do NOT create reminders for past events or vague statements. If no reminders are appropriate, return an empty array.
 
@@ -240,12 +241,13 @@ Respond in EXACTLY this JSON format:
       return res.status(500).json({ error: 'Failed to parse memory update' })
     }
 
-    // --- Deduplicate and enforce hard limits ---
-    const MAX_PROFILE_FACTS = 40
-    const MAX_TIMELINE_EVENTS = 30
-    const MAX_BEHAVIORAL_PER_CATEGORY = 8
+    // --- Deduplicate (no hard limits — let the profile grow naturally) ---
+    // Deduplication removes near-duplicates but keeps all unique information.
+    // The behavioral profile, facts, and timeline can grow unbounded because:
+    // - Even 200 entries ≈ 4K tokens, which is ~2% of Claude's 200K context
+    // - Cutting valuable observations is worse than using a few extra tokens
+    // - The LLM already merges/evolves entries during extraction
 
-    // Simple deduplication: normalize and remove near-duplicates
     function deduplicateStrings(items: string[]): string[] {
       const seen = new Map<string, string>() // normalized → original
       for (const item of items) {
@@ -272,26 +274,19 @@ Respond in EXACTLY this JSON format:
       return Array.from(seen.values())
     }
 
-    const profileFacts = deduplicateStrings(parsed.profile_facts || existingProfile).slice(0, MAX_PROFILE_FACTS)
-    const timelineEvents = deduplicateStrings(parsed.timeline_events || existingTimeline).slice(0, MAX_TIMELINE_EVENTS)
+    const profileFacts = deduplicateStrings(parsed.profile_facts || existingProfile)
+    const timelineEvents = deduplicateStrings(parsed.timeline_events || existingTimeline)
 
     // Merge profile facts and timeline events into a single key_facts array
     // Timeline events are prefixed with [YYYY-MM] so they can be separated on read
     const mergedFacts = [...profileFacts, ...timelineEvents]
 
     // Merge behavioral profile — keep existing if LLM returned nothing
-    let behavioralProfile = parsed.behavioral_profile && Object.keys(parsed.behavioral_profile).length > 0
+    // No hard limits: all unique behavioral observations are valuable.
+    // Deduplication in the LLM prompt handles merging similar entries.
+    const behavioralProfile = parsed.behavioral_profile && Object.keys(parsed.behavioral_profile).length > 0
       ? parsed.behavioral_profile
       : existingBehavioral
-
-    // Enforce hard limit per behavioral category (LLM may exceed the "max 8" suggestion)
-    if (behavioralProfile && typeof behavioralProfile === 'object') {
-      for (const key of ['emotional_patterns', 'prosodic_tendencies', 'topic_reactions', 'authenticity_markers']) {
-        if (Array.isArray(behavioralProfile[key]) && behavioralProfile[key].length > MAX_BEHAVIORAL_PER_CATEGORY) {
-          behavioralProfile[key] = behavioralProfile[key].slice(-MAX_BEHAVIORAL_PER_CATEGORY)
-        }
-      }
-    }
 
     // Upsert memory (behavioral_profile column is JSONB, added via ALTER TABLE)
     const { error: upsertError } = await supabase
@@ -363,16 +358,27 @@ Respond in EXACTLY this JSON format:
         if (owner?.is_self_avatar) {
           const existingStyle = owner.communication_style || { traits: [], speech_patterns: [], thinking_style: [] }
 
-          const stylePrompt = `You are a communication style analyzer. Study how the AVATAR responds in this conversation and extract personality & style patterns. The avatar is a clone of a real person — we want to learn how that person communicates.
+          // Filter to only User (contact) messages — these are the real human's words
+          const userOnlyExcerpt = recentMessages
+            .filter((m: any) => m.role === 'user')
+            .map((m: any) => `User: ${m.content}`)
+            .join('\n')
+
+          if (!userOnlyExcerpt.trim()) {
+            // No user messages to learn from — skip style extraction
+            return
+          }
+
+          const stylePrompt = `You are a communication style analyzer. Study how the USER writes in this conversation and extract personality & style patterns. The user is the real person whose communication style we want to capture for their AI avatar clone.
 
 EXISTING STYLE PROFILE:
 ${JSON.stringify(existingStyle, null, 2)}
 
-CONVERSATION:
-${conversationExcerpt}
+USER MESSAGES:
+${userOnlyExcerpt}
 
 INSTRUCTIONS:
-Analyze only the AVATAR's messages (not the User's). Extract:
+Analyze only the USER's messages. Extract:
 
 1. **traits**: General communication traits (e.g. "Uses humor and irony", "Very direct, no fluff", "Empathetic listener")
 2. **speech_patterns**: Specific phrases, words, or language habits (e.g. "Says 'mega' and 'krass'", "Mixes German and Spanish", "Uses rhetorical questions")
