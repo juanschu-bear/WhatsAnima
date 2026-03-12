@@ -1,4 +1,5 @@
 import { Client } from 'pg'
+import { createClient } from '@supabase/supabase-js'
 
 const DEFAULT_SYSTEM_PROMPT = 'You are a helpful assistant.'
 const LANGUAGE_INSTRUCTION =
@@ -18,13 +19,13 @@ const FLASHCARD_INSTRUCTION =
 You have 4 interactive learning formats. When the user asks for learning content, pick the most appropriate format based on their request. Respond with ONLY the JSON block — no extra text before or after.
 
 **1. Flashcards** — for memorization, vocabulary, key facts
-Trigger: "flashcards", "Lernkarten", "Karteikarten"
+Trigger: "flashcards", "Lernkarten", "Karteikarten", "tarjetas de estudio", "tarjetas"
 \`\`\`flashcard
 {"title": "Topic Title", "cards": [{"q": "Question?", "a": "Answer"}]}
 \`\`\`
 
 **2. Quiz (Multiple Choice)** — for testing knowledge with options
-Trigger: "quiz", "Quiz", "multiple choice", "test me", "teste mich"
+Trigger: "quiz", "Quiz", "multiple choice", "test me", "teste mich", "ponme a prueba", "hazme un quiz", "examen"
 \`\`\`quiz
 {"title": "Topic Title", "questions": [{"q": "Question?", "options": ["A", "B", "C", "D"], "answer": 0}]}
 \`\`\`
@@ -32,7 +33,7 @@ Trigger: "quiz", "Quiz", "multiple choice", "test me", "teste mich"
 - Always provide exactly 4 options per question
 
 **3. Lesson (Course Sections)** — for structured explanations, mini-courses, tutorials
-Trigger: "lesson", "Lektion", "explain step by step", "course", "Kurs", "erkläre mir", "teach me"
+Trigger: "lesson", "Lektion", "explain step by step", "course", "Kurs", "erkläre mir", "teach me", "lección", "curso", "enséñame", "explícame paso a paso"
 \`\`\`lesson
 {"title": "Topic Title", "sections": [{"heading": "Section Title", "body": "Section content..."}]}
 \`\`\`
@@ -40,7 +41,7 @@ Trigger: "lesson", "Lektion", "explain step by step", "course", "Kurs", "erklär
 - Build knowledge progressively from section to section
 
 **4. Fill-in (Lückentext)** — for practicing recall by filling blanks
-Trigger: "fill in", "Lückentext", "fill the blank", "ergänze", "complete the sentence"
+Trigger: "fill in", "Lückentext", "fill the blank", "ergänze", "complete the sentence", "completa las frases", "rellena los espacios", "completar"
 \`\`\`fillin
 {"title": "Topic Title", "sentences": [{"text": "The capital of France is ___.", "blank": "Paris"}]}
 \`\`\`
@@ -52,6 +53,19 @@ Trigger: "fill in", "Lückentext", "fill the blank", "ergänze", "complete the s
 - Match the language the user is speaking
 - ONLY use these formats when the user explicitly asks for learning content — never unprompted
 - If the user just says "quiz" or "test" without specifying a topic, ask what topic they want`
+const IMAGE_GENERATION_INSTRUCTION =
+  `### Image Generation
+You CAN generate images. When the user asks you to create, generate, draw, or make an image/picture/photo/illustration (EN: "create an image", "generate a picture", "draw me"; DE: "erstell ein Bild", "generiere ein Foto", "zeichne mir"; ES: "crea una imagen", "genera una foto", "dibújame", "hazme una imagen"), respond with a generate_image block containing a detailed English prompt for the image generator. You may add a short conversational message before or after the block.
+
+Format:
+\`\`\`generate_image
+A detailed English description of the image to generate. Be specific about style, composition, colors, and content.
+\`\`\`
+
+- ALWAYS write the prompt in English regardless of conversation language (the image model works best in English)
+- Be detailed and descriptive — the more specific, the better the result
+- NEVER say you cannot create/generate images. You can.
+- NEVER suggest the user go to Midjourney, DALL-E, or any other service. You generate images directly.`
 const MESSAGE_TYPE_AWARENESS =
   `### Message Type Awareness
 - Each message in the conversation is tagged with its type: [TEXT], [VOICE], [VIDEO], or [IMAGE].
@@ -312,6 +326,61 @@ async function callAnthropic(apiKey: string, systemPrompt: string, messages: Cha
   return text
 }
 
+async function generateImageFromPrompt(prompt: string, conversationId?: string): Promise<string | null> {
+  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID
+  const apiToken = process.env.CLOUDFLARE_AI_TOKEN
+  if (!accountId || !apiToken) {
+    console.warn('[chat] No Cloudflare AI credentials for image generation')
+    return null
+  }
+
+  try {
+    const formData = new FormData()
+    formData.append('prompt', prompt)
+    formData.append('steps', '25')
+    formData.append('width', '1024')
+    formData.append('height', '1024')
+
+    const cfResponse = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/black-forest-labs/flux-2-dev`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiToken}` },
+        body: formData,
+      }
+    )
+
+    if (!cfResponse.ok) {
+      console.error('[chat] Image generation failed:', cfResponse.status)
+      return null
+    }
+
+    const imageBuffer = Buffer.from(await cfResponse.arrayBuffer())
+
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY
+    if (!supabaseUrl || !supabaseKey) return null
+
+    const supabase = createClient(supabaseUrl, supabaseKey)
+    const filename = `generated/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`
+
+    const { error: uploadError } = await supabase.storage
+      .from('media')
+      .upload(filename, imageBuffer, { contentType: 'image/png', upsert: false })
+
+    if (uploadError) {
+      console.error('[chat] Image upload error:', uploadError)
+      return null
+    }
+
+    const { data: urlData } = supabase.storage.from('media').getPublicUrl(filename)
+    return urlData.publicUrl
+  } catch (err: any) {
+    console.error('[chat] Image generation error:', err.message)
+    return null
+  }
+}
+
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST')
@@ -359,7 +428,7 @@ export default async function handler(req: any, res: any) {
 
   try {
     const { ownerPrompt, memory, stylePrompt, behavioralMemory } = await loadOwnerPromptAndMemory(conversationId)
-    const systemPrompt = `${ownerPrompt}\n\n${RESPONSE_FORMAT_MATCHING}\n\n${FORMATTING_INSTRUCTION}\n\n${FLASHCARD_INSTRUCTION}\n\n${MESSAGE_TYPE_AWARENESS}\n\n${LANGUAGE_INSTRUCTION}${stylePrompt}${memory}${behavioralMemory}${buildPerceptionPrompt(perception)}`
+    const systemPrompt = `${ownerPrompt}\n\n${RESPONSE_FORMAT_MATCHING}\n\n${FORMATTING_INSTRUCTION}\n\n${FLASHCARD_INSTRUCTION}\n\n${IMAGE_GENERATION_INSTRUCTION}\n\n${MESSAGE_TYPE_AWARENESS}\n\n${LANGUAGE_INSTRUCTION}${stylePrompt}${memory}${behavioralMemory}${buildPerceptionPrompt(perception)}`
     const messages: ChatMessage[] = [
       ...priorMessages.slice(-30),
       {
@@ -372,9 +441,20 @@ export default async function handler(req: any, res: any) {
       },
     ]
 
-    const content = await callAnthropic(apiKey, systemPrompt, messages)
+    let content = await callAnthropic(apiKey, systemPrompt, messages)
     if (!content) {
       return res.status(200).json({ content: 'Sorry, I could not generate a response.' })
+    }
+
+    // Check for generate_image block and generate image server-side
+    const imageMatch = content.match(/```generate_image\s*\n?([\s\S]*?)\n?```/)
+    if (imageMatch) {
+      const imagePrompt = imageMatch[1].trim()
+      const imageUrl = await generateImageFromPrompt(imagePrompt, conversationId)
+      if (imageUrl) {
+        const textPart = content.replace(/```generate_image\s*\n?[\s\S]*?\n?```/, '').trim()
+        return res.status(200).json({ content: textPart || '', image_url: imageUrl })
+      }
     }
 
     return res.status(200).json({ content })
