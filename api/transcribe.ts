@@ -66,52 +66,56 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
-  // Prefer OpenAI for STT (better multilingual code-switching handling),
-  // fall back to ElevenLabs Scribe if no OpenAI key
-  const openaiKey = process.env.OPENAI_API_KEY
+  // Prefer Deepgram Nova-3 for STT (best multilingual code-switching: DE/EN/ES
+  // natively supported with language=multi). Falls back to ElevenLabs Scribe.
+  const deepgramKey = process.env.DEEPGRAM_API_KEY
   const elevenLabsKey = process.env.ELEVENLABS_API_KEY || process.env.VITE_ELEVENLABS_API_KEY
-  if (!openaiKey && !elevenLabsKey) {
-    return res.status(503).json({ error: 'Missing OPENAI_API_KEY or ELEVENLABS_API_KEY' })
+  if (!deepgramKey && !elevenLabsKey) {
+    return res.status(503).json({ error: 'Missing DEEPGRAM_API_KEY or ELEVENLABS_API_KEY' })
   }
 
   try {
     const { buffer, contentType } = await parseRequestBody(req)
 
-    const blob = new Blob([buffer], { type: contentType })
-    const ext = contentType.includes('mp4') ? 'm4a'
-      : contentType.includes('ogg') ? 'ogg'
-      : 'webm'
-
     let transcript = ''
     let detectedLanguage: string | null = null
 
-    if (openaiKey) {
-      // OpenAI gpt-4o-mini-transcribe — GPT-4o-based, excellent at multilingual
-      // code-switching (DE/EN/ES mixed speech). Auto-detects language.
-      const formData = new FormData()
-      formData.append('file', blob, `audio.${ext}`)
-      formData.append('model', 'gpt-4o-mini-transcribe')
-      formData.append('response_format', 'json')
+    if (deepgramKey) {
+      // Deepgram Nova-3 with language=multi — native code-switching support
+      // for DE/EN/ES in the same audio stream. Sends raw binary, not FormData.
+      const dgContentType = contentType.includes('mp4') ? 'audio/mp4'
+        : contentType.includes('ogg') ? 'audio/ogg'
+        : contentType.includes('mpeg') ? 'audio/mpeg'
+        : 'audio/webm'
 
-      const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${openaiKey}`,
-        },
-        body: formData,
-      })
+      const response = await fetch(
+        'https://api.deepgram.com/v1/listen?model=nova-3&language=multi&smart_format=true&detect_language=true',
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Token ${deepgramKey}`,
+            'Content-Type': dgContentType,
+          },
+          body: buffer,
+        }
+      )
 
       if (!response.ok) {
         const errText = await response.text().catch(() => '')
-        console.error('[transcribe] OpenAI STT error:', response.status, errText)
+        console.error('[transcribe] Deepgram STT error:', response.status, errText)
         return res.status(502).json({ error: `STT failed (${response.status})`, details: errText })
       }
 
       const data = await response.json()
-      transcript = (data.text || '').trim()
-      detectedLanguage = data.language || null
+      const alt = data.results?.channels?.[0]?.alternatives?.[0]
+      transcript = (alt?.transcript || '').trim()
+      detectedLanguage = data.results?.channels?.[0]?.detected_language || null
     } else {
       // Fallback: ElevenLabs Scribe v1
+      const blob = new Blob([buffer], { type: contentType })
+      const ext = contentType.includes('mp4') ? 'm4a'
+        : contentType.includes('ogg') ? 'ogg'
+        : 'webm'
       const formData = new FormData()
       formData.append('file', blob, `audio.${ext}`)
       formData.append('model_id', 'scribe_v1')

@@ -267,25 +267,29 @@ export default async function handler(req: any, res: any) {
       let transcript: string | null = null;
       let audioDurationSec: number | null = null;
       try {
-        const openaiKey = process.env.OPENAI_API_KEY;
+        const deepgramKey = process.env.DEEPGRAM_API_KEY;
         const elevenLabsKey = process.env.ELEVENLABS_API_KEY || process.env.VITE_ELEVENLABS_API_KEY;
 
-        if (openaiKey) {
-          // Prefer OpenAI gpt-4o-mini-transcribe for better multilingual handling
-          const sttForm = new FormData();
-          sttForm.append('file', blob, finalFilename);
-          sttForm.append('model', 'gpt-4o-mini-transcribe');
-          sttForm.append('response_format', 'json');
+        if (deepgramKey) {
+          // Prefer Deepgram Nova-3 with language=multi for code-switching
+          const blobBuffer = Buffer.from(await blob.arrayBuffer());
+          const dgContentType = (blob.type || 'audio/webm').split(';')[0];
 
-          const sttRes = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${openaiKey}` },
-            body: sttForm,
-          });
+          const sttRes = await fetch(
+            'https://api.deepgram.com/v1/listen?model=nova-3&language=multi&smart_format=true',
+            {
+              method: 'POST',
+              headers: {
+                'Authorization': `Token ${deepgramKey}`,
+                'Content-Type': dgContentType,
+              },
+              body: blobBuffer,
+            }
+          );
 
           if (sttRes.ok) {
             const sttData = await sttRes.json();
-            transcript = sttData.text?.trim() || null;
+            transcript = sttData.results?.channels?.[0]?.alternatives?.[0]?.transcript?.trim() || null;
           }
         } else if (elevenLabsKey) {
           // Fallback: ElevenLabs Scribe v1
