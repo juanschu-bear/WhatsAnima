@@ -1062,7 +1062,7 @@ export default function Chat() {
   const [text, setText] = useState('')
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
-  type AvatarStatus = null | 'listening' | 'watching' | 'looking' | 'thinking' | 'writing' | 'recording'
+  type AvatarStatus = null | 'listening' | 'watching' | 'looking' | 'thinking' | 'writing' | 'recording' | 'designing'
   const [avatarStatus, setAvatarStatus] = useState<AvatarStatus>(null)
   const [captionDraft, setCaptionDraft] = useState<CaptionDraft | null>(null)
   const [captionText, setCaptionText] = useState('')
@@ -1353,6 +1353,11 @@ export default function Chat() {
       } else {
         console.error('[getAvatarReply] Chat API error:', chatData?.error || chatResponse.status)
       }
+      // Safety net: strip any generate_image block that leaked through server-side processing
+      if (replyText.includes('```generate_image')) {
+        replyText = replyText.replace(/```generate_image\s*\n?[\s\S]*?\n?```/g, '').trim()
+      }
+
       if (!replyText && !generatedImageUrl) {
         replyText = 'Honestly? Give me the interesting part first.'
       }
@@ -1454,10 +1459,18 @@ export default function Chat() {
       }
 
       setAvatarStatus('thinking')
+
+      // Detect image-generation intent early so status shows 'designing' during the API call
+      const imageKeywords = /\b(generate|create|draw|make|design|paint|sketch|render|erstell|generiere|zeichne|mal mir|crea|genera|dib[uú]ja|hazme|diseña)\b.*\b(image|picture|photo|illustration|art|bild|foto|imagen|dibujo|ilustraci[oó]n)\b|\b(image|picture|photo|illustration|bild|foto|imagen|dibujo)\b.*\b(generate|create|draw|make|erstell|generiere|zeichne|crea|genera|dib[uú]ja|hazme)\b/i
+      if (imageKeywords.test(seedText)) {
+        setAvatarStatus('designing')
+      }
+
       const replyPayload = await getAvatarReply(seedText, options)
 
       // Handle generated image responses
       if (replyPayload.isGeneratedImage && replyPayload.mediaUrl) {
+        setAvatarStatus('designing')
         if (replyPayload.content) {
           const textReply = await sendMessage(conversationId, 'avatar', 'text', replyPayload.content)
           setMessages((current) => [...current, textReply as Message])
@@ -1990,6 +2003,7 @@ export default function Chat() {
                     : avatarStatus === 'looking' ? t(locale, 'isLooking')
                     : avatarStatus === 'thinking' ? t(locale, 'isThinking')
                     : avatarStatus === 'writing' ? t(locale, 'isWriting')
+                    : avatarStatus === 'designing' ? t(locale, 'isDesigning')
                     : avatarStatus === 'recording' ? t(locale, 'isRecording')
                     : t(locale, 'isWriting')}
                 </span>

@@ -450,11 +450,16 @@ export default async function handler(req: any, res: any) {
     const imageMatch = content.match(/```generate_image\s*\n?([\s\S]*?)\n?```/)
     if (imageMatch) {
       const imagePrompt = imageMatch[1].trim()
+      // Always strip the generate_image block from the response text
+      const textPart = content.replace(/```generate_image\s*\n?[\s\S]*?\n?```/, '').trim()
       const imageUrl = await generateImageFromPrompt(imagePrompt, conversationId)
       if (imageUrl) {
-        const textPart = content.replace(/```generate_image\s*\n?[\s\S]*?\n?```/, '').trim()
         return res.status(200).json({ content: textPart || '', image_url: imageUrl })
       }
+      // Image generation failed — return text without raw block, add a note
+      console.error('[chat] Image generation failed for prompt:', imagePrompt.slice(0, 100))
+      const fallbackText = textPart || 'Sorry, the image could not be generated right now. Please try again.'
+      return res.status(200).json({ content: fallbackText })
     }
 
     return res.status(200).json({ content })

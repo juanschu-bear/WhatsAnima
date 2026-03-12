@@ -90,6 +90,7 @@ const translations = {
     isLooking: 'is looking at your image',
     isThinking: 'is thinking',
     isWriting: 'is writing',
+    isDesigning: 'is creating an image',
     isRecording: 'is recording a voice note',
 
     // Message actions
@@ -265,6 +266,7 @@ const translations = {
     isLooking: 'est\u00e1 mirando tu imagen',
     isThinking: 'est\u00e1 pensando',
     isWriting: 'est\u00e1 escribiendo',
+    isDesigning: 'est\u00e1 creando una imagen',
     isRecording: 'est\u00e1 grabando una nota de voz',
 
     // Message actions
@@ -440,6 +442,7 @@ const translations = {
     isLooking: 'schaut sich dein Bild an',
     isThinking: 'denkt nach',
     isWriting: 'schreibt',
+    isDesigning: 'erstellt ein Bild',
     isRecording: 'nimmt eine Sprachnachricht auf',
 
     // Message actions
