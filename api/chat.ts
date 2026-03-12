@@ -13,6 +13,17 @@ const RESPONSE_FORMAT_MATCHING =
 - Respond conversationally. Be natural, direct, no disclaimers.`
 const FORMATTING_INSTRUCTION =
   "IMPORTANT FORMATTING RULE: Respond conversationally as if you're texting. No bullet points, no bold text, no headers, no markdown formatting. No asterisks, no dashes for lists, no numbered lists. Write like you're actually talking to someone in a private chat. Keep it natural and direct."
+const FLASHCARD_INSTRUCTION =
+  `### Flashcards & Quiz Mode
+When the user explicitly asks you to create flashcards, a quiz, or learning cards (e.g. "erstelle Flashcards zu...", "quiz me on...", "create flashcards about...", "Mini-Quiz zu..."), respond with ONLY a JSON block in this exact format — no extra text before or after:
+\`\`\`flashcard
+{"title": "Topic Title", "cards": [{"q": "Question 1?", "a": "Answer 1"}, {"q": "Question 2?", "a": "Answer 2"}]}
+\`\`\`
+Rules:
+- Generate the number of cards the user requests (default 5 if not specified, max 20)
+- Match the language the user is speaking
+- Questions should be clear and specific, answers concise but complete
+- ONLY use this format when the user explicitly asks for flashcards/quiz — never unprompted`
 const MESSAGE_TYPE_AWARENESS =
   `### Message Type Awareness
 - Each message in the conversation is tagged with its type: [TEXT], [VOICE], [VIDEO], or [IMAGE].
@@ -320,7 +331,7 @@ export default async function handler(req: any, res: any) {
 
   try {
     const { ownerPrompt, memory, stylePrompt, behavioralMemory } = await loadOwnerPromptAndMemory(conversationId)
-    const systemPrompt = `${ownerPrompt}\n\n${RESPONSE_FORMAT_MATCHING}\n\n${FORMATTING_INSTRUCTION}\n\n${MESSAGE_TYPE_AWARENESS}\n\n${LANGUAGE_INSTRUCTION}${stylePrompt}${memory}${behavioralMemory}${buildPerceptionPrompt(perception)}`
+    const systemPrompt = `${ownerPrompt}\n\n${RESPONSE_FORMAT_MATCHING}\n\n${FORMATTING_INSTRUCTION}\n\n${FLASHCARD_INSTRUCTION}\n\n${MESSAGE_TYPE_AWARENESS}\n\n${LANGUAGE_INSTRUCTION}${stylePrompt}${memory}${behavioralMemory}${buildPerceptionPrompt(perception)}`
     const messages: ChatMessage[] = [
       ...priorMessages.slice(-30),
       {

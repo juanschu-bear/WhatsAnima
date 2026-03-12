@@ -57,12 +57,13 @@ function formatMessageTime(dateStr: string) {
 
 function formatMessagePreview(content: string | null, type: MessageType) {
   if (content?.trim()) return content
-  return {
+  return ({
     voice: 'Voice message',
     video: 'Video message',
     image: 'Image',
     text: 'Message',
-  }[type]
+    flashcard: 'Flashcards',
+  } as Record<string, string>)[type] || 'Message'
 }
 
 function getContactName(conversation: ConversationListItem) {

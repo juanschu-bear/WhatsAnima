@@ -19,6 +19,7 @@ interface UseSessionMemoryOptions {
 
 const SESSION_TIMEOUT_MS = 180_000 // 3 minutes
 const DEFAULT_BUSY_COOLDOWN_MS = 600_000 // 10 minutes fallback when user says "busy" without duration
+const REMINDER_CHECK_INTERVAL_MS = 60_000 // check for due reminders every 60s
 
 /**
  * Patterns that indicate the user is busy / away, with optional duration extraction.
@@ -202,6 +203,42 @@ export function useSessionMemory({
     window.addEventListener('beforeunload', handleUnload)
     return () => window.removeEventListener('beforeunload', handleUnload)
   }, [conversationId, messages])
+
+  // --- Proactive reminders from memory ---
+  // Poll for due reminders and have the avatar deliver them naturally
+  const reminderTimerRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (!conversationId) return
+
+    function checkReminders() {
+      fetch(`/api/check-reminders?conversationId=${conversationId}`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.reminders && data.reminders.length > 0) {
+            for (const reminder of data.reminders) {
+              // Send the reminder as a text message from the avatar
+              sendAvatarReply(
+                `SYSTEM INSTRUCTION: Send this proactive reminder to the user as a natural, caring message. Do NOT mention that this is a reminder system — just bring it up naturally like you remembered it yourself. Here is what you need to remind them about: "${reminder.message}"`,
+                { useVoice: false }
+              )
+            }
+          }
+        })
+        .catch(() => {}) // silently fail
+    }
+
+    // Initial check after a short delay (don't fire immediately on page load)
+    const initialTimer = window.setTimeout(checkReminders, 5000)
+
+    // Then check periodically
+    reminderTimerRef.current = window.setInterval(checkReminders, REMINDER_CHECK_INTERVAL_MS)
+
+    return () => {
+      window.clearTimeout(initialTimer)
+      if (reminderTimerRef.current) window.clearInterval(reminderTimerRef.current)
+    }
+  }, [conversationId])
 
   return { triggerMemoryUpdate }
 }

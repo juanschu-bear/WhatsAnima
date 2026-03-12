@@ -375,4 +375,38 @@ CREATE POLICY "baseline_insert" ON public.wa_voice_baseline
 CREATE POLICY "baseline_update" ON public.wa_voice_baseline
   FOR UPDATE USING (TRUE);
 
+-- =============================================================
+-- Reminders: proactive avatar nudges from timeline memory
+-- =============================================================
+-- Extracted during session-end memory update when the user mentions
+-- future events, deadlines, or tasks. The avatar proactively reminds them.
+
+CREATE TABLE IF NOT EXISTS public.wa_reminders (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  conversation_id UUID REFERENCES public.wa_conversations(id) ON DELETE CASCADE,
+  reminder_text TEXT NOT NULL,
+  source_fact TEXT,
+  due_at TIMESTAMPTZ NOT NULL,
+  fired BOOLEAN DEFAULT FALSE,
+  fired_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_reminders_due
+  ON public.wa_reminders (conversation_id, fired, due_at);
+
+ALTER TABLE public.wa_reminders ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "reminders_select" ON public.wa_reminders FOR SELECT USING (TRUE);
+CREATE POLICY "reminders_insert" ON public.wa_reminders FOR INSERT WITH CHECK (TRUE);
+CREATE POLICY "reminders_update" ON public.wa_reminders FOR UPDATE USING (TRUE);
+
+-- =============================================================
+-- Flashcards: extend message type to support interactive cards
+-- =============================================================
+-- Add 'flashcard' as a valid message type
+ALTER TABLE public.wa_messages DROP CONSTRAINT IF EXISTS wa_messages_type_check;
+ALTER TABLE public.wa_messages ADD CONSTRAINT wa_messages_type_check
+  CHECK (type IN ('text', 'voice', 'video', 'image', 'flashcard'));
+
 NOTIFY pgrst, 'reload schema';
