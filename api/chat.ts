@@ -138,10 +138,10 @@ function getDatabaseUrl() {
   )
 }
 
-async function loadOwnerPromptAndMemory(conversationId: string | undefined): Promise<{ ownerPrompt: string; memory: string; stylePrompt: string }> {
-  if (!conversationId) return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '', stylePrompt: '' }
+async function loadOwnerPromptAndMemory(conversationId: string | undefined): Promise<{ ownerPrompt: string; memory: string; stylePrompt: string; behavioralMemory: string }> {
+  if (!conversationId) return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '', stylePrompt: '', behavioralMemory: '' }
   const databaseUrl = getDatabaseUrl()
-  if (!databaseUrl) return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '', stylePrompt: '' }
+  if (!databaseUrl) return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '', stylePrompt: '', behavioralMemory: '' }
 
   const client = new Client({ connectionString: databaseUrl, ssl: { rejectUnauthorized: false } })
   try {
@@ -152,7 +152,7 @@ async function loadOwnerPromptAndMemory(conversationId: string | undefined): Pro
         [conversationId]
       ),
       client.query(
-        `select summary, key_facts from public.wa_conversation_memory where conversation_id = $1 limit 1`,
+        `select summary, key_facts, behavioral_profile from public.wa_conversation_memory where conversation_id = $1 limit 1`,
         [conversationId]
       ).catch(() => ({ rows: [] })),
     ])
@@ -199,7 +199,28 @@ async function loadOwnerPromptAndMemory(conversationId: string | undefined): Pro
       memory = '\n\n' + lines.join('\n')
     }
 
-    return { ownerPrompt, memory, stylePrompt }
+    // Build behavioral memory from OPM/Canon persistent data
+    let behavioralMemory = ''
+    const bp = memRow?.behavioral_profile
+    if (bp && typeof bp === 'object' && Object.keys(bp).length > 0) {
+      const bLines = ['[BEHAVIORAL MEMORY — how this user communicates, from real audio/video analysis]']
+      if (Array.isArray(bp.emotional_patterns) && bp.emotional_patterns.length > 0) {
+        bLines.push(`\nEmotional patterns: ${bp.emotional_patterns.join('; ')}`)
+      }
+      if (Array.isArray(bp.prosodic_tendencies) && bp.prosodic_tendencies.length > 0) {
+        bLines.push(`\nVoice/speech patterns: ${bp.prosodic_tendencies.join('; ')}`)
+      }
+      if (Array.isArray(bp.topic_reactions) && bp.topic_reactions.length > 0) {
+        bLines.push(`\nTopic-specific reactions: ${bp.topic_reactions.join('; ')}`)
+      }
+      if (Array.isArray(bp.authenticity_markers) && bp.authenticity_markers.length > 0) {
+        bLines.push(`\nAuthenticity markers: ${bp.authenticity_markers.join('; ')}`)
+      }
+      bLines.push('\nUse this behavioral knowledge to deepen your understanding. You know not just WHAT this person talks about, but HOW they feel about topics based on real observed patterns. Combine this with live perception data for nuanced responses.')
+      behavioralMemory = '\n\n' + bLines.join('\n')
+    }
+
+    return { ownerPrompt, memory, stylePrompt, behavioralMemory }
   } finally {
     await client.end().catch(() => undefined)
   }
@@ -299,8 +320,8 @@ export default async function handler(req: any, res: any) {
     : []
 
   try {
-    const { ownerPrompt, memory, stylePrompt } = await loadOwnerPromptAndMemory(conversationId)
-    const systemPrompt = `${ownerPrompt}\n\n${RESPONSE_FORMAT_MATCHING}\n\n${FORMATTING_INSTRUCTION}\n\n${MESSAGE_TYPE_AWARENESS}\n\n${LANGUAGE_INSTRUCTION}\n\n${SPANISH_DIALECT_INSTRUCTION}${stylePrompt}${memory}${buildPerceptionPrompt(perception)}`
+    const { ownerPrompt, memory, stylePrompt, behavioralMemory } = await loadOwnerPromptAndMemory(conversationId)
+    const systemPrompt = `${ownerPrompt}\n\n${RESPONSE_FORMAT_MATCHING}\n\n${FORMATTING_INSTRUCTION}\n\n${MESSAGE_TYPE_AWARENESS}\n\n${LANGUAGE_INSTRUCTION}\n\n${SPANISH_DIALECT_INSTRUCTION}${stylePrompt}${memory}${behavioralMemory}${buildPerceptionPrompt(perception)}`
     const messages: ChatMessage[] = [
       ...priorMessages.slice(-30),
       {

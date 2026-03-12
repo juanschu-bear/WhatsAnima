@@ -227,6 +227,11 @@ CREATE POLICY "memory_select" ON public.wa_conversation_memory FOR SELECT USING 
 CREATE POLICY "memory_insert" ON public.wa_conversation_memory FOR INSERT WITH CHECK (TRUE);
 CREATE POLICY "memory_update" ON public.wa_conversation_memory FOR UPDATE USING (TRUE);
 
+-- Behavioral memory: persistent OPM/Canon behavioral patterns (emotional, prosodic, topic reactions)
+-- Stores how the user communicates, not what they say — extracted from real audio/video analysis
+ALTER TABLE public.wa_conversation_memory
+  ADD COLUMN IF NOT EXISTS behavioral_profile JSONB DEFAULT '{}'::jsonb;
+
 -- Owner persona learning: flag whether owner IS the avatar (self-clone)
 -- When true, the system learns the owner's communication style from conversations
 -- When false (e.g. a celebrity avatar), only OPM adapts behavior to the contact
