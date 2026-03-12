@@ -240,7 +240,7 @@ export async function callOpmApi(
   onStage('\uD83D\uDCE1', uploadLabel, 10)
   const formData = new FormData()
   formData.append('video', mediaBlob, fileName)
-  formData.append('user_id', conversation.contact_id || 'guest')
+  formData.append('session_id', conversation.id || '')
   formData.append('preset', preset)
   if (opts?.orientation) formData.append('orientation', String(opts.orientation))
 
@@ -307,16 +307,16 @@ export async function callOpmApi(
   return normalizeOpmResponse(rawResults)
 }
 
-export async function transcribeServerSide(audioBase64: string, contentType: string, locale: string): Promise<string> {
+export async function transcribeServerSide(audioBase64: string, contentType: string, _locale?: string): Promise<string> {
   try {
-    const langMap: Record<string, string> = { en: 'eng', de: 'deu', es: 'spa' }
+    // Language auto-detected by ElevenLabs Scribe v1 — no forced language hint.
+    // Forcing a wrong locale (e.g. 'eng' when user speaks German) caused misdetection.
     const response = await fetch('/api/transcribe', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         audio: audioBase64,
         contentType,
-        languageCode: langMap[locale] || null,
       }),
     })
     const data = await response.json().catch(() => ({}))
