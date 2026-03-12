@@ -8,6 +8,7 @@ export default function Home() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const [checking, setChecking] = useState(true)
+  const [chatConversationId, setChatConversationId] = useState<string | null>(null)
 
   const displayName =
     [user?.user_metadata?.first_name, user?.user_metadata?.last_name].filter(Boolean).join(' ') ||
@@ -30,6 +31,26 @@ export default function Home() {
         .maybeSingle()
 
       if (ownerData) {
+        // Owner — also check if they have a chat conversation as a contact
+        if (user!.email) {
+          try {
+            const contact = await findContactByEmail(user!.email)
+            if (contact) {
+              const { data: conv } = await supabase
+                .from('wa_conversations')
+                .select('id')
+                .eq('contact_id', contact.id)
+                .order('updated_at', { ascending: false })
+                .limit(1)
+                .maybeSingle()
+              if (conv) {
+                setChatConversationId(conv.id)
+              }
+            }
+          } catch {
+            // No chat conversation found — that's fine
+          }
+        }
         setChecking(false)
         return
       }
@@ -95,21 +116,46 @@ export default function Home() {
           <div className="mt-5 rounded-full border border-white/10 bg-white/5 px-5 py-2 text-sm text-white/70 backdrop-blur-xl">
             {displayName}
           </div>
-          <div className="mt-8 flex w-full max-w-sm flex-col gap-3 sm:flex-row">
-            <button
-              type="button"
-              onClick={() => navigate('/dashboard')}
-              className="rounded-2xl bg-[#00a884] px-6 py-3 text-center text-sm font-semibold text-[#0b141a] transition hover:brightness-110"
-            >
-              Dashboard
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate('/settings')}
-              className="rounded-2xl border border-white/10 bg-[#1f2c34]/80 px-6 py-3 text-sm font-medium transition hover:border-[#00a884]/60 hover:text-[#00a884]"
-            >
-              Settings
-            </button>
+          <div className="mt-8 flex w-full max-w-sm flex-col gap-3">
+            {chatConversationId ? (
+              <button
+                type="button"
+                onClick={() => navigate(`/chat/${chatConversationId}`)}
+                className="flex items-center justify-center gap-2 rounded-2xl bg-[#00a884] px-6 py-3 text-center text-sm font-semibold text-[#0b141a] transition hover:brightness-110"
+              >
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                </svg>
+                Chat
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => navigate('/avatars')}
+                className="flex items-center justify-center gap-2 rounded-2xl bg-[#00a884] px-6 py-3 text-center text-sm font-semibold text-[#0b141a] transition hover:brightness-110"
+              >
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                </svg>
+                Chat
+              </button>
+            )}
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => navigate('/dashboard')}
+                className="flex-1 rounded-2xl border border-white/10 bg-[#1f2c34]/80 px-6 py-3 text-sm font-medium transition hover:border-[#00a884]/60 hover:text-[#00a884]"
+              >
+                Dashboard
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate('/settings')}
+                className="flex-1 rounded-2xl border border-white/10 bg-[#1f2c34]/80 px-6 py-3 text-sm font-medium transition hover:border-[#00a884]/60 hover:text-[#00a884]"
+              >
+                Settings
+              </button>
+            </div>
           </div>
         </div>
       </div>
