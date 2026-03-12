@@ -9,12 +9,14 @@ import Invite from './pages/Invite'
 import Chat from './pages/Chat'
 import AvatarSelect from './pages/AvatarSelect'
 import Settings from './pages/Settings'
+import AuthCallback from './pages/AuthCallback'
 
 export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
         <Routes>
+          <Route path="/auth/callback" element={<AuthCallback />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
           <Route path="/invite/:token" element={<Invite />} />

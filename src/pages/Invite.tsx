@@ -173,7 +173,7 @@ export default function Invite() {
     setError(null)
     setSubmitting(true)
 
-    const redirectTo = `${window.location.origin}/invite/${token}`
+    const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(`/invite/${token}`)}`
     console.log('[Invite] sending magic link to', email, 'redirect →', redirectTo)
 
     // Persist form data so we can pick it up after the redirect

@@ -118,10 +118,9 @@ export default function Login() {
       return
     }
 
-    // Magic link flow
-    const redirectTo = role === 'owner'
-      ? `${window.location.origin}/`
-      : `${window.location.origin}/avatars`
+    // Magic link flow — redirect through /auth/callback with PKCE
+    const nextPath = role === 'owner' ? '/dashboard' : '/avatars'
+    const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`
 
     const { error: otpError } = await supabase.auth.signInWithOtp({
       email: email.trim(),
@@ -203,8 +202,8 @@ export default function Login() {
         return
       }
 
-      // Magic link fallback — redirect to chat
-      const redirectTo = `${window.location.origin}/chat/${conversationId}`
+      // Magic link fallback — redirect through /auth/callback
+      const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(`/chat/${conversationId}`)}`
       const { error: otpError } = await supabase.auth.signInWithOtp({
         email: email.trim(),
         options: {

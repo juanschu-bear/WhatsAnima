@@ -9,11 +9,21 @@ function createSupabaseClient(): SupabaseClient {
       'Missing Supabase environment variables (VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY). ' +
       'Database features will not work.'
     )
-    // Return a client with placeholder values so the app can still render.
-    // All Supabase calls will fail gracefully at the call site.
     return createClient('https://placeholder.supabase.co', 'placeholder')
   }
-  return createClient(supabaseUrl, supabaseAnonKey)
+  return createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      persistSession: true,
+      storageKey: 'wa-auth',
+      storage: localStorage,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+      // PKCE flow: magic link returns a code param instead of hash fragment.
+      // This works reliably in PWA standalone mode because the redirect
+      // goes through a normal URL (not a hash), which iOS can handle.
+      flowType: 'pkce',
+    },
+  })
 }
 
 export const supabase = createSupabaseClient()
