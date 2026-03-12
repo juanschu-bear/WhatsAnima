@@ -8,6 +8,7 @@ import Dashboard from './pages/Dashboard'
 import Invite from './pages/Invite'
 import Chat from './pages/Chat'
 import AvatarSelect from './pages/AvatarSelect'
+import Settings from './pages/Settings'
 
 export default function App() {
   return (
@@ -39,6 +40,14 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <Dashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              <ProtectedRoute>
+                <Settings />
               </ProtectedRoute>
             }
           />
