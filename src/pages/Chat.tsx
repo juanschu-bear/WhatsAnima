@@ -2239,6 +2239,10 @@ export default function Chat() {
                 <div className="mt-4 rounded-2xl bg-black/15 px-3 py-2 text-sm text-white/84">
                   {voiceDraftTranscript}
                 </div>
+              ) : voiceDraftReady ? (
+                <div className="mt-4 rounded-2xl bg-black/15 px-3 py-2 text-sm text-white/50 italic">
+                  Transcription after send (multilingual)
+                </div>
               ) : null}
               {voiceDraftUrl ? <audio className="mt-4 w-full" controls src={voiceDraftUrl} /> : null}
             </div>

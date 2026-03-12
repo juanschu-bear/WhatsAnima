@@ -100,27 +100,15 @@ export function useVoiceRecording({
   }
 
   function startSpeechRecognition() {
-    const SpeechRecognitionCtor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-    if (!SpeechRecognitionCtor) return
-
-    try {
-      const recognition = new SpeechRecognitionCtor()
-      recognition.continuous = true
-      recognition.interimResults = false
-      recognition.lang = locale === 'de' ? 'de-DE' : locale === 'es' ? 'es-ES' : 'en-US'
-      recognition.onresult = (event: BrowserSpeechRecognitionEvent) => {
-        let nextTranscript = browserTranscriptRef.current
-        for (let index = event.resultIndex; index < event.results.length; index += 1) {
-          const result = event.results[index]
-          if (result.isFinal) nextTranscript += `${result[0].transcript} `
-        }
-        browserTranscriptRef.current = nextTranscript
-      }
-      recognition.start()
-      speechRecognitionRef.current = recognition
-    } catch {
-      speechRecognitionRef.current = null
-    }
+    // Browser SpeechRecognition is single-language only — it produces garbage
+    // when the user speaks a different language than the app locale (e.g. Spanish
+    // while locale is German). Since our users are multilingual (DE/EN/ES), we
+    // skip browser STT entirely and rely on Deepgram Nova-3 server-side
+    // transcription which supports multi-language code-switching natively.
+    // The browser transcript was only used as a last-resort fallback anyway
+    // (line 149-152 in sendVoiceMessage: server → OPM → browser → fallback).
+    browserTranscriptRef.current = ''
+    speechRecognitionRef.current = null
   }
 
   async function sendVoiceMessage(blob: Blob, browserTranscript: string, durationSeconds: number) {
