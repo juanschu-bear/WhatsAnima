@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase'
 import { findContactByEmail } from '../lib/api'
 
 export default function Home() {
-  const { user, signOut } = useAuth()
+  const { user } = useAuth()
   const navigate = useNavigate()
   const [checking, setChecking] = useState(true)
 
