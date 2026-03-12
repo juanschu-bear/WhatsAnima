@@ -1306,7 +1306,7 @@ export default function Chat() {
       isVoice?: boolean
       perception?: any
     }
-  ): Promise<{ content: string; mediaUrl: string | null }> {
+  ): Promise<{ content: string; mediaUrl: string | null; isGeneratedImage?: boolean }> {
     try {
       const {
         useVoice = true,
@@ -1457,7 +1457,7 @@ export default function Chat() {
       const replyPayload = await getAvatarReply(seedText, options)
 
       // Handle generated image responses
-      if ((replyPayload as any).isGeneratedImage && replyPayload.mediaUrl) {
+      if (replyPayload.isGeneratedImage && replyPayload.mediaUrl) {
         // Send text part first if present
         if (replyPayload.content) {
           const textReply = await sendMessage(conversationId, 'avatar', 'text', replyPayload.content)
