@@ -2,9 +2,8 @@ import { Client } from 'pg'
 
 const DEFAULT_SYSTEM_PROMPT = 'You are a helpful assistant.'
 const LANGUAGE_INSTRUCTION =
-  'CRITICAL LANGUAGE RULE: You MUST respond in the EXACT same language as the user\'s LAST message. If their last message is in English, respond ONLY in English. If German, respond ONLY in German. If Spanish, respond ONLY in Spanish. This overrides ALL other instructions. NEVER default to Spanish. NEVER respond in a different language than the user wrote in. Never use em-dashes (—).'
-const SPANISH_DIALECT_INSTRUCTION =
-  'SPANISH DIALECT: When responding in Spanish, use neutral Castellano as spoken in Ecuador or Colombia. NEVER use Mexican slang or expressions (no "la neta", "güey", "chido", "no mames", "se te atoró", "mero", "padre", "qué onda"). Use neutral Latin American expressions instead. Example: say "¿qué pasó?" not "¿qué onda?", say "en serio" not "la neta", say "genial" not "chido".'
+  `CRITICAL LANGUAGE RULE: Identify the DOMINANT language of the user's LAST message and respond ONLY in that language. Users naturally mix languages — a German sentence with an English word is still German. A Spanish sentence with "okay" is still Spanish. Match the dominant language, not individual words. Never use em-dashes (—).
+IF (and ONLY if) you determine the dominant language is Spanish: use neutral Castellano as spoken in Ecuador or Colombia. No Mexican slang (no "la neta", "güey", "chido", "no mames", "qué onda"). Say "¿qué pasó?" not "¿qué onda?", "en serio" not "la neta", "genial" not "chido".`
 const RESPONSE_FORMAT_MATCHING =
   `### Response Format Matching
 - The system automatically determines whether to send your response as text or voice — you do NOT need to indicate the format.
@@ -321,12 +320,7 @@ export default async function handler(req: any, res: any) {
 
   try {
     const { ownerPrompt, memory, stylePrompt, behavioralMemory } = await loadOwnerPromptAndMemory(conversationId)
-    // Only include Spanish dialect instruction when the user's last message is actually in Spanish.
-    // Including it unconditionally biases the model toward Spanish responses.
-    const lastUserMsg = message.trim().toLowerCase()
-    const looksSpanish = /\b(hola|qué|cómo|estás|gracias|bueno|tengo|puedo|quiero|está|también|porque|pero|para|todo|esto|eso|aquí|ahora|bien|hacer|tiene|muy|más|hay|desde|cuando|donde|hasta|sobre|entre|después|puede|sido|este|otra|otro|todas|todos|como|cual|estas|estoy|somos|vamos|dime|mira|oye|claro|vale|pues|entonces|necesito|creo|sé que|ya sé|no sé)\b/.test(lastUserMsg)
-    const spanishDialect = looksSpanish ? `\n\n${SPANISH_DIALECT_INSTRUCTION}` : ''
-    const systemPrompt = `${ownerPrompt}\n\n${RESPONSE_FORMAT_MATCHING}\n\n${FORMATTING_INSTRUCTION}\n\n${MESSAGE_TYPE_AWARENESS}\n\n${LANGUAGE_INSTRUCTION}${spanishDialect}${stylePrompt}${memory}${behavioralMemory}${buildPerceptionPrompt(perception)}`
+    const systemPrompt = `${ownerPrompt}\n\n${RESPONSE_FORMAT_MATCHING}\n\n${FORMATTING_INSTRUCTION}\n\n${MESSAGE_TYPE_AWARENESS}\n\n${LANGUAGE_INSTRUCTION}${stylePrompt}${memory}${behavioralMemory}${buildPerceptionPrompt(perception)}`
     const messages: ChatMessage[] = [
       ...priorMessages.slice(-30),
       {
