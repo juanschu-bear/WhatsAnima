@@ -267,8 +267,28 @@ export default async function handler(req: any, res: any) {
       let transcript: string | null = null;
       let audioDurationSec: number | null = null;
       try {
+        const openaiKey = process.env.OPENAI_API_KEY;
         const elevenLabsKey = process.env.ELEVENLABS_API_KEY || process.env.VITE_ELEVENLABS_API_KEY;
-        if (elevenLabsKey) {
+
+        if (openaiKey) {
+          // Prefer OpenAI gpt-4o-mini-transcribe for better multilingual handling
+          const sttForm = new FormData();
+          sttForm.append('file', blob, finalFilename);
+          sttForm.append('model', 'gpt-4o-mini-transcribe');
+          sttForm.append('response_format', 'json');
+
+          const sttRes = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${openaiKey}` },
+            body: sttForm,
+          });
+
+          if (sttRes.ok) {
+            const sttData = await sttRes.json();
+            transcript = sttData.text?.trim() || null;
+          }
+        } else if (elevenLabsKey) {
+          // Fallback: ElevenLabs Scribe v1
           const sttForm = new FormData();
           sttForm.append('file', blob, finalFilename);
           sttForm.append('model_id', 'scribe_v1');

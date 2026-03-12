@@ -66,9 +66,12 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
-  const apiKey = process.env.ELEVENLABS_API_KEY || process.env.VITE_ELEVENLABS_API_KEY
-  if (!apiKey) {
-    return res.status(503).json({ error: 'Missing ELEVENLABS_API_KEY' })
+  // Prefer OpenAI for STT (better multilingual code-switching handling),
+  // fall back to ElevenLabs Scribe if no OpenAI key
+  const openaiKey = process.env.OPENAI_API_KEY
+  const elevenLabsKey = process.env.ELEVENLABS_API_KEY || process.env.VITE_ELEVENLABS_API_KEY
+  if (!openaiKey && !elevenLabsKey) {
+    return res.status(503).json({ error: 'Missing OPENAI_API_KEY or ELEVENLABS_API_KEY' })
   }
 
   try {
@@ -79,30 +82,56 @@ export default async function handler(req: any, res: any) {
       : contentType.includes('ogg') ? 'ogg'
       : 'webm'
 
-    const formData = new FormData()
-    formData.append('file', blob, `audio.${ext}`)
-    formData.append('model_id', 'scribe_v1')
-    // Do NOT force a language — let ElevenLabs auto-detect.
-    // Forcing a wrong language (e.g. 'eng' when user speaks German)
-    // causes misdetection (often returns Spanish instead).
+    let transcript = ''
+    let detectedLanguage: string | null = null
 
-    const response = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
-      method: 'POST',
-      headers: {
-        'xi-api-key': apiKey,
-      },
-      body: formData,
-    })
+    if (openaiKey) {
+      // OpenAI gpt-4o-mini-transcribe — GPT-4o-based, excellent at multilingual
+      // code-switching (DE/EN/ES mixed speech). Auto-detects language.
+      const formData = new FormData()
+      formData.append('file', blob, `audio.${ext}`)
+      formData.append('model', 'gpt-4o-mini-transcribe')
+      formData.append('response_format', 'json')
 
-    if (!response.ok) {
-      const errText = await response.text().catch(() => '')
-      console.error('[transcribe] ElevenLabs STT error:', response.status, errText)
-      return res.status(502).json({ error: `STT failed (${response.status})`, details: errText })
+      const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${openaiKey}`,
+        },
+        body: formData,
+      })
+
+      if (!response.ok) {
+        const errText = await response.text().catch(() => '')
+        console.error('[transcribe] OpenAI STT error:', response.status, errText)
+        return res.status(502).json({ error: `STT failed (${response.status})`, details: errText })
+      }
+
+      const data = await response.json()
+      transcript = (data.text || '').trim()
+      detectedLanguage = data.language || null
+    } else {
+      // Fallback: ElevenLabs Scribe v1
+      const formData = new FormData()
+      formData.append('file', blob, `audio.${ext}`)
+      formData.append('model_id', 'scribe_v1')
+
+      const response = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
+        method: 'POST',
+        headers: { 'xi-api-key': elevenLabsKey! },
+        body: formData,
+      })
+
+      if (!response.ok) {
+        const errText = await response.text().catch(() => '')
+        console.error('[transcribe] ElevenLabs STT error:', response.status, errText)
+        return res.status(502).json({ error: `STT failed (${response.status})`, details: errText })
+      }
+
+      const data = await response.json()
+      transcript = (data.text || '').trim()
+      detectedLanguage = data.language_code || null
     }
-
-    const data = await response.json()
-    const transcript = data.text?.trim() || ''
-    const detectedLanguage = data.language_code || null
 
     return res.status(200).json({
       transcript,
