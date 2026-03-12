@@ -87,31 +87,31 @@ function delay(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
 /**
  * LLM-based fallback when the external OPM API is unreachable.
  * Analyzes the transcript (from ElevenLabs STT) to extract emotion,
- * behavioral summary, and conversation hooks using Claude Haiku.
+ * behavioral summary, and conversation hooks using Qwen QWQ-32B (Cloudflare Workers AI).
  */
 async function llmFallbackAnalysis(transcript: string | null, audioDurationSec: number | null) {
   if (!transcript || transcript.length < 5) return null;
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    console.warn('[opm-process] No ANTHROPIC_API_KEY — cannot run LLM fallback');
+  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+  const apiToken = process.env.CLOUDFLARE_AI_TOKEN;
+  if (!accountId || !apiToken) {
+    console.warn('[opm-process] No Cloudflare AI credentials — cannot run LLM fallback');
     return null;
   }
 
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 400,
-        messages: [{
-          role: 'user',
-          content: `Analyze this voice message transcript for emotional and behavioral signals. This is a real person speaking — extract what you can observe from their word choice, sentence structure, and communication style.
+    const response = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/qwen/qwq-32b`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messages: [{
+            role: 'user',
+            content: `Analyze this voice message transcript for emotional and behavioral signals. This is a real person speaking — extract what you can observe from their word choice, sentence structure, and communication style.
 
 TRANSCRIPT: "${transcript}"
 ${audioDurationSec ? `DURATION: ${audioDurationSec}s` : ''}
@@ -125,10 +125,11 @@ Respond in EXACTLY this JSON format:
   "fired_rules": []
 }
 
-Base your analysis ONLY on the transcript text. Be accurate — if the tone is ambiguous, default to "neutral".`,
-        }],
-      }),
-    });
+Base your analysis ONLY on the transcript text. Be accurate — if the tone is ambiguous, default to "neutral". Respond ONLY with the JSON, no explanation.`,
+          }],
+        }),
+      }
+    );
 
     if (!response.ok) {
       console.warn('[opm-process] LLM fallback API error:', response.status);
@@ -136,7 +137,7 @@ Base your analysis ONLY on the transcript text. Be accurate — if the tone is a
     }
 
     const result = await response.json();
-    const text = result.content?.[0]?.text?.trim() || '';
+    const text = (result.result?.response || '').trim();
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) return null;
 

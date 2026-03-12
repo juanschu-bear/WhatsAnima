@@ -26,19 +26,21 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    // Call Cloudflare Workers AI — FLUX.1 Schnell
+    // Call Cloudflare Workers AI — FLUX.2 [dev]
+    const formData = new FormData()
+    formData.append('prompt', prompt)
+    formData.append('steps', '25')
+    formData.append('width', '1024')
+    formData.append('height', '1024')
+
     const cfResponse = await fetch(
-      `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/black-forest-labs/FLUX-1-schnell`,
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/black-forest-labs/flux-2-dev`,
       {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${apiToken}`,
-          'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          prompt,
-          num_steps: 4,
-        }),
+        body: formData,
       }
     )
 
