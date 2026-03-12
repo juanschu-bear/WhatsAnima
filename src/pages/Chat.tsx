@@ -23,7 +23,7 @@ import { useVoiceRecording } from '../hooks/useVoiceRecording'
 import { useVideoCapture } from '../hooks/useVideoCapture'
 import { getVoiceListeningDelay, getVideoWatchingDelay, getAvatarFirstName, VOICE_SEEN_DELAY_MS } from '../lib/voiceDelay'
 
-type MessageType = 'text' | 'voice' | 'video' | 'image' | 'flashcard'
+type MessageType = 'text' | 'voice' | 'video' | 'image' | 'flashcard' | 'quiz' | 'lesson' | 'fillin'
 
 interface Message {
   id: string
@@ -486,6 +486,436 @@ const FlashcardBubble = memo(function FlashcardBubble({
             >
               {currentIndex < total - 1 ? 'Next \u2192' : 'Done \u2713'}
             </button>
+          </div>
+        </>
+      )}
+
+      {/* Timestamp */}
+      <div className="flex justify-end px-3 pb-2">
+        <span className="text-[10px] text-white/30">
+          {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          {isRead && ' \u2713'}
+        </span>
+      </div>
+    </div>
+  )
+})
+
+// --- Quiz (Multiple Choice) Bubble ---
+interface QuizData {
+  title: string
+  questions: Array<{ q: string; options: string[]; answer: number }>
+}
+
+function parseQuizContent(content: string | null): QuizData | null {
+  if (!content) return null
+  const match = content.match(/```quiz\s*\n?([\s\S]*?)\n?```/)
+  if (!match) return null
+  try {
+    const data = JSON.parse(match[1])
+    if (data.title && Array.isArray(data.questions) && data.questions.length > 0) return data
+  } catch {}
+  return null
+}
+
+const QuizBubble = memo(function QuizBubble({
+  message,
+  isRead,
+}: {
+  message: Message
+  isRead: boolean
+}) {
+  const data = parseQuizContent(message.content)
+  const [currentIndex, setCurrentIndex] = useState(0)
+  const [selected, setSelected] = useState<number | null>(null)
+  const [confirmed, setConfirmed] = useState(false)
+  const [score, setScore] = useState(0)
+  const [finished, setFinished] = useState(false)
+
+  if (!data) return null
+
+  const question = data.questions[currentIndex]
+  const total = data.questions.length
+  function handleSelect(idx: number) {
+    if (confirmed) return
+    setSelected(idx)
+  }
+
+  function handleConfirm() {
+    if (selected === null) return
+    setConfirmed(true)
+    if (selected === question.answer) setScore((s) => s + 1)
+  }
+
+  function handleNext() {
+    if (currentIndex < total - 1) {
+      setCurrentIndex((i) => i + 1)
+      setSelected(null)
+      setConfirmed(false)
+    } else {
+      setFinished(true)
+    }
+  }
+
+  function handleReset() {
+    setCurrentIndex(0)
+    setSelected(null)
+    setConfirmed(false)
+    setScore(0)
+    setFinished(false)
+  }
+
+  return (
+    <div className="w-[300px] overflow-hidden rounded-[20px] rounded-tl-[6px] border border-white/[0.06] bg-[#1a2332] shadow-[0_2px_8px_rgba(0,0,0,0.12)]">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-2.5">
+        <span className="text-[13px] font-medium text-white/80">{data.title}</span>
+        <span className="text-[11px] text-white/40">{currentIndex + 1}/{total}</span>
+      </div>
+
+      {/* Progress bar */}
+      <div className="h-1 bg-white/[0.04]">
+        <div
+          className="h-full bg-[#00a884] transition-all duration-300"
+          style={{ width: `${((currentIndex + (confirmed ? 1 : 0)) / total) * 100}%` }}
+        />
+      </div>
+
+      {finished ? (
+        <div className="flex flex-col items-center gap-3 px-4 py-8">
+          <span className="text-3xl">{score === total ? '\u{1F3C6}' : score >= total / 2 ? '\u{1F44D}' : '\u{1F4AA}'}</span>
+          <span className="text-[14px] font-medium text-white/80">{score}/{total} correct</span>
+          <button
+            type="button"
+            onClick={handleReset}
+            className="rounded-full bg-[#00a884]/20 px-4 py-1.5 text-[12px] font-medium text-[#00a884] transition hover:bg-[#00a884]/30"
+          >
+            Retry
+          </button>
+        </div>
+      ) : (
+        <>
+          {/* Question */}
+          <div className="px-4 py-4">
+            <div className="mb-3 text-[14px] leading-relaxed text-white/90">{question.q}</div>
+            <div className="flex flex-col gap-2">
+              {question.options.map((opt, idx) => {
+                let style = 'border-white/10 bg-white/[0.04] text-white/70'
+                if (confirmed && idx === question.answer) style = 'border-[#00a884]/40 bg-[#00a884]/15 text-[#00a884]'
+                else if (confirmed && idx === selected) style = 'border-red-400/40 bg-red-500/15 text-red-300'
+                else if (idx === selected) style = 'border-[#00a884]/40 bg-[#00a884]/10 text-white'
+                return (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => handleSelect(idx)}
+                    className={`rounded-xl border px-3 py-2.5 text-left text-[13px] transition ${style}`}
+                  >
+                    <span className="mr-2 font-medium text-white/40">{String.fromCharCode(65 + idx)}</span>
+                    {opt}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Action */}
+          <div className="flex justify-end border-t border-white/[0.06] px-3 py-2">
+            {!confirmed ? (
+              <button
+                type="button"
+                onClick={handleConfirm}
+                disabled={selected === null}
+                className="rounded-full px-4 py-1.5 text-[12px] font-medium text-[#00a884] transition hover:bg-[#00a884]/10 disabled:opacity-30"
+              >
+                Check
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleNext}
+                className="rounded-full px-4 py-1.5 text-[12px] font-medium text-[#00a884] transition hover:bg-[#00a884]/10"
+              >
+                {currentIndex < total - 1 ? 'Next \u2192' : 'Results'}
+              </button>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* Timestamp */}
+      <div className="flex justify-end px-3 pb-2">
+        <span className="text-[10px] text-white/30">
+          {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          {isRead && ' \u2713'}
+        </span>
+      </div>
+    </div>
+  )
+})
+
+// --- Lesson (Course Sections) Bubble ---
+interface LessonData {
+  title: string
+  sections: Array<{ heading: string; body: string }>
+}
+
+function parseLessonContent(content: string | null): LessonData | null {
+  if (!content) return null
+  const match = content.match(/```lesson\s*\n?([\s\S]*?)\n?```/)
+  if (!match) return null
+  try {
+    const data = JSON.parse(match[1])
+    if (data.title && Array.isArray(data.sections) && data.sections.length > 0) return data
+  } catch {}
+  return null
+}
+
+const LessonBubble = memo(function LessonBubble({
+  message,
+  isRead,
+}: {
+  message: Message
+  isRead: boolean
+}) {
+  const data = parseLessonContent(message.content)
+  const [currentSection, setCurrentSection] = useState(0)
+  const [maxVisited, setMaxVisited] = useState(0)
+
+  if (!data) return null
+
+  const section = data.sections[currentSection]
+  const total = data.sections.length
+  const progress = Math.min(maxVisited + 1, total)
+
+  function handleNext() {
+    if (currentSection < total - 1) {
+      const next = currentSection + 1
+      setCurrentSection(next)
+      setMaxVisited((m) => Math.max(m, next))
+    }
+  }
+
+  function handlePrev() {
+    if (currentSection > 0) setCurrentSection(currentSection - 1)
+  }
+
+  return (
+    <div className="w-[300px] overflow-hidden rounded-[20px] rounded-tl-[6px] border border-white/[0.06] bg-[#1a2332] shadow-[0_2px_8px_rgba(0,0,0,0.12)]">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-2.5">
+        <span className="text-[13px] font-medium text-white/80">{data.title}</span>
+        <span className="text-[11px] text-white/40">{currentSection + 1}/{total}</span>
+      </div>
+
+      {/* Progress bar */}
+      <div className="h-1 bg-white/[0.04]">
+        <div
+          className="h-full bg-[#00a884] transition-all duration-300"
+          style={{ width: `${(progress / total) * 100}%` }}
+        />
+      </div>
+
+      {/* Section content */}
+      <div className="px-4 py-4">
+        <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[#00a884]/70">
+          {section.heading}
+        </div>
+        <div className="text-[13.5px] leading-relaxed text-white/80 whitespace-pre-line">
+          {section.body}
+        </div>
+      </div>
+
+      {/* Navigation */}
+      <div className="flex items-center justify-between border-t border-white/[0.06] px-3 py-2">
+        <button
+          type="button"
+          onClick={handlePrev}
+          disabled={currentSection === 0}
+          className="rounded-full px-3 py-1 text-[12px] text-white/40 transition hover:bg-white/[0.06] hover:text-white/70 disabled:opacity-30"
+        >
+          {'\u2190'} Prev
+        </button>
+        <div className="flex gap-1">
+          {data.sections.map((_, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => setCurrentSection(i)}
+              className={`h-1.5 rounded-full transition-all ${
+                i === currentSection ? 'w-4 bg-[#00a884]' : i <= maxVisited ? 'w-1.5 bg-[#00a884]/40' : 'w-1.5 bg-white/10'
+              }`}
+            />
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={handleNext}
+          disabled={currentSection >= total - 1}
+          className="rounded-full px-3 py-1 text-[12px] text-[#00a884] transition hover:bg-[#00a884]/10 disabled:opacity-30"
+        >
+          Next {'\u2192'}
+        </button>
+      </div>
+
+      {/* Timestamp */}
+      <div className="flex justify-end px-3 pb-2">
+        <span className="text-[10px] text-white/30">
+          {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          {isRead && ' \u2713'}
+        </span>
+      </div>
+    </div>
+  )
+})
+
+// --- Fill-in (Lückentext) Bubble ---
+interface FillInData {
+  title: string
+  sentences: Array<{ text: string; blank: string }>
+}
+
+function parseFillInContent(content: string | null): FillInData | null {
+  if (!content) return null
+  const match = content.match(/```fillin\s*\n?([\s\S]*?)\n?```/)
+  if (!match) return null
+  try {
+    const data = JSON.parse(match[1])
+    if (data.title && Array.isArray(data.sentences) && data.sentences.length > 0) return data
+  } catch {}
+  return null
+}
+
+const FillInBubble = memo(function FillInBubble({
+  message,
+  isRead,
+}: {
+  message: Message
+  isRead: boolean
+}) {
+  const data = parseFillInContent(message.content)
+  const [currentIndex, setCurrentIndex] = useState(0)
+  const [answers, setAnswers] = useState<Record<number, string>>({})
+  const [checked, setChecked] = useState<Record<number, boolean>>({})
+  const [finished, setFinished] = useState(false)
+
+  if (!data) return null
+
+  const sentence = data.sentences[currentIndex]
+  const total = data.sentences.length
+  const correctCount = Object.entries(checked).filter(
+    ([i, v]) => v && answers[Number(i)]?.trim().toLowerCase() === data.sentences[Number(i)].blank.toLowerCase()
+  ).length
+
+  // Split text around ___
+  const parts = sentence.text.split('___')
+
+  function handleCheck() {
+    setChecked((c) => ({ ...c, [currentIndex]: true }))
+  }
+
+  function handleNext() {
+    if (currentIndex < total - 1) {
+      setCurrentIndex((i) => i + 1)
+    } else {
+      setFinished(true)
+    }
+  }
+
+  function handleReset() {
+    setCurrentIndex(0)
+    setAnswers({})
+    setChecked({})
+    setFinished(false)
+  }
+
+  const currentAnswer = answers[currentIndex] || ''
+  const isChecked = !!checked[currentIndex]
+  const isCorrect = isChecked && currentAnswer.trim().toLowerCase() === sentence.blank.toLowerCase()
+
+  return (
+    <div className="w-[300px] overflow-hidden rounded-[20px] rounded-tl-[6px] border border-white/[0.06] bg-[#1a2332] shadow-[0_2px_8px_rgba(0,0,0,0.12)]">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-2.5">
+        <span className="text-[13px] font-medium text-white/80">{data.title}</span>
+        <span className="text-[11px] text-white/40">{currentIndex + 1}/{total}</span>
+      </div>
+
+      {/* Progress bar */}
+      <div className="h-1 bg-white/[0.04]">
+        <div
+          className="h-full bg-[#00a884] transition-all duration-300"
+          style={{ width: `${(Object.keys(checked).length / total) * 100}%` }}
+        />
+      </div>
+
+      {finished ? (
+        <div className="flex flex-col items-center gap-3 px-4 py-8">
+          <span className="text-3xl">{correctCount === total ? '\u{1F3C6}' : correctCount >= total / 2 ? '\u{1F44D}' : '\u{1F4AA}'}</span>
+          <span className="text-[14px] font-medium text-white/80">{correctCount}/{total} correct</span>
+          <button
+            type="button"
+            onClick={handleReset}
+            className="rounded-full bg-[#00a884]/20 px-4 py-1.5 text-[12px] font-medium text-[#00a884] transition hover:bg-[#00a884]/30"
+          >
+            Retry
+          </button>
+        </div>
+      ) : (
+        <>
+          {/* Sentence with blank */}
+          <div className="px-4 py-5">
+            <div className="text-[14px] leading-relaxed text-white/80">
+              {parts[0]}
+              <span className={`inline-block min-w-[80px] border-b-2 px-1 text-center ${
+                isChecked
+                  ? isCorrect ? 'border-[#00a884] text-[#00a884]' : 'border-red-400 text-red-300'
+                  : 'border-white/30'
+              }`}>
+                {isChecked ? (
+                  <span>{currentAnswer}</span>
+                ) : (
+                  <input
+                    type="text"
+                    value={currentAnswer}
+                    onChange={(e) => setAnswers((a) => ({ ...a, [currentIndex]: e.target.value }))}
+                    className="w-full bg-transparent text-center text-[14px] text-white outline-none placeholder-white/25"
+                    placeholder="\u2026"
+                    onKeyDown={(e) => { if (e.key === 'Enter' && currentAnswer.trim()) handleCheck() }}
+                  />
+                )}
+              </span>
+              {parts[1] || ''}
+            </div>
+
+            {/* Feedback */}
+            {isChecked && !isCorrect && (
+              <div className="mt-3 rounded-xl bg-white/[0.04] px-3 py-2 text-[12px] text-white/50">
+                Correct answer: <span className="font-medium text-[#00a884]">{sentence.blank}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Action */}
+          <div className="flex justify-end border-t border-white/[0.06] px-3 py-2">
+            {!isChecked ? (
+              <button
+                type="button"
+                onClick={handleCheck}
+                disabled={!currentAnswer.trim()}
+                className="rounded-full px-4 py-1.5 text-[12px] font-medium text-[#00a884] transition hover:bg-[#00a884]/10 disabled:opacity-30"
+              >
+                Check
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleNext}
+                className="rounded-full px-4 py-1.5 text-[12px] font-medium text-[#00a884] transition hover:bg-[#00a884]/10"
+              >
+                {currentIndex < total - 1 ? 'Next \u2192' : 'Results'}
+              </button>
+            )}
           </div>
         </>
       )}
@@ -1019,11 +1449,11 @@ export default function Chat() {
       setAvatarStatus('thinking')
       const replyPayload = await getAvatarReply(seedText, options)
 
-      // Detect flashcard response
-      const flashcardMatch = replyPayload.content.match(/```flashcard\s*\n?([\s\S]*?)\n?```/)
-      const isFlashcard = !!flashcardMatch
-      const hasAudio = !isFlashcard && useVoice && !!replyPayload.mediaUrl
-      const msgType = isFlashcard ? 'flashcard' as MessageType : hasAudio ? 'voice' : 'text'
+      // Detect special response types (flashcard, quiz, lesson, fillin)
+      const specialMatch = replyPayload.content.match(/```(flashcard|quiz|lesson|fillin)\s*\n?[\s\S]*?\n?```/)
+      const specialType = specialMatch ? specialMatch[1] as MessageType : null
+      const hasAudio = !specialType && useVoice && !!replyPayload.mediaUrl
+      const msgType = specialType ?? (hasAudio ? 'voice' : 'text') as MessageType
       const reply = await sendMessage(
         conversationId,
         'avatar',
@@ -1453,6 +1883,12 @@ export default function Chat() {
                     />
                   ) : message.type === 'flashcard' ? (
                     <FlashcardBubble message={message} isRead={isRead} />
+                  ) : message.type === 'quiz' ? (
+                    <QuizBubble message={message} isRead={isRead} />
+                  ) : message.type === 'lesson' ? (
+                    <LessonBubble message={message} isRead={isRead} />
+                  ) : message.type === 'fillin' ? (
+                    <FillInBubble message={message} isRead={isRead} />
                   ) : message.type === 'image' || message.type === 'video' ? (
                     <MediaMessageBubble isContact={isContact} message={message} isRead={isRead} />
                   ) : (
