@@ -47,29 +47,60 @@ interface ConversationRef {
 }
 
 /**
- * Upload audio directly to Supabase Storage from the browser.
- * Bypasses Vercel Serverless Functions to avoid the 4.5MB request body limit
- * that causes HTTP 413 on longer voice messages (>~1.5 min).
+ * Upload audio to Supabase Storage.
+ * Tries direct browser upload first (bypasses Vercel 4.5MB limit).
+ * Falls back to /api/upload-audio (uses service role key, bypasses RLS).
  */
 export async function uploadAudioToStorage(conversation: ConversationRef, audioBlob: Blob, mimeType: string) {
-  const { supabase } = await import('./supabase')
   const cleanType = (mimeType || 'audio/webm').split(';')[0]
   const ext = cleanType === 'audio/mpeg' ? 'mp3' : cleanType === 'audio/mp4' ? 'm4a' : 'webm'
   const filename = `voice-${Date.now()}.${ext}`
   const storagePath = `${conversation.id}/${filename}`
   const bucket = 'voice-messages'
 
-  const { error } = await supabase.storage
-    .from(bucket)
-    .upload(storagePath, audioBlob, { contentType: cleanType, upsert: true })
+  // Try direct Supabase upload first (fastest, no serverless function)
+  try {
+    const { supabase } = await import('./supabase')
+    const { error } = await supabase.storage
+      .from(bucket)
+      .upload(storagePath, audioBlob, { contentType: cleanType, upsert: true })
 
-  if (error) {
-    console.error('[uploadAudio] Supabase storage error:', error.message)
-    throw new Error('Upload failed: ' + error.message)
+    if (!error) {
+      const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(storagePath)
+      return urlData.publicUrl
+    }
+    console.warn('[uploadAudio] Direct upload failed:', error.message, '— falling back to API route')
+  } catch (directErr: any) {
+    console.warn('[uploadAudio] Direct upload error:', directErr.message, '— falling back to API route')
   }
 
-  const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(storagePath)
-  return urlData.publicUrl
+  // Fallback: upload via /api/upload-audio (uses service role key, bypasses RLS)
+  // Base64 expansion (~33%) means max blob ~3MB to stay under Vercel 4.5MB limit
+  if (audioBlob.size > 3 * 1024 * 1024) {
+    throw new Error(`Voice message too large (${Math.round(audioBlob.size / 1024 / 1024)}MB). Direct upload and API fallback both failed.`)
+  }
+
+  const arrayBuf = await audioBlob.arrayBuffer()
+  const bytes = new Uint8Array(arrayBuf)
+  let binary = ''
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i])
+  }
+  const base64 = btoa(binary)
+
+  const res = await fetch('/api/upload-audio', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      audio: base64,
+      conversationId: conversation.id,
+      mime_type: cleanType,
+      filename: storagePath,
+    }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (res.ok && data.url) return data.url
+  throw new Error('Upload failed: ' + (data.error || `HTTP ${res.status}`))
 }
 
 export async function uploadMediaToStorage(
