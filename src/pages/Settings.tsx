@@ -1,13 +1,30 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
+import { getOwnerByUserId, updateOwnerProfile, uploadOwnerAvatar } from '../lib/api'
 import { type Locale, getStoredLocale, t } from '../lib/i18n'
 
 export default function Settings() {
   const { user, signOut } = useAuth()
   const navigate = useNavigate()
   const [locale] = useState<Locale>(getStoredLocale)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Owner data
+  const [ownerId, setOwnerId] = useState<string | null>(null)
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
+
+  // Name editing
+  const [firstName, setFirstName] = useState(user?.user_metadata?.first_name ?? '')
+  const [lastName, setLastName] = useState(user?.user_metadata?.last_name ?? '')
+  const [editingName, setEditingName] = useState(false)
+  const [savingName, setSavingName] = useState(false)
+  const [nameSuccess, setNameSuccess] = useState<string | null>(null)
+
+  // Avatar upload
+  const [uploadingPhoto, setUploadingPhoto] = useState(false)
+  const [photoSuccess, setPhotoSuccess] = useState<string | null>(null)
 
   // Password form
   const [newPassword, setNewPassword] = useState('')
@@ -16,15 +33,64 @@ export default function Settings() {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
 
-  const displayName =
-    [user?.user_metadata?.first_name, user?.user_metadata?.last_name]
-      .filter(Boolean)
-      .join(' ') || ''
-
+  const displayName = [firstName, lastName].filter(Boolean).join(' ') || ''
   const email = user?.email ?? ''
 
-  // Check if user has a password (providers array contains 'email' with password identity)
   const hasPassword = user?.app_metadata?.providers?.includes('email') ?? false
+
+  // Load owner data on mount
+  useEffect(() => {
+    if (!user?.id) return
+    getOwnerByUserId(user.id)
+      .then((owner) => {
+        setOwnerId(owner.id)
+        if (owner.avatar_url) setAvatarUrl(owner.avatar_url)
+        if (owner.display_name) {
+          const parts = owner.display_name.split(' ')
+          if (!firstName && parts[0]) setFirstName(parts[0])
+          if (!lastName && parts.length > 1) setLastName(parts.slice(1).join(' '))
+        }
+      })
+      .catch(() => { /* owner may not exist yet */ })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id])
+
+  async function handleSaveName() {
+    if (!ownerId) return
+    setSavingName(true)
+    setNameSuccess(null)
+    try {
+      const newDisplayName = [firstName.trim(), lastName.trim()].filter(Boolean).join(' ')
+      await updateOwnerProfile(ownerId, { display_name: newDisplayName })
+      await supabase.auth.updateUser({
+        data: { first_name: firstName.trim(), last_name: lastName.trim() },
+      })
+      setEditingName(false)
+      setNameSuccess(t(locale, 'nameUpdated'))
+      setTimeout(() => setNameSuccess(null), 3000)
+    } catch {
+      setError('Failed to update name.')
+    } finally {
+      setSavingName(false)
+    }
+  }
+
+  async function handlePhotoUpload(file: File) {
+    if (!ownerId) return
+    setUploadingPhoto(true)
+    setPhotoSuccess(null)
+    try {
+      const url = await uploadOwnerAvatar(ownerId, file)
+      await updateOwnerProfile(ownerId, { avatar_url: url })
+      setAvatarUrl(url + '?t=' + Date.now())
+      setPhotoSuccess(t(locale, 'photoUpdated'))
+      setTimeout(() => setPhotoSuccess(null), 3000)
+    } catch {
+      setError(t(locale, 'uploadFailed'))
+    } finally {
+      setUploadingPhoto(false)
+    }
+  }
 
   function validatePassword(pw: string): string | null {
     if (pw.length < 8) return t(locale, 'passwordRequirements')
@@ -96,22 +162,132 @@ export default function Settings() {
             <h1 className="text-2xl font-bold text-white">{t(locale, 'settings')}</h1>
           </div>
 
-          {/* Profile Card */}
+          {/* Profile Card — WhatsApp/Telegram style */}
           <div className="brand-panel rounded-[24px] p-6">
-            <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-white/40">
+            <h2 className="mb-5 text-sm font-semibold uppercase tracking-wider text-white/40">
               {t(locale, 'profile')}
             </h2>
 
-            <div className="flex items-center gap-4">
-              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[#00a884]/15 text-2xl font-bold text-[#00a884]">
-                {(displayName || email).charAt(0).toUpperCase()}
+            {/* Large avatar */}
+            <div className="flex flex-col items-center">
+              <div className="relative">
+                <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full bg-[#00a884]/15 shadow-[0_0_40px_rgba(0,168,132,0.18)]">
+                  {avatarUrl ? (
+                    <img src={avatarUrl} alt="Profile" className="h-full w-full object-cover" />
+                  ) : (
+                    <span className="text-4xl font-bold text-[#00a884]">
+                      {(displayName || email).charAt(0).toUpperCase()}
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadingPhoto}
+                  className="absolute -bottom-1 -right-1 flex h-9 w-9 items-center justify-center rounded-full border-2 border-[#0b141a] bg-[#00a884] text-white shadow-lg transition hover:brightness-110 disabled:opacity-50"
+                  title={t(locale, 'changePhoto')}
+                >
+                  {uploadingPhoto ? (
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                  ) : (
+                    <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                    </svg>
+                  )}
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (file) void handlePhotoUpload(file)
+                    e.target.value = ''
+                  }}
+                />
               </div>
-              <div className="min-w-0">
-                {displayName && (
-                  <p className="truncate text-lg font-semibold text-white">{displayName}</p>
-                )}
-                <p className="truncate text-sm text-white/50">{email}</p>
-              </div>
+              {photoSuccess && (
+                <p className="mt-2 text-xs text-[#00a884]">{photoSuccess}</p>
+              )}
+            </div>
+
+            {/* Editable name */}
+            <div className="mt-6 space-y-3">
+              {editingName ? (
+                <>
+                  <div className="flex gap-3">
+                    <div className="flex-1">
+                      <label htmlFor="settings-first" className="mb-1 block text-xs text-white/50">{t(locale, 'firstName')}</label>
+                      <input
+                        id="settings-first"
+                        type="text"
+                        value={firstName}
+                        onChange={(e) => setFirstName(e.target.value)}
+                        className="brand-inset w-full rounded-2xl px-4 py-3 text-white placeholder-white/28 outline-none transition focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20"
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <label htmlFor="settings-last" className="mb-1 block text-xs text-white/50">{t(locale, 'lastName')}</label>
+                      <input
+                        id="settings-last"
+                        type="text"
+                        value={lastName}
+                        onChange={(e) => setLastName(e.target.value)}
+                        className="brand-inset w-full rounded-2xl px-4 py-3 text-white placeholder-white/28 outline-none transition focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingName(false)
+                        setFirstName(user?.user_metadata?.first_name ?? '')
+                        setLastName(user?.user_metadata?.last_name ?? '')
+                      }}
+                      className="flex-1 rounded-2xl border border-white/10 py-2.5 text-sm text-white/60 transition hover:border-white/20"
+                    >
+                      {t(locale, 'back')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleSaveName()}
+                      disabled={savingName}
+                      className="flex-1 rounded-2xl bg-[#00a884] py-2.5 text-sm font-semibold text-[#07141a] transition hover:brightness-110 disabled:opacity-40"
+                    >
+                      {savingName ? '...' : t(locale, 'saveName')}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setEditingName(true)}
+                  className="flex w-full items-center justify-between rounded-2xl border border-white/6 bg-white/[0.02] px-4 py-3.5 text-left transition hover:border-white/12"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-lg font-semibold text-white">
+                      {displayName || t(locale, 'editName')}
+                    </p>
+                    <p className="text-xs text-white/40">{t(locale, 'editName')}</p>
+                  </div>
+                  <svg className="h-4 w-4 shrink-0 text-white/30" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                  </svg>
+                </button>
+              )}
+              {nameSuccess && (
+                <p className="rounded-2xl border border-[#00a884]/20 bg-[#00a884]/10 px-4 py-2.5 text-sm text-[#00a884]">
+                  {nameSuccess}
+                </p>
+              )}
+            </div>
+
+            {/* Email (read-only) */}
+            <div className="mt-4 rounded-2xl border border-white/6 bg-white/[0.02] px-4 py-3.5">
+              <p className="text-xs text-white/40">{t(locale, 'email')}</p>
+              <p className="mt-0.5 truncate text-sm text-white/70">{email}</p>
             </div>
           </div>
 
