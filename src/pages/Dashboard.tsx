@@ -551,8 +551,8 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="brand-scene h-[100dvh] overflow-y-auto overflow-x-hidden px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-[calc(env(safe-area-inset-top)+1rem)] text-white sm:px-6 sm:pb-[calc(env(safe-area-inset-bottom)+1.5rem)] sm:pt-[calc(env(safe-area-inset-top)+1.5rem)] xl:overflow-hidden">
-      <div className="relative z-10 mx-auto flex min-h-full max-w-[1680px] flex-col gap-4 xl:h-full">
+    <div className="brand-scene flex h-[100dvh] flex-col overflow-hidden px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-[calc(env(safe-area-inset-top)+1rem)] text-white sm:px-6 sm:pb-[calc(env(safe-area-inset-bottom)+1.5rem)] sm:pt-[calc(env(safe-area-inset-top)+1.5rem)]">
+      <div className="relative z-10 mx-auto flex min-h-0 flex-1 max-w-[1680px] flex-col gap-4">
         <header className="brand-panel shrink-0 rounded-[34px] p-4 sm:p-5">
           <div className="grid gap-4 xl:grid-cols-[1.2fr_2fr_auto] xl:items-center">
             <div className="flex items-center gap-4">
@@ -679,9 +679,9 @@ export default function Dashboard() {
           </div>
         ) : null}
 
-        <div className="grid flex-1 gap-4 xl:grid-cols-[360px_minmax(0,1fr)_320px]">
+        <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[360px_minmax(0,1fr)_320px]">
           <aside
-            className={`brand-panel flex flex-col overflow-hidden rounded-[32px] transition duration-300 xl:h-[calc(100dvh-200px)] ${
+            className={`brand-panel flex min-h-0 flex-1 flex-col overflow-hidden rounded-[32px] transition duration-300 xl:flex-none xl:h-[calc(100dvh-200px)] ${
               isMobileConversationOpen ? 'hidden xl:flex' : 'flex'
             }`}
           >
@@ -826,7 +826,7 @@ export default function Dashboard() {
           </aside>
 
           <section
-            className={`brand-panel min-h-[70dvh] overflow-hidden rounded-[32px] xl:h-[calc(100dvh-200px)] xl:min-h-0 ${
+            className={`brand-panel min-h-0 flex-1 overflow-hidden rounded-[32px] xl:flex-none xl:h-[calc(100dvh-200px)] ${
               isMobileConversationOpen ? 'flex' : 'hidden xl:flex'
             } flex-col`}
           >

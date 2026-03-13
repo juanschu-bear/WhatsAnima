@@ -99,7 +99,7 @@ export async function getOwnerByUserId(userId: string) {
   return data[0]
 }
 
-export async function updateOwnerProfile(ownerId: string, fields: { display_name?: string; avatar_url?: string }) {
+export async function updateOwnerProfile(ownerId: string, fields: { display_name?: string; avatar_url?: string | null; settings?: Record<string, unknown> }) {
   const { error } = await supabase
     .from('wa_owners')
     .update(fields)
@@ -109,13 +109,20 @@ export async function updateOwnerProfile(ownerId: string, fields: { display_name
 
 export async function uploadOwnerAvatar(ownerId: string, file: File): Promise<string> {
   const ext = file.name.split('.').pop() ?? 'jpg'
-  const path = `avatars/${ownerId}.${ext}`
+  const path = `${ownerId}.${ext}`
   const { error: uploadError } = await supabase.storage
     .from('avatars')
     .upload(path, file, { upsert: true, contentType: file.type })
   if (uploadError) throw uploadError
   const { data } = supabase.storage.from('avatars').getPublicUrl(path)
   return data.publicUrl
+}
+
+export async function deleteOwnerAvatar(ownerId: string): Promise<void> {
+  // Try common extensions
+  for (const ext of ['jpg', 'jpeg', 'png', 'webp', 'gif']) {
+    await supabase.storage.from('avatars').remove([`${ownerId}.${ext}`])
+  }
 }
 
 export async function createOwnerIfNeeded(payload: {
