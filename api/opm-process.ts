@@ -80,7 +80,7 @@ async function parseOpmRequest(req: any): Promise<{ blob: Blob; conversationId: 
 // OPM v4.0 — async job-based API (was /api/v1/process, now POST /analyze)
 const OPM_BASE = 'https://boardroom-api.onioko.com';
 const OPM_POLL_INTERVAL_MS = 3000;
-const OPM_TIMEOUT_MS = 180000; // 3 min max
+const OPM_TIMEOUT_MS = 90000; // 90s — must fit inside Vercel's 120s function timeout with buffer for fallback
 
 function delay(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
 
@@ -255,10 +255,11 @@ export default async function handler(req: any, res: any) {
     // Try OPM v4.0 async API: POST /analyze → poll /status → GET /results
     let opmData: any = null;
     try {
+      console.log('[opm-process] Calling OPM v4.0 /analyze — blob size:', blob.size, 'bytes, type:', blob.type);
       opmData = await callOpmV4(blob, finalFilename, conversationId, 'echo');
       console.log('[opm-process] OPM v4.0 returned results');
     } catch (opmErr: any) {
-      console.warn('[opm-process] OPM v4.0 failed:', opmErr.message);
+      console.warn('[opm-process] OPM v4.0 failed:', opmErr.message, '— will attempt LLM fallback');
     }
 
     // If OPM failed, run LLM fallback on transcript
@@ -273,6 +274,7 @@ export default async function handler(req: any, res: any) {
 
         if (deepgramKey) {
           // Prefer Deepgram Nova-3 with language=multi for code-switching
+          console.log('[opm-process] Fallback STT: using Deepgram Nova-3');
           const blobBuffer = Buffer.from(await blob.arrayBuffer());
           const dgContentType = (blob.type || 'audio/webm').split(';')[0];
 
@@ -291,9 +293,13 @@ export default async function handler(req: any, res: any) {
           if (sttRes.ok) {
             const sttData = await sttRes.json();
             transcript = sttData.results?.channels?.[0]?.alternatives?.[0]?.transcript?.trim() || null;
+            console.log('[opm-process] Deepgram transcript:', transcript ? `"${transcript.slice(0, 80)}..."` : '(empty)');
+          } else {
+            console.warn('[opm-process] Deepgram STT error:', sttRes.status, await sttRes.text().catch(() => ''));
           }
         } else if (elevenLabsKey) {
           // Fallback: ElevenLabs Scribe v1
+          console.log('[opm-process] Fallback STT: using ElevenLabs Scribe');
           const sttForm = new FormData();
           sttForm.append('file', blob, finalFilename);
           sttForm.append('model_id', 'scribe_v1');
@@ -307,7 +313,12 @@ export default async function handler(req: any, res: any) {
           if (sttRes.ok) {
             const sttData = await sttRes.json();
             transcript = sttData.text?.trim() || null;
+            console.log('[opm-process] ElevenLabs transcript:', transcript ? `"${transcript.slice(0, 80)}..."` : '(empty)');
+          } else {
+            console.warn('[opm-process] ElevenLabs STT error:', sttRes.status, await sttRes.text().catch(() => ''));
           }
+        } else {
+          console.warn('[opm-process] No STT API keys available (DEEPGRAM_API_KEY, ELEVENLABS_API_KEY) — cannot transcribe for LLM fallback');
         }
       } catch (sttErr: any) {
         console.warn('[opm-process] STT for fallback failed:', sttErr.message);
@@ -317,7 +328,9 @@ export default async function handler(req: any, res: any) {
       if (opmData) {
         console.log('[opm-process] LLM fallback produced analysis');
       } else {
-        console.warn('[opm-process] LLM fallback also failed — returning empty');
+        console.warn('[opm-process] LLM fallback returned null — transcript:', transcript ? `"${transcript.slice(0, 40)}"` : 'null',
+          '| CLOUDFLARE_ACCOUNT_ID:', process.env.CLOUDFLARE_ACCOUNT_ID ? 'set' : 'MISSING',
+          '| CLOUDFLARE_AI_TOKEN:', process.env.CLOUDFLARE_AI_TOKEN ? 'set' : 'MISSING');
       }
     }
 
