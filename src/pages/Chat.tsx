@@ -1789,12 +1789,12 @@ export default function Chat() {
   }
 
   return (
-    <div className="relative flex h-[100svh] min-h-[100svh] flex-col overflow-hidden bg-[linear-gradient(140deg,_#020a12_0%,_#071420_35%,_#060e1a_65%,_#030810_100%)] text-white">
+    <div className="relative flex h-[100dvh] min-h-[100dvh] flex-col overflow-hidden bg-[linear-gradient(140deg,_#020a12_0%,_#071420_35%,_#060e1a_65%,_#030810_100%)] text-white supports-[-webkit-touch-callout:none]:min-h-[-webkit-fill-available]">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_-10%,rgba(0,168,132,0.12),transparent_60%)]" />
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_60%_40%_at_80%_20%,rgba(56,169,255,0.07),transparent_50%)]" />
       {isDesktopLayout && <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(126,255,234,0.015)_1px,transparent_1px),linear-gradient(90deg,rgba(126,255,234,0.015)_1px,transparent_1px)] bg-[size:40px_40px]" />}
       <div className={`relative z-10 flex min-h-0 flex-1 flex-col ${isDesktopLayout ? 'mx-auto my-6 w-[min(900px,calc(100vw-80px))] overflow-hidden rounded-[28px] border border-white/[0.06] bg-[rgba(6,14,22,0.88)] shadow-[0_40px_160px_rgba(0,0,0,0.55),0_0_0_1px_rgba(255,255,255,0.03)] backdrop-blur-3xl' : ''}`}>
-      <header className={`relative z-10 flex items-center gap-3 border-b border-white/[0.06] px-4 py-3 backdrop-blur-2xl ${isDesktopLayout ? 'bg-[rgba(8,18,28,0.65)] shadow-[0_1px_0_rgba(255,255,255,0.03)]' : 'bg-[#0a1420]/80 shadow-[0_8px_32px_rgba(0,0,0,0.2)]'}`}>
+      <header className={`relative z-10 flex items-center gap-3 border-b border-white/[0.06] px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur-2xl ${isDesktopLayout ? 'bg-[rgba(8,18,28,0.65)] shadow-[0_1px_0_rgba(255,255,255,0.03)]' : 'bg-[#0a1420]/80 shadow-[0_8px_32px_rgba(0,0,0,0.2)]'}`}>
         {selectionMode ? (
           <>
             <button type="button" onClick={clearSelection} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white/70 transition hover:bg-white/8 hover:text-white">

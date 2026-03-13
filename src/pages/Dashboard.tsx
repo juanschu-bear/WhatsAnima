@@ -444,8 +444,10 @@ export default function Dashboard() {
   }, [selectedConversationId])
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }, [selectedConversationId, selectedMessages])
+    if (selectedConversationId) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+    }
+  }, [selectedConversationId])
 
   const filteredConversations = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -543,7 +545,7 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="brand-scene h-[100dvh] overflow-y-auto overflow-x-hidden px-4 py-4 text-white sm:px-6 sm:py-6 xl:overflow-hidden">
+    <div className="brand-scene h-[100dvh] overflow-y-auto overflow-x-hidden px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-[calc(env(safe-area-inset-top)+1rem)] text-white sm:px-6 sm:pb-[calc(env(safe-area-inset-bottom)+1.5rem)] sm:pt-[calc(env(safe-area-inset-top)+1.5rem)] xl:overflow-hidden">
       <div className="relative z-10 mx-auto flex min-h-full max-w-[1680px] flex-col gap-4 xl:h-full">
         <header className="brand-panel shrink-0 rounded-[34px] p-4 sm:p-5">
           <div className="grid gap-4 xl:grid-cols-[1.2fr_2fr_auto] xl:items-center">
