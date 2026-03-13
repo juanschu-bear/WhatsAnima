@@ -295,6 +295,7 @@ export default function Dashboard() {
   const [messagesLoading, setMessagesLoading] = useState(false)
   const [inviteBusy, setInviteBusy] = useState(false)
   const [invitePanelOpen, setInvitePanelOpen] = useState(false)
+  const [mobileTab, setMobileTab] = useState<'messages' | 'insights'>('messages')
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [conversations, setConversations] = useState<ConversationListItem[]>([])
@@ -536,6 +537,11 @@ export default function Dashboard() {
 
   const isMobileConversationOpen = Boolean(selectedConversationId)
 
+  // Reset mobile tab when navigating back to contact list
+  useEffect(() => {
+    if (!selectedConversationId) setMobileTab('messages')
+  }, [selectedConversationId])
+
   if (loading) {
     return (
       <div className="brand-scene flex min-h-screen items-center justify-center">
@@ -675,7 +681,7 @@ export default function Dashboard() {
 
         <div className="grid flex-1 gap-4 xl:grid-cols-[360px_minmax(0,1fr)_320px]">
           <aside
-            className={`brand-panel flex h-[calc(100dvh-200px)] flex-col overflow-hidden rounded-[32px] transition duration-300 ${
+            className={`brand-panel flex flex-col overflow-hidden rounded-[32px] transition duration-300 xl:h-[calc(100dvh-200px)] ${
               isMobileConversationOpen ? 'hidden xl:flex' : 'flex'
             }`}
           >
@@ -820,7 +826,7 @@ export default function Dashboard() {
           </aside>
 
           <section
-            className={`brand-panel h-[calc(100dvh-200px)] overflow-hidden rounded-[32px] ${
+            className={`brand-panel min-h-[70dvh] overflow-hidden rounded-[32px] xl:h-[calc(100dvh-200px)] xl:min-h-0 ${
               isMobileConversationOpen ? 'flex' : 'hidden xl:flex'
             } flex-col`}
           >
@@ -855,7 +861,33 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto px-4 py-5 sm:px-6">
+                {/* Mobile tab bar: Messages / Insights */}
+                <div className="flex border-b border-white/8 xl:hidden">
+                  <button
+                    type="button"
+                    onClick={() => setMobileTab('messages')}
+                    className={`flex-1 py-2.5 text-center text-xs font-semibold uppercase tracking-wider transition ${
+                      mobileTab === 'messages'
+                        ? 'border-b-2 border-[#00a884] text-[#00a884]'
+                        : 'text-white/45 hover:text-white/70'
+                    }`}
+                  >
+                    {L('messages')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMobileTab('insights')}
+                    className={`flex-1 py-2.5 text-center text-xs font-semibold uppercase tracking-wider transition ${
+                      mobileTab === 'insights'
+                        ? 'border-b-2 border-[#00a884] text-[#00a884]'
+                        : 'text-white/45 hover:text-white/70'
+                    }`}
+                  >
+                    {L('insights')}
+                  </button>
+                </div>
+
+                <div className={`flex-1 overflow-y-auto px-4 py-5 sm:px-6 ${mobileTab === 'insights' ? 'hidden xl:block' : ''}`}>
                   {messagesLoading ? (
                     <div className="flex h-full items-center justify-center">
                       <div className="h-9 w-9 animate-spin rounded-full border-4 border-[#1f2c34] border-t-[#00a884]" />
@@ -929,6 +961,159 @@ export default function Dashboard() {
                       <div ref={messagesEndRef} />
                     </div>
                   )}
+                </div>
+
+                {/* Mobile insights panel (shown when Insights tab is active) */}
+                <div className={`flex-1 overflow-y-auto px-4 py-4 xl:hidden ${mobileTab === 'messages' ? 'hidden' : ''}`}>
+                  <div className="space-y-3">
+                    {/* Engagement Score Hero */}
+                    <div className="brand-inset rounded-[20px] p-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">{L('engagementScore')}</p>
+                          <div className="mt-2 flex items-baseline gap-2">
+                            <span className="text-4xl font-bold" style={{ color: selectedInsights.engagementLevel.color }}>{selectedInsights.engagementScore}</span>
+                            <span className="text-lg text-white/30">/100</span>
+                          </div>
+                          <p className="mt-1 text-[12px] font-medium" style={{ color: selectedInsights.engagementLevel.color }}>{selectedInsights.engagementLevel.label}</p>
+                        </div>
+                        <div className="relative h-16 w-16">
+                          <svg className="h-16 w-16 -rotate-90" viewBox="0 0 64 64">
+                            <circle cx="32" cy="32" r="28" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="5" />
+                            <circle cx="32" cy="32" r="28" fill="none" stroke={selectedInsights.engagementLevel.color} strokeWidth="5" strokeLinecap="round"
+                              strokeDasharray={`${selectedInsights.engagementScore * 1.76} 176`} />
+                          </svg>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Key Metrics Grid */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="brand-inset rounded-[20px] p-3">
+                        <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">{L('totalInteractions')}</p>
+                        <p className="mt-1 text-xl font-bold text-white">{selectedInsights.total}</p>
+                        <p className="mt-0.5 text-[10px] text-white/40">{selectedInsights.studentMessages} {L('studentMsgs')} · {selectedInsights.avatarMessages} {L('avatarMsgs')}</p>
+                      </div>
+                      <div className="brand-inset rounded-[20px] p-3">
+                        <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">{L('sessionDuration')}</p>
+                        <p className="mt-1 text-xl font-bold text-white">{selectedInsights.durationLabel}</p>
+                        <p className="mt-0.5 text-[10px] text-white/40">{L('peakAt')} {selectedInsights.peakTime}</p>
+                      </div>
+                    </div>
+
+                    {/* Communication Skills */}
+                    <div className="brand-inset rounded-[20px] p-4">
+                      <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">{L('communicationSkills')}</p>
+                      <div className="mt-3 space-y-3">
+                        <div>
+                          <div className="flex items-center justify-between text-[11px]">
+                            <span className="text-white/55">{L('vocabDiversity')}</span>
+                            <span className="font-semibold text-white">{selectedInsights.vocabDiversity}%</span>
+                          </div>
+                          <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-white/[0.06]">
+                            <div className="h-full rounded-full bg-gradient-to-r from-[#00a884] to-[#53d0ff] transition-all" style={{ width: `${selectedInsights.vocabDiversity}%` }} />
+                          </div>
+                          <p className="mt-1 text-[10px] text-white/30">{selectedInsights.uniqueWords} {L('uniqueWordsOf')} {selectedInsights.totalWordCount}</p>
+                        </div>
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="text-white/55">{L('expressionDepth')}</span>
+                          <span className="font-semibold text-white">{selectedInsights.avgWordsPerMsg} {L('wordsPerMsg')}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="text-white/55">{L('curiosityIndex')}</span>
+                          <span className="font-semibold text-white">{selectedInsights.questionRatio}% <span className="font-normal text-white/35">({selectedInsights.studentQs} {L('questions')})</span></span>
+                        </div>
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="text-white/55">{L('languageDetected')}</span>
+                          <span className="font-semibold text-white">{selectedInsights.language}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Communication style */}
+                    {selectedInsights.confidenceIndicators.length > 0 && (
+                      <div className="brand-inset rounded-[20px] p-4">
+                        <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">{L('communicationStyle')}</p>
+                        <div className="mt-3 flex flex-wrap gap-1.5">
+                          {selectedInsights.confidenceIndicators.map((indicator) => (
+                            <span key={indicator} className="rounded-full border border-[#53d0ff]/20 bg-[#53d0ff]/8 px-2.5 py-1 text-[11px] text-[#53d0ff]">
+                              {indicator}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Media Usage */}
+                    <div className="brand-inset rounded-[20px] p-4">
+                      <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">{L('mediaUsage')}</p>
+                      <div className="mt-3 space-y-2">
+                        {selectedInsights.mediaBreakdown.map((bar) => (
+                          <div key={bar.label} className="flex items-center gap-2.5">
+                            <span className="w-11 text-right text-[11px] text-white/50">{bar.label}</span>
+                            <div className="flex-1">
+                              <div className="h-[14px] rounded-full" style={{ width: `${Math.max(10, (bar.count / selectedInsights.maxMedia) * 100)}%`, backgroundColor: bar.color, opacity: 0.65 }} />
+                            </div>
+                            <span className="w-5 text-right text-[11px] font-semibold text-white">{bar.count}</span>
+                          </div>
+                        ))}
+                      </div>
+                      {selectedInsights.voiceMinutes > 0 && (
+                        <p className="mt-2 text-[10px] text-white/35">{selectedInsights.voiceMinutes} min {L('spokenAudio')}</p>
+                      )}
+                    </div>
+
+                    {/* Strengths */}
+                    {selectedInsights.strengths.length > 0 && (
+                      <div className="brand-inset rounded-[20px] p-4">
+                        <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">{L('strengths')}</p>
+                        <div className="mt-3 space-y-2">
+                          {selectedInsights.strengths.map((s) => (
+                            <div key={s.label} className="flex items-start gap-2.5">
+                              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#00a884]/15 text-[10px] text-[#00a884]">{'\u2713'}</span>
+                              <div>
+                                <p className="text-[12px] font-medium text-[#00a884]">{s.label}</p>
+                                <p className="text-[11px] leading-4 text-white/45">{s.detail}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Areas for Improvement */}
+                    {selectedInsights.improvements.length > 0 && (
+                      <div className="brand-inset rounded-[20px] p-4">
+                        <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">{L('areasForImprovement')}</p>
+                        <div className="mt-3 space-y-2">
+                          {selectedInsights.improvements.map((item) => (
+                            <div key={item.label} className="flex items-start gap-2.5">
+                              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-400/15 text-[10px] text-amber-400">{'\u2197'}</span>
+                              <div>
+                                <p className="text-[12px] font-medium text-amber-400">{item.label}</p>
+                                <p className="text-[11px] leading-4 text-white/45">{item.detail}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Teacher Recommendations */}
+                    <div className="brand-inset rounded-[20px] p-4">
+                      <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">{L('teacherRecommendations')}</p>
+                      <div className="mt-3 space-y-2.5">
+                        {selectedInsights.recommendations.map((rec) => (
+                          <div key={rec.text} className="flex items-start gap-2.5 rounded-[12px] border border-white/[0.04] bg-white/[0.02] px-3 py-2.5">
+                            <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${
+                              rec.priority === 'high' ? 'bg-red-400' : rec.priority === 'medium' ? 'bg-amber-400' : 'bg-[#00a884]'
+                            }`} />
+                            <p className="text-[12px] leading-5 text-white/65">{rec.text}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </>
             ) : (

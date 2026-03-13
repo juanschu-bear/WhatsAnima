@@ -192,6 +192,12 @@ const translations = {
     dangerZone: 'Danger Zone',
     deleteAccount: 'Delete Account',
     back: 'Back',
+    editName: 'Edit Name',
+    saveName: 'Save',
+    nameUpdated: 'Name updated successfully!',
+    changePhoto: 'Change Photo',
+    photoUpdated: 'Photo updated!',
+    uploadFailed: 'Upload failed. Please try again.',
   },
   es: {
     // Dashboard
@@ -368,6 +374,12 @@ const translations = {
     dangerZone: 'Zona de peligro',
     deleteAccount: 'Eliminar cuenta',
     back: 'Volver',
+    editName: 'Editar nombre',
+    saveName: 'Guardar',
+    nameUpdated: 'Nombre actualizado correctamente!',
+    changePhoto: 'Cambiar foto',
+    photoUpdated: 'Foto actualizada!',
+    uploadFailed: 'Error al subir. Intenta de nuevo.',
   },
   de: {
     // Dashboard
@@ -544,6 +556,12 @@ const translations = {
     dangerZone: 'Gefahrenzone',
     deleteAccount: 'Konto l\u00f6schen',
     back: 'Zur\u00fcck',
+    editName: 'Name bearbeiten',
+    saveName: 'Speichern',
+    nameUpdated: 'Name erfolgreich aktualisiert!',
+    changePhoto: 'Foto \u00e4ndern',
+    photoUpdated: 'Foto aktualisiert!',
+    uploadFailed: 'Upload fehlgeschlagen. Bitte erneut versuchen.',
   },
 } as const
 
