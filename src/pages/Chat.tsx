@@ -1069,6 +1069,7 @@ export default function Chat() {
   const [captionDraft, setCaptionDraft] = useState<CaptionDraft | null>(null)
   const [captionText, setCaptionText] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [failedMessage, setFailedMessage] = useState<string | null>(null)
   const [transcriptMap, setTranscriptMap] = useState<Record<string, string>>({})
   const [mediaMenuOpen, setMediaMenuOpen] = useState(false)
   const [isDesktopLayout, setIsDesktopLayout] = useState(false)
@@ -1513,11 +1514,11 @@ export default function Chat() {
         try {
           const name = getAvatarFirstName(conversation?.wa_owners?.display_name)
           const excuses = [
-            `${name} is in a meeting right now. They'll be right back!`,
+            `${name} is in a meeting right now. Back in a sec!`,
             `${name} just stepped out for a coffee. One moment!`,
-            `${name} is on the phone. They'll get back to you in a sec!`,
+            `${name} is on the phone. Back in a sec!`,
             `${name} is taking a quick break. Hang tight!`,
-            `${name} got distracted for a second. They'll respond shortly!`,
+            `${name} got distracted for a second. Back shortly!`,
             `${name} is dealing with something real quick. Back in a moment!`,
           ]
           const excuse = excuses[Math.floor(Math.random() * excuses.length)]
@@ -1536,12 +1537,13 @@ export default function Chat() {
   // Keep ref in sync for useSessionMemory's nudge callback
   sendAvatarReplyRef.current = sendAvatarReply
 
-  async function handleSendText() {
-    if (!text.trim() || !conversationId || sending) return
-    const content = text.trim()
-    setText('')
+  async function handleSendText(retryContent?: string) {
+    const content = retryContent || text.trim()
+    if (!content || !conversationId || sending) return
+    if (!retryContent) setText('')
     setSending(true)
     setError(null)
+    setFailedMessage(null)
 
     try {
       const message = await sendMessage(conversationId, 'contact', 'text', content)
@@ -1552,6 +1554,7 @@ export default function Chat() {
     } catch (sendError: any) {
       console.error(sendError)
       setError(sendError?.message || 'Unable to send your message.')
+      setFailedMessage(content)
     } finally {
       setSending(false)
     }
@@ -1559,11 +1562,11 @@ export default function Chat() {
 
   function getImmersiveError(errorType: string, name: string): string {
     const errors: Record<string, string> = {
-      processing_timeout: `${name} is in a meeting right now. They'll watch your video as soon as possible.`,
+      processing_timeout: `${name} is in a meeting right now. Will watch your video as soon as possible.`,
       api_down: `${name} is currently unavailable. Try again in a moment.`,
       no_face_detected: `${name} couldn't see your face clearly. Try recording again with better lighting.`,
       processing_error: `${name} had trouble reading your message. Want to send it again?`,
-      no_transcript: `${name} watched your video but the audio was unclear. Responding based on what they could see.`,
+      no_transcript: `${name} watched your video but the audio was unclear. Responding based on what was visible.`,
       video_too_long: `That was a bit long! Keep it under 5 minutes so ${name} can focus.`,
     }
     return errors[errorType] || `${name} had trouble reading your message. Want to send it again?`
@@ -2065,7 +2068,18 @@ export default function Chat() {
       </main>
 
       {error ? (
-        <div className="relative z-10 border-t border-white/8 bg-[#101b28]/88 px-4 py-2 text-center text-sm text-red-300 backdrop-blur-xl">{error}</div>
+        <div className="relative z-10 border-t border-white/8 bg-[#101b28]/88 px-4 py-2 text-center text-sm text-red-300 backdrop-blur-xl">
+          <span>{error}</span>
+          {failedMessage ? (
+            <button
+              type="button"
+              onClick={() => handleSendText(failedMessage)}
+              className="ml-2 rounded-full bg-white/10 px-3 py-0.5 text-xs font-medium text-white hover:bg-white/20 transition-colors"
+            >
+              Tap to retry
+            </button>
+          ) : null}
+        </div>
       ) : null}
 
       {recordingMode !== 'idle' && captureKind === 'voice' ? (

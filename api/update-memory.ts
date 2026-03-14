@@ -232,10 +232,12 @@ Respond in EXACTLY this JSON format:
     }
 
     const rawText = result.content?.[0]?.text?.trim() || ''
+    // Strip markdown code fences (```json ... ```) that Haiku sometimes wraps around JSON
+    const cleanedText = rawText.replace(/^```(?:json)?\s*\n?/gm, '').replace(/\n?```\s*$/gm, '').trim()
     let parsed: { summary: string; profile_facts: string[]; timeline_events: string[]; behavioral_profile?: any; reminders?: Array<{ text: string; due_at: string; source?: string }> }
     try {
-      const jsonMatch = rawText.match(/\{[\s\S]*\}/)
-      parsed = JSON.parse(jsonMatch?.[0] || rawText)
+      const jsonMatch = cleanedText.match(/\{[\s\S]*\}/)
+      parsed = JSON.parse(jsonMatch?.[0] || cleanedText)
     } catch {
       console.error('[update-memory] Failed to parse LLM response:', rawText)
       return res.status(500).json({ error: 'Failed to parse memory update' })
@@ -407,8 +409,9 @@ Respond in EXACTLY this JSON format:
             const styleResult = await styleResponse.json()
             const styleText = styleResult.content?.[0]?.text?.trim() || ''
             try {
-              const styleMatch = styleText.match(/\{[\s\S]*\}/)
-              const styleData = JSON.parse(styleMatch?.[0] || styleText)
+              const cleanedStyle = styleText.replace(/^```(?:json)?\s*\n?/gm, '').replace(/\n?```\s*$/gm, '').trim()
+              const styleMatch = cleanedStyle.match(/\{[\s\S]*\}/)
+              const styleData = JSON.parse(styleMatch?.[0] || cleanedStyle)
               await supabase
                 .from('wa_owners')
                 .update({ communication_style: styleData })
