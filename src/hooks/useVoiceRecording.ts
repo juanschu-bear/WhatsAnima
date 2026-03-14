@@ -38,7 +38,7 @@ interface UseVoiceRecordingOptions {
   onMessageSent: (message: Message) => void
   onMessageUpdate: (tempId: string, updates: Partial<Message>) => void
   onTranscript: (messageId: string, transcript: string) => void
-  sendAvatarReply: (text: string, options?: { isVoice?: boolean; voiceDurationSec?: number; perception?: any }) => Promise<boolean>
+  sendAvatarReply: (text: string, options?: { isVoice?: boolean; voiceDurationSec?: number; perception?: any; userMessageId?: string }) => Promise<boolean>
   simulateAvatarRead: (messageId: string) => void
   maybeAvatarReact: (messageId: string) => void
 }

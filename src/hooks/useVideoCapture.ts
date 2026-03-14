@@ -47,7 +47,7 @@ interface UseVideoCaptureOptions {
   onMessageSent: (message: Message) => void
   onTranscript: (messageId: string, transcript: string) => void
   onProcessingStage: (emoji: string, text: string) => void
-  sendAvatarReply: (text: string, options?: { useVoice?: boolean; isVideo?: boolean; videoDurationSec?: number; perception?: any }) => Promise<boolean>
+  sendAvatarReply: (text: string, options?: { useVoice?: boolean; isVideo?: boolean; videoDurationSec?: number; perception?: any; userMessageId?: string }) => Promise<boolean>
 }
 
 const VIDEO_MAX_SECONDS = 300
