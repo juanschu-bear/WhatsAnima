@@ -17,6 +17,11 @@ interface Message {
   media_url: string | null
   duration_sec: number | null
   created_at: string
+  _pending?: boolean
+  _failed?: boolean
+  _errorMessage?: string
+  _localBlobUrl?: string
+  _retryFn?: () => void
 }
 
 interface ConversationRef {
@@ -31,6 +36,7 @@ interface UseVoiceRecordingOptions {
   onSending: (sending: boolean) => void
   onError: (error: string | null) => void
   onMessageSent: (message: Message) => void
+  onMessageUpdate: (tempId: string, updates: Partial<Message>) => void
   onTranscript: (messageId: string, transcript: string) => void
   sendAvatarReply: (text: string, options?: { isVoice?: boolean; voiceDurationSec?: number; perception?: any }) => Promise<boolean>
   simulateAvatarRead: (messageId: string) => void
@@ -43,6 +49,7 @@ export function useVoiceRecording({
   onSending,
   onError,
   onMessageSent,
+  onMessageUpdate,
   onTranscript,
   sendAvatarReply,
   simulateAvatarRead,
@@ -97,77 +104,110 @@ export function useVoiceRecording({
       type: blob.type || 'audio/webm',
     })
 
+    // Show message immediately in chat with local blob URL
+    const tempId = `temp-voice-${Date.now()}`
+    const localBlobUrl = URL.createObjectURL(blob)
+    const optimisticMessage: Message = {
+      id: tempId,
+      sender: 'contact',
+      type: 'voice',
+      content: null,
+      media_url: localBlobUrl,
+      duration_sec: durationSeconds,
+      created_at: new Date().toISOString(),
+      _pending: true,
+      _localBlobUrl: localBlobUrl,
+    }
+    onMessageSent(optimisticMessage)
     onSending(true)
     onError(null)
-    try {
-      const contentType = file.type || 'audio/webm'
 
-      // Send Blob directly — avoids Vercel's 4.5MB JSON body limit on long voice notes
-      const [mediaUrl, serverTranscript, opmResponse] = await Promise.all([
-        uploadAudioToStorage(conversation, file, contentType),
-        transcribeServerSide(file, contentType),
-        callOpmApi(conversation, file, 'audio').catch((error) => {
-          console.error('[Voice] OPM voice analysis failed:', error)
-          return null
-        }),
-      ])
-      if (!mediaUrl) throw new Error('upload failed')
+    const doSend = async () => {
+      try {
+        const contentType = file.type || 'audio/webm'
 
-      const finalTranscript = serverTranscript
-        || opmResponse?.transcript?.trim()
-        || browserTranscript
-        || '[Voice message]'
+        const [mediaUrl, serverTranscript, opmResponse] = await Promise.all([
+          uploadAudioToStorage(conversation, file, contentType),
+          transcribeServerSide(file, contentType),
+          callOpmApi(conversation, file, 'audio').catch((error) => {
+            console.error('[Voice] OPM voice analysis failed:', error)
+            return null
+          }),
+        ])
+        if (!mediaUrl) throw new Error('upload failed')
 
-      console.log('[sendVoiceMessage] transcript sources:', {
-        server: serverTranscript?.slice(0, 60) || '(empty)',
-        opm: opmResponse?.transcript?.slice(0, 60) || '(empty)',
-        browser: browserTranscript?.slice(0, 60) || '(empty)',
-        final: finalTranscript.slice(0, 60),
-      })
+        const finalTranscript = serverTranscript
+          || opmResponse?.transcript?.trim()
+          || browserTranscript
+          || '[Voice message]'
 
-      const message = (await sendMessage(
-        conversationId,
-        'contact',
-        'voice',
-        finalTranscript,
-        mediaUrl,
-        durationSeconds
-      )) as Message
+        console.log('[sendVoiceMessage] transcript sources:', {
+          server: serverTranscript?.slice(0, 60) || '(empty)',
+          opm: opmResponse?.transcript?.slice(0, 60) || '(empty)',
+          browser: browserTranscript?.slice(0, 60) || '(empty)',
+          final: finalTranscript.slice(0, 60),
+        })
 
-      onMessageSent(message)
-      simulateAvatarRead(message.id)
+        const message = (await sendMessage(
+          conversationId,
+          'contact',
+          'voice',
+          finalTranscript,
+          mediaUrl,
+          durationSeconds
+        )) as Message
 
-      createPerceptionLog({
-        messageId: message.id,
-        conversationId: conversation.id,
-        contactId: conversation.contact_id,
-        ownerId: conversation.owner_id,
-        transcript: finalTranscript !== '[Voice message]' ? finalTranscript : null,
-        audioDurationSec: durationSeconds,
-        primaryEmotion: opmResponse?.perception?.primary_emotion ?? null,
-        secondaryEmotion: opmResponse?.perception?.secondary_emotion ?? null,
-        firedRules: opmResponse?.fired_rules ?? null,
-        behavioralSummary: opmResponse?.interpretation?.behavioral_summary ?? null,
-        conversationHooks: opmResponse?.interpretation?.conversation_hooks ?? null,
-        prosodicSummary: opmResponse?.prosodic_summary ?? null,
-        mediaType: 'audio',
-      }).catch((logErr) => console.warn('[perception-log]', logErr.message))
-      if (finalTranscript && finalTranscript !== '[Voice message]') {
-        onTranscript(message.id, finalTranscript)
+        // Replace optimistic message with real one, keep local blob URL as fallback
+        onMessageUpdate(tempId, {
+          id: message.id,
+          content: finalTranscript,
+          media_url: mediaUrl,
+          _pending: false,
+          _failed: false,
+          _localBlobUrl: localBlobUrl,
+        })
+        simulateAvatarRead(message.id)
+
+        createPerceptionLog({
+          messageId: message.id,
+          conversationId: conversation.id,
+          contactId: conversation.contact_id,
+          ownerId: conversation.owner_id,
+          transcript: finalTranscript !== '[Voice message]' ? finalTranscript : null,
+          audioDurationSec: durationSeconds,
+          primaryEmotion: opmResponse?.perception?.primary_emotion ?? null,
+          secondaryEmotion: opmResponse?.perception?.secondary_emotion ?? null,
+          firedRules: opmResponse?.fired_rules ?? null,
+          behavioralSummary: opmResponse?.interpretation?.behavioral_summary ?? null,
+          conversationHooks: opmResponse?.interpretation?.conversation_hooks ?? null,
+          prosodicSummary: opmResponse?.prosodic_summary ?? null,
+          mediaType: 'audio',
+        }).catch((logErr) => console.warn('[perception-log]', logErr.message))
+        if (finalTranscript && finalTranscript !== '[Voice message]') {
+          onTranscript(message.id, finalTranscript)
+        }
+
+        const voiceReplied = await sendAvatarReply(finalTranscript !== '[Voice message]' ? finalTranscript : 'a voice message', {
+          isVoice: true,
+          voiceDurationSec: durationSeconds,
+          perception: opmResponse,
+        })
+        if (voiceReplied) maybeAvatarReact(message.id)
+      } catch (recordingError: any) {
+        console.error('[sendVoiceMessage]', recordingError)
+        // Mark message as failed but keep it in chat with retry
+        onMessageUpdate(tempId, {
+          _pending: false,
+          _failed: true,
+          _errorMessage: recordingError?.message || 'Unable to send this voice note.',
+          _retryFn: () => doSend(),
+        })
+      } finally {
+        onSending(false)
       }
-
-      const voiceReplied = await sendAvatarReply(finalTranscript !== '[Voice message]' ? finalTranscript : 'a voice message', {
-        isVoice: true,
-        voiceDurationSec: durationSeconds,
-        perception: opmResponse,
-      })
-      if (voiceReplied) maybeAvatarReact(message.id)
-    } catch (recordingError: any) {
-      console.error('[sendVoiceMessage]', recordingError)
-      onError(recordingError?.message || 'Unable to send this voice note.')
-    } finally {
-      onSending(false)
     }
+
+    await doSend()
   }
 
   async function startVoiceRecording() {

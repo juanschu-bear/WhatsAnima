@@ -74,29 +74,15 @@ export async function uploadAudioToStorage(conversation: ConversationRef, audioB
     console.warn('[uploadAudio] Direct upload error:', directErr.message, '— falling back to API route')
   }
 
-  // Fallback: upload via /api/upload-audio (uses service role key, bypasses RLS)
-  // Base64 expansion (~33%) means max blob ~3MB to stay under Vercel 4.5MB limit
-  if (audioBlob.size > 3 * 1024 * 1024) {
-    throw new Error(`Voice message too large (${Math.round(audioBlob.size / 1024 / 1024)}MB). Direct upload and API fallback both failed.`)
-  }
-
-  const arrayBuf = await audioBlob.arrayBuffer()
-  const bytes = new Uint8Array(arrayBuf)
-  let binary = ''
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i])
-  }
-  const base64 = btoa(binary)
+  // Fallback: upload via /api/upload-audio as FormData (no size limit, bypasses RLS)
+  const formData = new FormData()
+  formData.append('file', audioBlob, filename)
+  formData.append('conversationId', conversation.id)
+  formData.append('filename', storagePath)
 
   const res = await fetch('/api/upload-audio', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      audio: base64,
-      conversationId: conversation.id,
-      mime_type: cleanType,
-      filename: storagePath,
-    }),
+    body: formData,
   })
   const data = await res.json().catch(() => ({}))
   if (res.ok && data.url) return data.url
