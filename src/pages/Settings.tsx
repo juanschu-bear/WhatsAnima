@@ -106,14 +106,16 @@ export default function Settings() {
     if (!ownerId) return
     setUploadingPhoto(true)
     setPhotoMessage(null)
+    setError(null)
     try {
       const url = await uploadOwnerAvatar(ownerId, file)
       await updateOwnerProfile(ownerId, { avatar_url: url })
       setAvatarUrl(url + '?t=' + Date.now())
       setPhotoMessage(t(locale, 'photoUpdated'))
       setTimeout(() => setPhotoMessage(null), 3000)
-    } catch {
-      setError(t(locale, 'uploadFailed'))
+    } catch (err: any) {
+      console.error('[Settings] Photo upload error:', err)
+      setError(err?.message || t(locale, 'uploadFailed'))
     } finally {
       setUploadingPhoto(false)
     }

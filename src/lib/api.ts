@@ -108,12 +108,21 @@ export async function updateOwnerProfile(ownerId: string, fields: { display_name
 }
 
 export async function uploadOwnerAvatar(ownerId: string, file: File): Promise<string> {
-  const ext = file.name.split('.').pop() ?? 'jpg'
+  const rawExt = file.name.split('.').pop()?.toLowerCase() ?? 'jpg'
+  const ext = ['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(rawExt) ? rawExt : 'jpg'
   const path = `${ownerId}.${ext}`
+
+  // Delete any previous avatar with a different extension first
+  const oldExts = ['jpg', 'jpeg', 'png', 'webp', 'gif'].filter(e => e !== ext)
+  await supabase.storage.from('avatars').remove(oldExts.map(e => `${ownerId}.${e}`))
+
   const { error: uploadError } = await supabase.storage
     .from('avatars')
     .upload(path, file, { upsert: true, contentType: file.type })
-  if (uploadError) throw uploadError
+  if (uploadError) {
+    console.error('[uploadOwnerAvatar] Storage error:', uploadError.message, uploadError)
+    throw new Error(`Upload failed: ${uploadError.message}`)
+  }
   const { data } = supabase.storage.from('avatars').getPublicUrl(path)
   return data.publicUrl
 }

@@ -1,3 +1,6 @@
+const TTS_MAX_RETRIES = 3
+const TTS_RETRY_BASE_MS = 2000
+
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
@@ -13,33 +16,47 @@ export default async function handler(req: any, res: any) {
 
     const voice = voiceId || 'lx8LAX2EUAKftVz0Dk5z';
     const url = `https://api.elevenlabs.io/v1/text-to-speech/${voice}`;
-
-    const elRes = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'xi-api-key': apiKey,
-        'Content-Type': 'application/json',
-        'Accept': 'audio/mpeg'
-      },
-      body: JSON.stringify({
-        text,
-        model_id: 'eleven_multilingual_v2',
-        voice_settings: { stability: 0.5, similarity_boost: 0.75 }
-      })
+    const payload = JSON.stringify({
+      text,
+      model_id: 'eleven_multilingual_v2',
+      voice_settings: { stability: 0.5, similarity_boost: 0.75 }
     });
 
-    if (!elRes.ok) {
-      const errText = await elRes.text();
-      console.error('[tts] ElevenLabs error:', elRes.status, errText);
-      return res.status(502).json({ error: 'TTS failed: ' + elRes.status });
+    for (let attempt = 1; attempt <= TTS_MAX_RETRIES; attempt++) {
+      const elRes = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'xi-api-key': apiKey,
+          'Content-Type': 'application/json',
+          'Accept': 'audio/mpeg'
+        },
+        body: payload
+      });
+
+      // Retry on rate limit (429)
+      if (elRes.status === 429 && attempt < TTS_MAX_RETRIES) {
+        const waitMs = TTS_RETRY_BASE_MS * attempt
+        console.warn(`[tts] Rate limited (429), retry ${attempt}/${TTS_MAX_RETRIES} in ${waitMs}ms`);
+        await new Promise(r => setTimeout(r, waitMs));
+        continue;
+      }
+
+      if (!elRes.ok) {
+        const errText = await elRes.text();
+        console.error('[tts] ElevenLabs error:', elRes.status, errText);
+        return res.status(502).json({ error: 'TTS failed: ' + elRes.status });
+      }
+
+      const arrayBuffer = await elRes.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+
+      res.setHeader('Content-Type', 'audio/mpeg');
+      res.setHeader('Content-Length', buffer.length);
+      return res.status(200).send(buffer);
     }
 
-    const arrayBuffer = await elRes.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-
-    res.setHeader('Content-Type', 'audio/mpeg');
-    res.setHeader('Content-Length', buffer.length);
-    return res.status(200).send(buffer);
+    // Should not reach here, but safety net
+    return res.status(502).json({ error: 'TTS failed after retries' });
 
   } catch (error: any) {
     console.error('[tts] Error:', error.message || error);

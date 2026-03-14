@@ -681,7 +681,7 @@ export default function Dashboard() {
 
         <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[360px_minmax(0,1fr)_320px]">
           <aside
-            className={`brand-panel flex min-h-0 flex-1 flex-col overflow-hidden rounded-[32px] transition duration-300 xl:flex-none xl:h-[calc(100dvh-200px)] ${
+            className={`brand-panel flex min-h-0 flex-1 flex-col overflow-hidden rounded-[32px] transition duration-300 xl:flex-none h-[calc(100dvh-200px)] ${
               isMobileConversationOpen ? 'hidden xl:flex' : 'flex'
             }`}
           >
@@ -826,7 +826,7 @@ export default function Dashboard() {
           </aside>
 
           <section
-            className={`brand-panel min-h-0 flex-1 overflow-hidden rounded-[32px] xl:flex-none xl:h-[calc(100dvh-200px)] ${
+            className={`brand-panel min-h-0 flex-1 overflow-hidden rounded-[32px] xl:flex-none h-[calc(100dvh-200px)] ${
               isMobileConversationOpen ? 'flex' : 'hidden xl:flex'
             } flex-col`}
           >

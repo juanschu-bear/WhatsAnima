@@ -34,9 +34,14 @@ const CANON_TIERS = [
 
 type TierName = typeof CANON_TIERS[number]['name']
 
-/** Extract string label from an emotion value that may be a plain string or an OPM v4 object like {label, score}. */
+/** Extract string label from an emotion value that may be a plain string, a JSON-encoded string, or an OPM v4 object like {label, score}. */
 function emotionLabel(val: any): string {
-  if (typeof val === 'string') return val
+  if (typeof val === 'string') {
+    if (val.startsWith('{')) {
+      try { return JSON.parse(val).label || val } catch { return val }
+    }
+    return val
+  }
   if (val && typeof val === 'object' && typeof val.label === 'string') return val.label
   return ''
 }

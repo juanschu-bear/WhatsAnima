@@ -1109,6 +1109,7 @@ export default function Chat() {
   const [isDesktopLayout, setIsDesktopLayout] = useState(false)
   const [liveCallState, setLiveCallState] = useState<'idle' | 'starting' | 'joining' | 'active'>('idle')
   const [inlineProcessing, setInlineProcessing] = useState<{ emoji: string; text: string } | null>(null)
+  const avatarReplyInFlight = useRef(new Set<string>())
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const videoInputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
@@ -1344,6 +1345,7 @@ export default function Chat() {
       isVideo?: boolean
       isVoice?: boolean
       perception?: any
+      userMessageId?: string
     }
   ): Promise<{ content: string; mediaUrl: string | null; isGeneratedImage?: boolean }> {
     try {
@@ -1354,6 +1356,7 @@ export default function Chat() {
         isVideo = false,
         isVoice = false,
         perception,
+        userMessageId,
       } = options ?? {}
 
       const history = messages
@@ -1380,6 +1383,7 @@ export default function Chat() {
           isVideo,
           isVoice,
           perception,
+          userMessageId,
         }),
       })
 
@@ -1461,9 +1465,19 @@ export default function Chat() {
       voiceDurationSec?: number
       videoDurationSec?: number
       perception?: any
+      userMessageId?: string
     }
   ) {
     if (!conversationId) return false
+
+    // Guard: prevent duplicate avatar replies for the same user message
+    const dedupeKey = options?.userMessageId || seedText
+    if (avatarReplyInFlight.current.has(dedupeKey)) {
+      console.warn('[sendAvatarReply] Already in-flight for:', dedupeKey)
+      return false
+    }
+    avatarReplyInFlight.current.add(dedupeKey)
+
     let replySucceeded = false
     // Set initial status based on context
     if (options?.isVoice) setAvatarStatus('listening')
@@ -1505,7 +1519,7 @@ export default function Chat() {
         setAvatarStatus('designing')
       }
 
-      const replyPayload = await getAvatarReply(seedText, options)
+      const replyPayload = await getAvatarReply(seedText, { ...options, userMessageId: options?.userMessageId })
 
       // Handle generated image responses
       if (replyPayload.isGeneratedImage && replyPayload.mediaUrl) {
@@ -1567,6 +1581,7 @@ export default function Chat() {
       }
     } finally {
       setAvatarStatus(null)
+      avatarReplyInFlight.current.delete(dedupeKey)
     }
     return replySucceeded
   }
@@ -1586,7 +1601,7 @@ export default function Chat() {
       const message = await sendMessage(conversationId, 'contact', 'text', content)
       setMessages((current) => [...current, message as Message])
       simulateAvatarRead((message as Message).id)
-      const replied = await sendAvatarReply(content, { useVoice: false })
+      const replied = await sendAvatarReply(content, { useVoice: false, userMessageId: String((message as Message).id) })
       if (replied) maybeAvatarReact((message as Message).id)
     } catch (sendError: any) {
       console.error(sendError)
@@ -1653,6 +1668,7 @@ export default function Chat() {
           useVoice: true,
           imageUrl: mediaUrl,
           isImage: true,
+          userMessageId: String((message as Message).id),
         })
         if (imgReplied) maybeAvatarReact((message as Message).id)
         return
@@ -1709,6 +1725,7 @@ export default function Chat() {
         isVideo: true,
         videoDurationSec: metadata.duration || undefined,
         perception: opmResponse,
+        userMessageId: String((message as Message).id),
       })
       setInlineProcessing(null)
       if (vidReplied) maybeAvatarReact((message as Message).id)

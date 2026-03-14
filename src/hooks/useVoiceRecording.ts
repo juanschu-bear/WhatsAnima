@@ -38,7 +38,7 @@ interface UseVoiceRecordingOptions {
   onMessageSent: (message: Message) => void
   onMessageUpdate: (tempId: string, updates: Partial<Message>) => void
   onTranscript: (messageId: string, transcript: string) => void
-  sendAvatarReply: (text: string, options?: { isVoice?: boolean; voiceDurationSec?: number; perception?: any }) => Promise<boolean>
+  sendAvatarReply: (text: string, options?: { isVoice?: boolean; voiceDurationSec?: number; perception?: any; userMessageId?: string }) => Promise<boolean>
   simulateAvatarRead: (messageId: string) => void
   maybeAvatarReact: (messageId: string) => void
 }
@@ -123,6 +123,9 @@ export function useVoiceRecording({
     onError(null)
 
     const doSend = async () => {
+      // Show pending state (important for retry — first call already has _pending from optimisticMessage)
+      onMessageUpdate(tempId, { _pending: true, _failed: false, _errorMessage: undefined, _retryFn: undefined })
+      onSending(true)
       try {
         const contentType = file.type || 'audio/webm'
 
@@ -191,6 +194,7 @@ export function useVoiceRecording({
           isVoice: true,
           voiceDurationSec: durationSeconds,
           perception: opmResponse,
+          userMessageId: message.id,
         })
         if (voiceReplied) maybeAvatarReact(message.id)
       } catch (recordingError: any) {
@@ -200,7 +204,11 @@ export function useVoiceRecording({
           _pending: false,
           _failed: true,
           _errorMessage: recordingError?.message || 'Unable to send this voice note.',
-          _retryFn: () => doSend(),
+          _retryFn: () => {
+            // Reset visual state before retrying
+            onMessageUpdate(tempId, { _pending: true, _failed: false, _errorMessage: undefined, _retryFn: undefined })
+            doSend()
+          },
         })
       } finally {
         onSending(false)
