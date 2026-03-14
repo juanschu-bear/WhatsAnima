@@ -127,10 +127,10 @@ function computeBaseline(logs: any[]) {
     baseline[key] = Math.round((sum / cleaned.length) * 1000) / 1000
   }
 
-  // Emotion distribution across all logs
+  // Emotion distribution — only from logs with real OPM data (prosodic_summary present)
   const emotionCounts: Record<string, number> = {}
   let totalEmotionLogs = 0
-  for (const log of logs) {
+  for (const log of withProsody) {
     if (log.primary_emotion) {
       const emotion = emotionLabel(log.primary_emotion).toLowerCase()
       emotionCounts[emotion] = (emotionCounts[emotion] || 0) + 1
@@ -145,7 +145,7 @@ function computeBaseline(logs: any[]) {
   return {
     prosodic_center: baseline,
     emotion_distribution: emotionDistribution,
-    sample_count: logs.length,
+    sample_count: withProsody.length,
     prosodic_sample_count: withProsody.length,
   }
 }
@@ -239,12 +239,14 @@ export default async function handler(req: any, res: any) {
     }
 
     // 2. Canon: get cumulative audio for this contact+owner
+    //    ONLY count logs with real OPM prosodic data — fallback (prosodic_summary=null) must not inflate Canon.
     const { data: durationData } = await supabase
       .from('wa_perception_logs')
       .select('audio_duration_sec')
       .eq('contact_id', contactId)
       .eq('owner_id', ownerId)
       .not('audio_duration_sec', 'is', null)
+      .not('prosodic_summary', 'is', null)
 
     const cumulativeSec = (durationData || []).reduce(
       (sum: number, row: any) => sum + (row.audio_duration_sec || 0),
@@ -294,12 +296,13 @@ export default async function handler(req: any, res: any) {
     let tierJustAdvanced = false
 
     if (needsRecalibration) {
-      // New tier reached — full recalculation from ALL logs
+      // New tier reached — full recalculation from ALL logs with real OPM data
       const { data: allLogs } = await supabase
         .from('wa_perception_logs')
         .select('prosodic_summary, primary_emotion, audio_duration_sec')
         .eq('contact_id', contactId)
         .eq('owner_id', ownerId)
+        .not('prosodic_summary', 'is', null)
 
       const newBaseline = computeBaseline(allLogs || [])
 
