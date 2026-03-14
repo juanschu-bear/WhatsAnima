@@ -4,6 +4,16 @@ import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { getOwnerByUserId, updateOwnerProfile, uploadOwnerAvatar, deleteOwnerAvatar } from '../lib/api'
 import { type Locale, getStoredLocale, setStoredLocale, t } from '../lib/i18n'
+import {
+  type NotificationSound,
+  NOTIFICATION_SOUNDS,
+  getStoredSound,
+  setStoredSound,
+  playNotificationSound,
+  subscribeToPush,
+  unsubscribeFromPush,
+  isPushSubscribed,
+} from '../lib/notifications'
 
 const APP_VERSION = '1.0.0'
 
@@ -49,6 +59,16 @@ export default function Settings() {
     notifications: { push: true, sound: true },
     chat: { fontSize: 'medium' },
   })
+
+  // Notification sound
+  const [selectedSound, setSelectedSound] = useState<NotificationSound>(getStoredSound)
+  const [pushSubscribed, setPushSubscribed] = useState(false)
+  const [pushLoading, setPushLoading] = useState(false)
+
+  // Check push subscription status on mount
+  useEffect(() => {
+    isPushSubscribed().then(setPushSubscribed)
+  }, [])
 
   // Password form
   const [newPassword, setNewPassword] = useState('')
@@ -409,13 +429,32 @@ export default function Settings() {
                 <p className="text-sm font-medium text-white">{L('pushNotifications')}</p>
                 <p className="text-xs text-white/40">{L('pushNotificationsDesc')}</p>
               </div>
-              <button type="button" onClick={() => void persistSettings({ notifications: { ...ownerSettings.notifications, push: !ownerSettings.notifications?.push } })}
-                className={`relative h-7 w-12 rounded-full transition ${ownerSettings.notifications?.push ? 'bg-[#00a884]' : 'bg-white/15'}`}>
-                <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-transform ${ownerSettings.notifications?.push ? 'translate-x-5' : 'translate-x-0.5'}`} />
+              <button
+                type="button"
+                disabled={pushLoading}
+                onClick={async () => {
+                  setPushLoading(true)
+                  try {
+                    if (pushSubscribed) {
+                      await unsubscribeFromPush(user?.id ?? '')
+                      setPushSubscribed(false)
+                      void persistSettings({ notifications: { ...ownerSettings.notifications, push: false } })
+                    } else {
+                      const ok = await subscribeToPush(user?.id ?? '')
+                      setPushSubscribed(ok)
+                      if (ok) void persistSettings({ notifications: { ...ownerSettings.notifications, push: true } })
+                    }
+                  } finally {
+                    setPushLoading(false)
+                  }
+                }}
+                className={`relative h-7 w-12 rounded-full transition ${pushSubscribed ? 'bg-[#00a884]' : 'bg-white/15'} ${pushLoading ? 'opacity-50' : ''}`}
+              >
+                <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-transform ${pushSubscribed ? 'translate-x-5' : 'translate-x-0.5'}`} />
               </button>
             </div>
 
-            {/* Sound */}
+            {/* Sound toggle */}
             <div className="mt-2 flex items-center justify-between border-t border-white/6 py-3">
               <div>
                 <p className="text-sm font-medium text-white">{L('messageSound')}</p>
@@ -426,6 +465,33 @@ export default function Settings() {
                 <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-transform ${ownerSettings.notifications?.sound ? 'translate-x-5' : 'translate-x-0.5'}`} />
               </button>
             </div>
+
+            {/* Sound picker */}
+            {ownerSettings.notifications?.sound !== false && (
+              <div className="mt-2 border-t border-white/6 pt-3">
+                <p className="mb-2 text-sm font-medium text-white">{L('notificationTone')}</p>
+                <div className="flex gap-2">
+                  {NOTIFICATION_SOUNDS.map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedSound(s.id)
+                        setStoredSound(s.id)
+                        playNotificationSound(s.id)
+                      }}
+                      className={`flex-1 rounded-xl py-2.5 text-xs font-medium transition ${
+                        selectedSound === s.id
+                          ? 'bg-[#00a884] text-[#07141a]'
+                          : 'border border-white/8 text-white/50 hover:border-white/20'
+                      }`}
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* ═══════════ CHAT SETTINGS ═══════════ */}

@@ -22,6 +22,13 @@ import { useMessageSelection } from '../hooks/useMessageSelection'
 import { useVoiceRecording } from '../hooks/useVoiceRecording'
 import { useVideoCapture } from '../hooks/useVideoCapture'
 import { getVoiceListeningDelay, getVideoWatchingDelay, getAvatarFirstName, VOICE_SEEN_DELAY_MS } from '../lib/voiceDelay'
+import {
+  playNotificationSound,
+  isAppVisible,
+  showLocalNotification,
+  incrementUnreadBadge,
+  clearUnreadBadge,
+} from '../lib/notifications'
 
 type MessageType = 'text' | 'voice' | 'video' | 'image' | 'flashcard' | 'quiz' | 'lesson' | 'fillin'
 
@@ -1291,6 +1298,15 @@ export default function Chat() {
       .finally(() => setLoading(false))
   }, [conversationId])
 
+  // Clear badge when user returns to the chat
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') clearUnreadBadge()
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
+  }, [])
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, avatarStatus])
@@ -1533,6 +1549,14 @@ export default function Chat() {
         setMessages((current) => [...current, imageReply as Message])
         markAsInstantlyRead(String((imageReply as Message).id))
         replySucceeded = true
+
+        // ── Notification for image reply ──
+        playNotificationSound()
+        if (!isAppVisible()) {
+          const avatarName = conversation?.wa_owners?.display_name || 'Avatar'
+          showLocalNotification(avatarName, 'Sent an image', conversationId)
+          incrementUnreadBadge()
+        }
         return replySucceeded
       }
 
@@ -1558,6 +1582,17 @@ export default function Chat() {
       // Mark avatar reply as instantly read by contact
       markAsInstantlyRead(String((reply as Message).id))
       replySucceeded = true
+
+      // ── Notification: sound + push/local notification ──
+      playNotificationSound()
+      if (!isAppVisible()) {
+        const avatarName = conversation?.wa_owners?.display_name || 'Avatar'
+        const preview = typeof replyPayload.content === 'string'
+          ? replyPayload.content.slice(0, 100)
+          : 'New message'
+        showLocalNotification(avatarName, preview, conversationId)
+        incrementUnreadBadge()
+      }
     } catch (err) {
       console.error('Avatar reply failed:', err)
       // Send an immersive fallback — never show technical errors
