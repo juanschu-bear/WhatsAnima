@@ -213,7 +213,7 @@ async function loadOwnerPromptAndMemory(conversationId: string | undefined): Pro
     await client.connect()
     const [ownerResult, memoryResult] = await Promise.all([
       client.query(
-        `select o.system_prompt, o.is_self_avatar, o.communication_style from public.wa_conversations c join public.wa_owners o on o.id = c.owner_id where c.id = $1 limit 1`,
+        `select o.system_prompt, o.is_self_avatar, o.communication_style from public.wa_conversations c join public.wa_owners o on o.id = c.owner_id where c.id = $1 and o.deleted_at is null limit 1`,
         [conversationId]
       ),
       client.query(

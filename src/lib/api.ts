@@ -56,6 +56,7 @@ export async function listAllOwners() {
   const { data, error } = await supabase
     .from('wa_owners')
     .select('id, display_name, voice_id, system_prompt, tavus_replica_id')
+    .is('deleted_at', null)
     .order('display_name', { ascending: true })
   if (error) throw error
   return data ?? []
@@ -93,6 +94,7 @@ export async function getOwnerByUserId(userId: string) {
     .from('wa_owners')
     .select('*')
     .eq('user_id', userId)
+    .is('deleted_at', null)
     .limit(1)
   if (error) throw error
   if (!data || data.length === 0) throw new Error('Owner not found')
@@ -104,6 +106,7 @@ export async function updateOwnerProfile(ownerId: string, fields: { display_name
     .from('wa_owners')
     .update(fields)
     .eq('id', ownerId)
+    .is('deleted_at', null)
   if (error) throw error
 }
 
@@ -134,6 +137,14 @@ export async function deleteOwnerAvatar(ownerId: string): Promise<void> {
   }
 }
 
+export async function softDeleteOwner(ownerId: string): Promise<void> {
+  const { error } = await supabase
+    .from('wa_owners')
+    .update({ deleted_at: new Date().toISOString() })
+    .eq('id', ownerId)
+  if (error) throw error
+}
+
 export async function createOwnerIfNeeded(payload: {
   userId: string
   email: string
@@ -144,6 +155,7 @@ export async function createOwnerIfNeeded(payload: {
     .from('wa_owners')
     .select('*')
     .eq('user_id', payload.userId)
+    .is('deleted_at', null)
     .limit(1)
 
   if (byUserId && byUserId.length > 0) return byUserId[0]
@@ -154,6 +166,7 @@ export async function createOwnerIfNeeded(payload: {
       .from('wa_owners')
       .select('*')
       .eq('email', payload.email)
+      .is('deleted_at', null)
       .limit(1)
 
     if (byEmail && byEmail.length > 0) return byEmail[0]
@@ -163,6 +176,7 @@ export async function createOwnerIfNeeded(payload: {
   const { data: allOwners } = await supabase
     .from('wa_owners')
     .select('*')
+    .is('deleted_at', null)
     .limit(10)
 
   if (allOwners && allOwners.length === 1) {
@@ -241,6 +255,7 @@ export async function validateInvitationToken(token: string) {
     .from('wa_owners')
     .select('id, display_name, voice_id, tavus_replica_id, system_prompt')
     .eq('id', data.owner_id)
+    .is('deleted_at', null)
     .maybeSingle()
 
   return {
@@ -462,6 +477,7 @@ export async function getConversation(conversationId: string) {
       .from('wa_owners')
       .select('id, display_name, voice_id, tavus_replica_id, system_prompt')
       .eq('id', conversation.owner_id)
+      .is('deleted_at', null)
       .maybeSingle(),
     supabase
       .from('wa_contacts')

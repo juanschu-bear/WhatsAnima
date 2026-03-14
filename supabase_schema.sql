@@ -16,7 +16,8 @@ CREATE TABLE IF NOT EXISTS public.wa_owners (
   tavus_replica_id TEXT,
   opm_api_url TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  deleted_at TIMESTAMPTZ DEFAULT NULL
 );
 
 -- Invitation links: unique links owners generate for contacts

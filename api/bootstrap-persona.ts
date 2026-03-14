@@ -39,9 +39,10 @@ export default async function handler(req: any, res: any) {
         SET system_prompt = $1,
             voice_id = COALESCE(voice_id, $2),
             updated_at = NOW()
-        WHERE voice_id = $2
+        WHERE (voice_id = $2
            OR display_name = 'Juan Schubert'
-           OR display_name = 'Juan'
+           OR display_name = 'Juan')
+          AND deleted_at IS NULL
         RETURNING id, display_name, voice_id
       `,
       [systemPrompt, JUAN_VOICE_ID]

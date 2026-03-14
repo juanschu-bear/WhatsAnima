@@ -423,6 +423,7 @@ Respond ONLY with JSON:
           .from('wa_owners')
           .select('is_self_avatar, communication_style')
           .eq('id', ownerId)
+          .is('deleted_at', null)
           .maybeSingle()
 
         if (owner?.is_self_avatar) {
@@ -491,6 +492,7 @@ Respond in EXACTLY this JSON format:
                 .from('wa_owners')
                 .update({ communication_style: styleData })
                 .eq('id', ownerId)
+                .is('deleted_at', null)
             } catch {
               console.warn('[update-memory] Failed to parse style extraction:', styleText.slice(0, 200))
             }

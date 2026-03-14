@@ -28,6 +28,7 @@ export default function Home() {
         .from('wa_owners')
         .select('id')
         .eq('user_id', user!.id)
+        .is('deleted_at', null)
         .maybeSingle()
 
       if (ownerData) {

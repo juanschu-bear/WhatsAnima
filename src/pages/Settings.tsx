@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
-import { getOwnerByUserId, updateOwnerProfile, uploadOwnerAvatar, deleteOwnerAvatar } from '../lib/api'
+import { getOwnerByUserId, updateOwnerProfile, uploadOwnerAvatar, deleteOwnerAvatar, softDeleteOwner } from '../lib/api'
 import { type Locale, getStoredLocale, setStoredLocale, t } from '../lib/i18n'
 import {
   type NotificationSound,
@@ -69,6 +69,10 @@ export default function Settings() {
   useEffect(() => {
     isPushSubscribed().then(setPushSubscribed)
   }, [])
+
+  // Delete account
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   // Password form
   const [newPassword, setNewPassword] = useState('')
@@ -196,6 +200,20 @@ export default function Settings() {
     setNewPassword('')
     setConfirmPassword('')
     setSaving(false)
+  }
+
+  async function handleDeleteAccount() {
+    if (!ownerId) return
+    setDeleting(true)
+    try {
+      await softDeleteOwner(ownerId)
+      await signOut()
+      navigate('/login', { replace: true })
+    } catch {
+      setError('Failed to delete account.')
+      setDeleting(false)
+      setShowDeleteConfirm(false)
+    }
   }
 
   async function handleSignOut() {
@@ -378,9 +396,26 @@ export default function Settings() {
             </div>
 
             {/* Delete account */}
-            <button type="button" className="mt-4 w-full rounded-2xl border border-red-400/10 bg-red-500/[0.04] px-4 py-3.5 text-left text-sm text-red-400/70 transition hover:border-red-400/25 hover:text-red-400">
-              {L('deleteAccount')}
-            </button>
+            {showDeleteConfirm ? (
+              <div className="mt-4 rounded-2xl border border-red-400/20 bg-red-500/[0.06] p-4 space-y-3">
+                <p className="text-sm text-red-200">{L('deleteAccountConfirm')}</p>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setShowDeleteConfirm(false)} disabled={deleting}
+                    className="flex-1 rounded-2xl border border-white/10 py-2.5 text-sm text-white/60 transition hover:border-white/20">
+                    {L('back')}
+                  </button>
+                  <button type="button" onClick={() => void handleDeleteAccount()} disabled={deleting}
+                    className="flex-1 rounded-2xl bg-red-500 py-2.5 text-sm font-semibold text-white transition hover:brightness-110 disabled:opacity-40">
+                    {deleting ? '...' : L('deleteAccount')}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button type="button" onClick={() => setShowDeleteConfirm(true)}
+                className="mt-4 w-full rounded-2xl border border-red-400/10 bg-red-500/[0.04] px-4 py-3.5 text-left text-sm text-red-400/70 transition hover:border-red-400/25 hover:text-red-400">
+                {L('deleteAccount')}
+              </button>
+            )}
           </div>
 
           {/* ═══════════ PRIVACY ═══════════ */}
