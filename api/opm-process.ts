@@ -96,32 +96,34 @@ function delay(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
 
 /**
  * LLM-based fallback when the external OPM API is unreachable.
- * Analyzes the transcript (from ElevenLabs STT) to extract emotion,
- * behavioral summary, and conversation hooks using Qwen QWQ-32B (Cloudflare Workers AI).
+ * Analyzes the transcript to extract emotion, behavioral summary, and
+ * conversation hooks using Claude Haiku (fast, cost-effective for simple extraction).
+ * QwQ-32B is reserved for the more analytically demanding behavioral profile
+ * extraction in update-memory.ts.
  */
 async function llmFallbackAnalysis(transcript: string | null, audioDurationSec: number | null) {
   if (!transcript || transcript.length < 5) return null;
 
-  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
-  const apiToken = process.env.CLOUDFLARE_AI_TOKEN;
-  if (!accountId || !apiToken) {
-    console.warn('[opm-process] No Cloudflare AI credentials — cannot run LLM fallback');
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  if (!anthropicKey) {
+    console.warn('[opm-process] No ANTHROPIC_API_KEY — cannot run LLM fallback');
     return null;
   }
 
   try {
-    const response = await fetch(
-      `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/qwen/qwq-32b`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          messages: [{
-            role: 'user',
-            content: `Analyze this voice message transcript for emotional and behavioral signals. This is a real person speaking — extract what you can observe from their word choice, sentence structure, and communication style.
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': anthropicKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 400,
+        messages: [{
+          role: 'user',
+          content: `Analyze this voice message transcript for emotional and behavioral signals. This is a real person speaking — extract what you can observe from their word choice, sentence structure, and communication style.
 
 TRANSCRIPT: "${transcript}"
 ${audioDurationSec ? `DURATION: ${audioDurationSec}s` : ''}
@@ -136,18 +138,18 @@ Respond in EXACTLY this JSON format:
 }
 
 Base your analysis ONLY on the transcript text. Be accurate — if the tone is ambiguous, default to "neutral". Respond ONLY with the JSON, no explanation.`,
-          }],
-        }),
-      }
-    );
+        }],
+      }),
+    });
 
     if (!response.ok) {
-      console.warn('[opm-process] LLM fallback API error:', response.status);
+      const errBody = await response.text().catch(() => '');
+      console.warn('[opm-process] LLM fallback API error:', response.status, errBody);
       return null;
     }
 
     const result = await response.json();
-    const text = (result.result?.response || '').trim();
+    const text = (result.content?.[0]?.text || '').trim();
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) return null;
 
@@ -344,8 +346,7 @@ export default async function handler(req: any, res: any) {
       } else {
         fallbackUsed = 'none_available';
         console.warn('[opm-process] LLM fallback returned null — transcript:', transcript ? `"${transcript.slice(0, 40)}"` : 'null',
-          '| CLOUDFLARE_ACCOUNT_ID:', process.env.CLOUDFLARE_ACCOUNT_ID ? 'set' : 'MISSING',
-          '| CLOUDFLARE_AI_TOKEN:', process.env.CLOUDFLARE_AI_TOKEN ? 'set' : 'MISSING');
+          '| ANTHROPIC_API_KEY:', process.env.ANTHROPIC_API_KEY ? 'set' : 'MISSING');
       }
     }
 
