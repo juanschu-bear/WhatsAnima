@@ -123,6 +123,9 @@ export function useVoiceRecording({
     onError(null)
 
     const doSend = async () => {
+      // Show pending state (important for retry — first call already has _pending from optimisticMessage)
+      onMessageUpdate(tempId, { _pending: true, _failed: false, _errorMessage: undefined, _retryFn: undefined })
+      onSending(true)
       try {
         const contentType = file.type || 'audio/webm'
 
