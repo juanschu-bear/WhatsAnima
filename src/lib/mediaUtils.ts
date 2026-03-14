@@ -249,9 +249,16 @@ export async function callOpmApi(
       console.warn('[callOpmApi] opm-process error:', opmJson.error)
       return normalizeOpmResponse({})
     }
+    // Log server-side debug info so we can diagnose OPM failures
+    if (opmJson._debug) {
+      console.log('[callOpmApi] server debug:', JSON.stringify(opmJson._debug))
+    }
+    if (!opmJson.data) {
+      console.warn('[callOpmApi] opm-process returned null data — OPM error:', opmJson._debug?.opm_error || 'unknown', '| fallback:', opmJson._debug?.fallback || 'unknown')
+    }
     onStage('\uD83E\uDDE0', `${firstName} is reading your expressions...`, 70)
     onStage('\uD83D\uDCAC', `${firstName} is composing a response...`, 95)
-    return normalizeOpmResponse(opmJson.data || opmJson)
+    return normalizeOpmResponse(opmJson.data || {})
   }
 
   // Real OPM: upload directly or via proxy
