@@ -83,7 +83,6 @@ export function clearUnreadBadge() {
 }
 
 /* ── Push subscription ───────────────────────────────────────── */
-const VAPID_PUBLIC_KEY_STORAGE = 'wa_vapid_public_key'
 
 /**
  * Request notification permission and subscribe to push.
@@ -194,11 +193,9 @@ export function showLocalNotification(title: string, body: string, conversationI
       icon: '/icon-192.png',
       badge: '/icon-192.png',
       tag: `wa-msg-${conversationId || 'general'}`,
-      renotify: true,
-      vibrate: [200, 100, 200],
       data: {
         url: conversationId ? `/chat/${conversationId}` : '/',
       },
-    })
+    } as NotificationOptions & { vibrate?: number[] })
   }).catch(() => {})
 }
