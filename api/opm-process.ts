@@ -17,9 +17,9 @@ async function parseOpmRequest(req: any): Promise<{ blob: Blob; conversationId: 
   const rawBody = Buffer.concat(chunks);
 
   if (ct.includes('multipart/form-data')) {
-    const boundaryMatch = ct.match(/boundary=(.+?)(?:;|$)/);
+    const boundaryMatch = ct.match(/boundary=(?:"([^"]+)"|([^\s;]+))/);
     if (!boundaryMatch) throw new Error('No boundary in multipart request');
-    const boundary = boundaryMatch[1];
+    const boundary = boundaryMatch[1] || boundaryMatch[2];
     const delimiter = Buffer.from(`--${boundary}`);
     const headerSep = Buffer.from('\r\n\r\n');
 
@@ -31,14 +31,20 @@ async function parseOpmRequest(req: any): Promise<{ blob: Blob; conversationId: 
     while (pos < rawBody.length) {
       const delimIdx = rawBody.indexOf(delimiter, pos);
       if (delimIdx === -1) break;
-      const partStart = delimIdx + delimiter.length + 2;
+      let partStart = delimIdx + delimiter.length;
+      // Skip line ending after delimiter (\r\n or \n)
+      if (partStart < rawBody.length && rawBody[partStart] === 0x0d && rawBody[partStart + 1] === 0x0a) partStart += 2;
+      else if (partStart < rawBody.length && rawBody[partStart] === 0x0a) partStart += 1;
       if (partStart >= rawBody.length) break;
       const headerEndIdx = rawBody.indexOf(headerSep, partStart);
       if (headerEndIdx === -1) { pos = partStart; continue; }
       const headers = rawBody.subarray(partStart, headerEndIdx).toString('utf-8');
       const dataStart = headerEndIdx + headerSep.length;
       const nextDelim = rawBody.indexOf(delimiter, dataStart);
-      const dataEnd = nextDelim !== -1 ? nextDelim - 2 : rawBody.length;
+      // Strip trailing \r\n or \n before next delimiter
+      let dataEnd = nextDelim !== -1 ? nextDelim : rawBody.length;
+      if (dataEnd >= 2 && rawBody[dataEnd - 2] === 0x0d && rawBody[dataEnd - 1] === 0x0a) dataEnd -= 2;
+      else if (dataEnd >= 1 && rawBody[dataEnd - 1] === 0x0a) dataEnd -= 1;
 
       const nameMatch = headers.match(/name="([^"]+)"/);
       if (!nameMatch) { pos = partStart; continue; }
@@ -57,7 +63,10 @@ async function parseOpmRequest(req: any): Promise<{ blob: Blob; conversationId: 
       pos = partStart;
     }
 
-    if (!fileBlob) throw new Error('No file in FormData');
+    if (!fileBlob) {
+      console.error('[opm-process] No file in FormData — body size:', rawBody.length, 'bytes');
+      throw new Error('No file in FormData');
+    }
     return {
       blob: fileBlob,
       conversationId: fields.conversationId || '',

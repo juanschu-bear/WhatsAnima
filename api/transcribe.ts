@@ -20,10 +20,10 @@ async function parseRequestBody(req: any): Promise<{ buffer: Buffer; contentType
   const rawBody = Buffer.concat(chunks)
 
   if (ct.includes('multipart/form-data')) {
-    // Parse multipart boundary
-    const boundaryMatch = ct.match(/boundary=(.+?)(?:;|$)/)
+    // Parse multipart boundary (supports quoted values)
+    const boundaryMatch = ct.match(/boundary=(?:"([^"]+)"|([^\s;]+))/)
     if (!boundaryMatch) throw new Error('No boundary in multipart request')
-    const boundary = boundaryMatch[1]
+    const boundary = boundaryMatch[1] || boundaryMatch[2]
 
     // Find the file part in the multipart body
     const delimiter = Buffer.from(`--${boundary}`)
@@ -32,20 +32,26 @@ async function parseRequestBody(req: any): Promise<{ buffer: Buffer; contentType
     while (pos < rawBody.length) {
       const delimIdx = rawBody.indexOf(delimiter, pos)
       if (delimIdx === -1) break
-      const partStart = delimIdx + delimiter.length + 2 // skip delimiter + \r\n
+      let partStart = delimIdx + delimiter.length
+      // Skip line ending after delimiter (\r\n or \n)
+      if (partStart < rawBody.length && rawBody[partStart] === 0x0d && rawBody[partStart + 1] === 0x0a) partStart += 2
+      else if (partStart < rawBody.length && rawBody[partStart] === 0x0a) partStart += 1
       const headerEndIdx = rawBody.indexOf(headerSep, partStart)
       if (headerEndIdx === -1) { pos = partStart; continue }
       const headers = rawBody.subarray(partStart, headerEndIdx).toString('utf-8')
       if (headers.includes('name="file"')) {
         const dataStart = headerEndIdx + headerSep.length
-        // Find the next delimiter
+        // Find the next delimiter and strip trailing line ending
         const nextDelim = rawBody.indexOf(delimiter, dataStart)
-        const dataEnd = nextDelim !== -1 ? nextDelim - 2 : rawBody.length // -2 for \r\n before delimiter
+        let dataEnd = nextDelim !== -1 ? nextDelim : rawBody.length
+        if (dataEnd >= 2 && rawBody[dataEnd - 2] === 0x0d && rawBody[dataEnd - 1] === 0x0a) dataEnd -= 2
+        else if (dataEnd >= 1 && rawBody[dataEnd - 1] === 0x0a) dataEnd -= 1
         const partContentType = headers.match(/Content-Type:\s*(.+?)(?:\r\n|$)/i)?.[1]?.trim() || 'audio/webm'
         return { buffer: rawBody.subarray(dataStart, dataEnd), contentType: partContentType }
       }
       pos = partStart
     }
+    console.error('[transcribe] No file field in FormData — body size:', rawBody.length, 'bytes')
     throw new Error('No file field in FormData')
   }
 

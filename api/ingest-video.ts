@@ -206,6 +206,7 @@ export default async function handler(req: any, res: any) {
     fields = parsed.fields
     files = parsed.files
   } catch (error) {
+    console.error('[ingest-video] Failed to parse multipart body — rawBody size:', req.rawBody?.length ?? 'N/A', 'bytes, error:', error instanceof Error ? error.message : error)
     return res.status(400).json({ error: 'Failed to parse multipart body: ' + (error instanceof Error ? error.message : 'Unknown error') })
   }
 
