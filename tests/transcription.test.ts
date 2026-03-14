@@ -14,7 +14,7 @@ describe('Transcription API', () => {
       return
     }
 
-    // Create a minimal WAV with silence (the STT should return empty or near-empty text)
+    // Create a minimal WAV with silence
     const sampleRate = 16000
     const durationSec = 1
     const numSamples = sampleRate * durationSec
@@ -35,23 +35,29 @@ describe('Transcription API', () => {
     view.setUint16(34, 16, true)
     new Uint8Array(buffer).set(te.encode('data'), 36)
     view.setUint32(40, numSamples * 2, true)
-    // Leave samples as zeros (silence)
 
     const blob = new Blob([buffer], { type: 'audio/wav' })
     const formData = new FormData()
     formData.append('file', blob, 'test.wav')
 
-    const response = await fetch(`${API_BASE}/api/transcribe`, {
-      method: 'POST',
-      body: formData,
-    })
+    let response: Response
+    try {
+      response = await fetch(`${API_BASE}/api/transcribe`, {
+        method: 'POST',
+        body: formData,
+      })
+    } catch (err: any) {
+      if (err.cause?.code === 'ECONNREFUSED' || err.message?.includes('fetch failed')) {
+        console.warn('Skipping: API server not running at', API_BASE)
+        return
+      }
+      throw err
+    }
 
-    // Should succeed (200) or return empty transcript — not crash
     expect(response.status).toBeLessThan(500)
 
     if (response.ok) {
       const data = await response.json()
-      // Transcript should be a string (may be empty for silence)
       expect(typeof data.text).toBe('string')
     }
   })
