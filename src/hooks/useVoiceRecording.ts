@@ -194,6 +194,7 @@ export function useVoiceRecording({
           isVoice: true,
           voiceDurationSec: durationSeconds,
           perception: opmResponse,
+          userMessageId: message.id,
         })
         if (voiceReplied) maybeAvatarReact(message.id)
       } catch (recordingError: any) {
@@ -203,7 +204,11 @@ export function useVoiceRecording({
           _pending: false,
           _failed: true,
           _errorMessage: recordingError?.message || 'Unable to send this voice note.',
-          _retryFn: () => doSend(),
+          _retryFn: () => {
+            // Reset visual state before retrying
+            onMessageUpdate(tempId, { _pending: true, _failed: false, _errorMessage: undefined, _retryFn: undefined })
+            doSend()
+          },
         })
       } finally {
         onSending(false)

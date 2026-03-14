@@ -86,9 +86,14 @@ type ChatMessage = {
   msgType?: string
 }
 
-/** Extract string label from an emotion value that may be a plain string or an OPM v4 object like {label, score}. */
+/** Extract string label from an emotion value that may be a plain string, a JSON-encoded string, or an OPM v4 object like {label, score}. */
 function emotionLabel(val: any): string {
-  if (typeof val === 'string') return val
+  if (typeof val === 'string') {
+    if (val.startsWith('{')) {
+      try { return JSON.parse(val).label || val } catch { return val }
+    }
+    return val
+  }
   if (val && typeof val === 'object' && typeof val.label === 'string') return val.label
   return ''
 }
@@ -409,6 +414,7 @@ export default async function handler(req: any, res: any) {
     isVideo,
     isVoice,
     perception,
+    userMessageId,
   }: {
     message?: string
     conversationId?: string
@@ -418,10 +424,43 @@ export default async function handler(req: any, res: any) {
     isVideo?: boolean
     isVoice?: boolean
     perception?: any
+    userMessageId?: string
   } = req.body ?? {}
 
   if (!message || typeof message !== 'string' || !message.trim()) {
     return res.status(400).json({ error: 'Message content is required' })
+  }
+
+  // --- Duplicate check: if userMessageId is provided, check if an avatar reply already exists ---
+  if (userMessageId && conversationId) {
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY
+    if (supabaseUrl && supabaseKey) {
+      const supabase = createClient(supabaseUrl, supabaseKey)
+      // Find the user message timestamp, then check for avatar replies after it
+      const { data: userMsg } = await supabase
+        .from('wa_messages')
+        .select('created_at')
+        .eq('id', userMessageId)
+        .maybeSingle()
+
+      if (userMsg) {
+        const { data: existingReply } = await supabase
+          .from('wa_messages')
+          .select('id, content')
+          .eq('conversation_id', conversationId)
+          .eq('sender', 'avatar')
+          .gt('created_at', userMsg.created_at)
+          .order('created_at', { ascending: true })
+          .limit(1)
+          .maybeSingle()
+
+        if (existingReply) {
+          console.log('[chat] Duplicate check: avatar reply already exists for message', userMessageId)
+          return res.status(200).json({ content: existingReply.content, _deduplicated: true })
+        }
+      }
+    }
   }
 
   const priorMessages = Array.isArray(history)

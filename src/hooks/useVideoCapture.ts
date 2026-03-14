@@ -590,6 +590,7 @@ export function useVideoCapture({
         isVideo: true,
         videoDurationSec: videoDraftSeconds,
         perception: opmResponse,
+        userMessageId: message.id,
       })
     } catch (videoSendError: any) {
       console.error(videoSendError)

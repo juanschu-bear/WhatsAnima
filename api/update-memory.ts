@@ -232,14 +232,25 @@ Respond in EXACTLY this JSON format:
     }
 
     const rawText = result.content?.[0]?.text?.trim() || ''
-    // Strip markdown code fences (```json ... ```) that Haiku sometimes wraps around JSON
-    const cleanedText = rawText.replace(/^```(?:json)?\s*\n?/gm, '').replace(/\n?```\s*$/gm, '').trim()
     let parsed: { summary: string; profile_facts: string[]; timeline_events: string[]; behavioral_profile?: any; reminders?: Array<{ text: string; due_at: string; source?: string }> }
     try {
-      const jsonMatch = cleanedText.match(/\{[\s\S]*\}/)
-      parsed = JSON.parse(jsonMatch?.[0] || cleanedText)
-    } catch {
-      console.error('[update-memory] Failed to parse LLM response:', rawText)
+      // Strategy: try multiple approaches to extract valid JSON
+      // 1. Strip all markdown code fences
+      let cleaned = rawText.replace(/```(?:json)?\s*\n?/g, '').trim()
+      // 2. Find the outermost balanced { ... } block
+      const startIdx = cleaned.indexOf('{')
+      if (startIdx === -1) throw new Error('No JSON object found')
+      let depth = 0
+      let endIdx = -1
+      for (let i = startIdx; i < cleaned.length; i++) {
+        if (cleaned[i] === '{') depth++
+        else if (cleaned[i] === '}') { depth--; if (depth === 0) { endIdx = i; break } }
+      }
+      if (endIdx === -1) throw new Error('Unbalanced braces in JSON')
+      const jsonStr = cleaned.slice(startIdx, endIdx + 1)
+      parsed = JSON.parse(jsonStr)
+    } catch (parseErr: any) {
+      console.error('[update-memory] Failed to parse LLM response:', parseErr.message, '\nRaw text:', rawText.slice(0, 500))
       return res.status(500).json({ error: 'Failed to parse memory update' })
     }
 
@@ -409,15 +420,22 @@ Respond in EXACTLY this JSON format:
             const styleResult = await styleResponse.json()
             const styleText = styleResult.content?.[0]?.text?.trim() || ''
             try {
-              const cleanedStyle = styleText.replace(/^```(?:json)?\s*\n?/gm, '').replace(/\n?```\s*$/gm, '').trim()
-              const styleMatch = cleanedStyle.match(/\{[\s\S]*\}/)
-              const styleData = JSON.parse(styleMatch?.[0] || cleanedStyle)
+              const cleanedStyle = styleText.replace(/```(?:json)?\s*\n?/g, '').trim()
+              const sStart = cleanedStyle.indexOf('{')
+              if (sStart === -1) throw new Error('No JSON')
+              let sDepth = 0, sEnd = -1
+              for (let i = sStart; i < cleanedStyle.length; i++) {
+                if (cleanedStyle[i] === '{') sDepth++
+                else if (cleanedStyle[i] === '}') { sDepth--; if (sDepth === 0) { sEnd = i; break } }
+              }
+              if (sEnd === -1) throw new Error('Unbalanced')
+              const styleData = JSON.parse(cleanedStyle.slice(sStart, sEnd + 1))
               await supabase
                 .from('wa_owners')
                 .update({ communication_style: styleData })
                 .eq('id', ownerId)
             } catch {
-              console.warn('[update-memory] Failed to parse style extraction:', styleText)
+              console.warn('[update-memory] Failed to parse style extraction:', styleText.slice(0, 200))
             }
           }
         }
