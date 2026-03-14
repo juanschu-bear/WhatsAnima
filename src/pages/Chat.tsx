@@ -34,6 +34,11 @@ interface Message {
   duration_sec: number | null
   created_at: string
   read_at?: string | null
+  _pending?: boolean
+  _failed?: boolean
+  _errorMessage?: string
+  _localBlobUrl?: string
+  _retryFn?: () => void
 }
 
 interface ConversationData {
@@ -324,9 +329,32 @@ const VoiceMessageBubble = memo(function VoiceMessageBubble({
           ))}
         </div>
       ) : null}
+      {message._failed && (
+        <div className="mt-2 flex items-center gap-2">
+          <span className="text-[11px] text-red-400">{message._errorMessage || 'Send failed'}</span>
+          {message._retryFn && (
+            <button
+              type="button"
+              onClick={message._retryFn}
+              className="inline-flex items-center gap-1 rounded-full border border-red-400/30 bg-red-400/10 px-3 py-1 text-[11px] font-medium text-red-300 transition hover:border-red-400/50 hover:bg-red-400/20"
+            >
+              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              Retry
+            </button>
+          )}
+        </div>
+      )}
       <span className={`mt-1 flex items-center justify-end gap-0.5 text-[10px] ${isContact ? 'text-white/40' : 'text-white/30'}`}>
+        {message._pending && (
+          <svg className="mr-1 h-3 w-3 animate-spin text-white/40" viewBox="0 0 24 24" fill="none">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+        )}
         {formatMessageTime(message.created_at)}
-        {isContact && (
+        {isContact && !message._pending && !message._failed && (
           <span className="ml-1.5 inline-flex items-center gap-[3px]">
             <svg className={`h-3.5 w-3.5 transition-colors duration-500 ${isRead ? 'text-[#53bdeb]' : 'text-white/35'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
@@ -336,6 +364,12 @@ const VoiceMessageBubble = memo(function VoiceMessageBubble({
               <circle cx="12" cy="12" r="3" fill={isRead ? 'currentColor' : 'none'} />
             </svg>
           </span>
+        )}
+        {message._failed && (
+          <svg className="ml-1 h-3.5 w-3.5 text-red-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M12 8v4m0 4h.01" />
+          </svg>
         )}
       </span>
     </div>
@@ -1119,6 +1153,9 @@ export default function Chat() {
     onSending: setSending,
     onError: setError,
     onMessageSent: (msg) => setMessages((current) => [...current, msg as Message]),
+    onMessageUpdate: (tempId, updates) => setMessages((current) =>
+      current.map((m) => m.id === tempId ? { ...m, ...updates } : m)
+    ),
     onTranscript: (id, text) => setTranscriptMap((current) => ({ ...current, [id]: text })),
     sendAvatarReply: (...args) => sendAvatarReplyRef.current(...args),
     simulateAvatarRead,
