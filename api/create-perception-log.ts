@@ -34,6 +34,13 @@ const CANON_TIERS = [
 
 type TierName = typeof CANON_TIERS[number]['name']
 
+/** Extract string label from an emotion value that may be a plain string or an OPM v4 object like {label, score}. */
+function emotionLabel(val: any): string {
+  if (typeof val === 'string') return val
+  if (val && typeof val === 'object' && typeof val.label === 'string') return val.label
+  return ''
+}
+
 const PROSODIC_KEYS = [
   'mean_pitch', 'pitch_range', 'pitch_variability',
   'speaking_rate', 'articulation_rate',
@@ -120,7 +127,7 @@ function computeBaseline(logs: any[]) {
   let totalEmotionLogs = 0
   for (const log of logs) {
     if (log.primary_emotion) {
-      const emotion = log.primary_emotion.toLowerCase()
+      const emotion = emotionLabel(log.primary_emotion).toLowerCase()
       emotionCounts[emotion] = (emotionCounts[emotion] || 0) + 1
       totalEmotionLogs++
     }
@@ -156,7 +163,7 @@ function computeDelta(current: any, baseline: any) {
 
   let emotionDelta = null
   if (current.primary_emotion && baseline.emotion_distribution) {
-    const emotion = current.primary_emotion.toLowerCase()
+    const emotion = emotionLabel(current.primary_emotion).toLowerCase()
     const frequency = baseline.emotion_distribution[emotion] || 0
     emotionDelta = {
       emotion,
@@ -211,8 +218,8 @@ export default async function handler(req: any, res: any) {
         owner_id: ownerId,
         transcript: transcript ?? null,
         audio_duration_sec: audioDurationSec ?? null,
-        primary_emotion: primaryEmotion ?? null,
-        secondary_emotion: secondaryEmotion ?? null,
+        primary_emotion: emotionLabel(primaryEmotion) || null,
+        secondary_emotion: emotionLabel(secondaryEmotion) || null,
         fired_rules: firedRules ?? [],
         behavioral_summary: behavioralSummary ?? null,
         conversation_hooks: conversationHooks ?? [],
@@ -335,7 +342,7 @@ export default async function handler(req: any, res: any) {
     let delta = null
     if (baselineData) {
       delta = computeDelta(
-        { prosodic_summary: prosodicSummary, primary_emotion: primaryEmotion },
+        { prosodic_summary: prosodicSummary, primary_emotion: emotionLabel(primaryEmotion) },
         baselineData
       )
     }
