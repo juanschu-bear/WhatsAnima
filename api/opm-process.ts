@@ -8,7 +8,8 @@ export const config = {
  * Parse incoming request — supports both FormData and JSON.
  */
 async function parseOpmRequest(req: any): Promise<{ blob: Blob; conversationId: string; contactId: string; filename: string }> {
-  const ct = (req.headers['content-type'] || '').toLowerCase();
+  const rawCt = req.headers['content-type'] || '';
+  const ct = rawCt.toLowerCase();
 
   const chunks: Buffer[] = [];
   for await (const chunk of req) {
@@ -17,7 +18,7 @@ async function parseOpmRequest(req: any): Promise<{ blob: Blob; conversationId: 
   const rawBody = Buffer.concat(chunks);
 
   if (ct.includes('multipart/form-data')) {
-    const boundaryMatch = ct.match(/boundary=(?:"([^"]+)"|([^\s;]+))/);
+    const boundaryMatch = rawCt.match(/boundary=(?:"([^"]+)"|([^\s;]+))/i);
     if (!boundaryMatch) throw new Error('No boundary in multipart request');
     const boundary = boundaryMatch[1] || boundaryMatch[2];
     const delimiter = Buffer.from(`--${boundary}`);

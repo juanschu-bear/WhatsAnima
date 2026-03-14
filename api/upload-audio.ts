@@ -31,7 +31,8 @@ async function parseRequestBody(req: any): Promise<{
   filename?: string
   ownerId: string
 }> {
-  const ct = (req.headers['content-type'] || '').toLowerCase()
+  const rawCt = req.headers['content-type'] || ''
+  const ct = rawCt.toLowerCase()
 
   // Read raw body
   const chunks: Buffer[] = []
@@ -41,7 +42,7 @@ async function parseRequestBody(req: any): Promise<{
   const rawBody = Buffer.concat(chunks)
 
   if (ct.includes('multipart/form-data')) {
-    const boundaryMatch = ct.match(/boundary=(?:"([^"]+)"|([^\s;]+))/)
+    const boundaryMatch = rawCt.match(/boundary=(?:"([^"]+)"|([^\s;]+))/i)
     if (!boundaryMatch) throw new Error('No boundary in multipart request')
     const boundary = boundaryMatch[1] || boundaryMatch[2]
     const delimiter = Buffer.from(`--${boundary}`)
