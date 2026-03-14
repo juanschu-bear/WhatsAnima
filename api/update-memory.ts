@@ -154,7 +154,7 @@ export default async function handler(req: any, res: any) {
       return parts.length > 0 ? parts.join('\n') : '(none yet)'
     })()
 
-    const prompt = `You are a memory extraction system for an AI avatar that has ongoing conversations with a user. Extract and organize memories into FOUR layers — content AND behavior.
+    const prompt = `You are a memory extraction system for an AI avatar that has ongoing conversations with a user. Extract and organize memories from this session.
 
 TODAY'S DATE: ${today}
 
@@ -164,20 +164,14 @@ ${existingProfile.length > 0 ? existingProfile.join('\n') : '(none yet)'}
 EXISTING TIMELINE (dated events and milestones):
 ${existingTimeline.length > 0 ? existingTimeline.join('\n') : '(none yet)'}
 
-EXISTING BEHAVIORAL PROFILE (how this user communicates — from OPM/Canon data):
-${existingBehavioralText}
-${canonContext ? `\n${canonContext}` : ''}
-
 EXISTING SESSION SUMMARY:
 ${existingSummary || '(none yet)'}
 
 SESSION CONVERSATION:
 ${conversationExcerpt}
-${perceptionExcerpt ? `\nOPM PERCEPTION DATA FOR THIS SESSION (real-time emotional/prosodic readings per message):
-${perceptionExcerpt}` : ''}
 
 INSTRUCTIONS:
-Extract memories into FOUR categories:
+Extract memories into THREE categories:
 
 1. **summary**: A 2-4 sentence summary of THIS session — what was discussed, the user's mood, any decisions made. This replaces the previous session summary.
 
@@ -188,17 +182,7 @@ Extract memories into FOUR categories:
    - "[2026-03] Started preparing for physics final"
    Merge with existing timeline — add new events, never remove old ones, update if corrected. DEDUPLICATE: if two entries describe the same event, keep only the more detailed one. There is NO hard limit — keep all unique events.
 
-4. **behavioral_profile**: HOW the user communicates — extracted from the OPM perception data above. This is NOT about what they say, but HOW they say it. JSON object with these arrays:
-   - **emotional_patterns**: Recurring emotional states and what triggers them. E.g. "Gets excited (high energy, faster speech) when discussing AI/technology", "Becomes quieter and more measured when discussing business challenges", "Default resting state is calm-focused"
-   - **prosodic_tendencies**: Voice/speech patterns. E.g. "Speaks faster when passionate (rate increases 20-30%)", "Uses longer pauses when thinking deeply", "Volume increases during storytelling"
-   - **topic_reactions**: How specific topics affect their emotional/prosodic state. E.g. "Perception/OPM topics → high energy + authenticity spike", "Business strategy → measured, analytical tone", "Personal stories → warmer, softer voice"
-   - **authenticity_markers**: What makes this person more or less authentic. E.g. "More authentic when improvising than reading", "Authenticity drops when discussing topics they're unsure about", "Most genuine during casual conversation"
-
-   Merge with existing behavioral profile. There is NO hard limit per category — keep all unique observations. The more behavioral data, the better the avatar understands the user. Update entries that evolved, add new ones, keep unchanged ones. DEDUPLICATE similar entries (merge near-identical observations into one). If no OPM perception data is available for this session, return the existing behavioral profile unchanged.
-
-IMPORTANT: Only extract information from actual data. For behavioral_profile, ONLY use the OPM perception readings — never invent behavioral patterns from text alone.
-
-5. **reminders**: Future-dated events the user mentioned that the avatar should proactively remind them about. JSON array of objects with:
+4. **reminders**: Future-dated events the user mentioned that the avatar should proactively remind them about. JSON array of objects with:
    - **text**: What to remind about (e.g. "You wanted to finish your chapter today")
    - **due_at**: ISO 8601 datetime for when to send the reminder. IMPORTANT: The user's timezone is ${userTimezone}. All times must be in this timezone, then converted to UTC for the ISO string. Use reasonable defaults:
      - "morgen" / "tomorrow" → next day at 09:00 ${userTimezone}
@@ -209,7 +193,7 @@ IMPORTANT: Only extract information from actual data. For behavioral_profile, ON
    Only extract reminders for FUTURE events that are actionable. Do NOT create reminders for past events or vague statements. If no reminders are appropriate, return an empty array.
 
 Respond in EXACTLY this JSON format:
-{"summary": "...", "profile_facts": ["..."], "timeline_events": ["[YYYY-MM] ..."], "behavioral_profile": {"emotional_patterns": ["..."], "prosodic_tendencies": ["..."], "topic_reactions": ["..."], "authenticity_markers": ["..."]}, "reminders": [{"text": "...", "due_at": "2026-03-13T09:00:00Z", "source": "..."}]}`
+{"summary": "...", "profile_facts": ["..."], "timeline_events": ["[YYYY-MM] ..."], "reminders": [{"text": "...", "due_at": "2026-03-13T09:00:00Z", "source": "..."}]}`
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -232,7 +216,7 @@ Respond in EXACTLY this JSON format:
     }
 
     const rawText = result.content?.[0]?.text?.trim() || ''
-    let parsed: { summary: string; profile_facts: string[]; timeline_events: string[]; behavioral_profile?: any; reminders?: Array<{ text: string; due_at: string; source?: string }> }
+    let parsed: { summary: string; profile_facts: string[]; timeline_events: string[]; reminders?: Array<{ text: string; due_at: string; source?: string }> }
     try {
       // Strategy: try multiple approaches to extract valid JSON
       // 1. Strip all markdown code fences
@@ -252,6 +236,80 @@ Respond in EXACTLY this JSON format:
     } catch (parseErr: any) {
       console.error('[update-memory] Failed to parse LLM response:', parseErr.message, '\nRaw text:', rawText.slice(0, 500))
       return res.status(500).json({ error: 'Failed to parse memory update' })
+    }
+
+    // --- Behavioral Profile Extraction via QwQ-32B (Cloudflare Workers AI) ---
+    // QwQ-32B is the stronger reasoning model — used here for the analytically
+    // demanding task of extracting behavioral patterns from OPM perception data.
+    // Only runs when perception data is available for this session.
+    let extractedBehavioral: any = null
+    if (perceptionExcerpt) {
+      const cfAccountId = process.env.CLOUDFLARE_ACCOUNT_ID
+      const cfToken = process.env.CLOUDFLARE_AI_TOKEN
+      if (cfAccountId && cfToken) {
+        try {
+          const behavioralPrompt = `You are a behavioral psychologist analyzing real-time perception data from a voice conversation. Extract communication patterns from the OPM/Canon readings below.
+
+EXISTING BEHAVIORAL PROFILE:
+${existingBehavioralText}
+${canonContext ? `\n${canonContext}` : ''}
+
+OPM PERCEPTION DATA FOR THIS SESSION (real-time emotional/prosodic readings per message):
+${perceptionExcerpt}
+
+SESSION CONVERSATION (for context only — base behavioral analysis on the perception data, NOT the text):
+${conversationExcerpt}
+
+INSTRUCTIONS:
+Extract HOW the user communicates — not what they say, but how they say it. Use ONLY the OPM perception readings as evidence. The conversation text is context only.
+
+Return a JSON object with these arrays:
+- **emotional_patterns**: Recurring emotional states and what triggers them. E.g. "Gets excited (high energy, faster speech) when discussing AI/technology", "Default resting state is calm-focused"
+- **prosodic_tendencies**: Voice/speech patterns. E.g. "Speaks faster when passionate (rate increases 20-30%)", "Uses longer pauses when thinking deeply"
+- **topic_reactions**: How specific topics affect their emotional/prosodic state. E.g. "Perception/OPM topics → high energy + authenticity spike"
+- **authenticity_markers**: What makes this person more or less authentic. E.g. "More authentic when improvising than reading"
+
+Merge with existing behavioral profile. Keep all unique observations — no hard limits. Update entries that evolved, add new ones, keep unchanged ones. DEDUPLICATE similar entries.
+
+Respond ONLY with JSON:
+{"emotional_patterns": ["..."], "prosodic_tendencies": ["..."], "topic_reactions": ["..."], "authenticity_markers": ["..."]}`
+
+          const cfResponse = await fetch(
+            `https://api.cloudflare.com/client/v4/accounts/${cfAccountId}/ai/run/@cf/qwen/qwq-32b`,
+            {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${cfToken}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                messages: [{ role: 'user', content: behavioralPrompt }],
+              }),
+            }
+          )
+
+          if (!cfResponse.ok) {
+            const errStatus = cfResponse.status
+            const errBody = await cfResponse.text().catch(() => '')
+            console.error('[update-memory] QwQ behavioral extraction failed:', errStatus, errBody)
+          } else {
+            const cfResult = await cfResponse.json()
+            const cfText = (cfResult.result?.response || '').trim()
+            const cfJsonMatch = cfText.match(/\{[\s\S]*\}/)
+            if (cfJsonMatch) {
+              extractedBehavioral = JSON.parse(cfJsonMatch[0])
+              console.log('[update-memory] QwQ behavioral profile extracted successfully')
+            } else {
+              console.warn('[update-memory] QwQ returned no parseable JSON:', cfText.slice(0, 200))
+            }
+          }
+        } catch (cfErr: any) {
+          console.error('[update-memory] QwQ behavioral extraction error:', cfErr.message)
+        }
+      } else {
+        console.warn('[update-memory] Skipping behavioral extraction — missing CLOUDFLARE_ACCOUNT_ID:', cfAccountId ? 'set' : 'MISSING',
+          'CLOUDFLARE_AI_TOKEN:', cfToken ? 'set' : 'MISSING')
+      }
     }
 
     // --- Deduplicate (no hard limits — let the profile grow naturally) ---
@@ -294,11 +352,10 @@ Respond in EXACTLY this JSON format:
     // Timeline events are prefixed with [YYYY-MM] so they can be separated on read
     const mergedFacts = [...profileFacts, ...timelineEvents]
 
-    // Merge behavioral profile — keep existing if LLM returned nothing
+    // Merge behavioral profile — use QwQ extraction if available, otherwise keep existing
     // No hard limits: all unique behavioral observations are valuable.
-    // Deduplication in the LLM prompt handles merging similar entries.
-    const behavioralProfile = parsed.behavioral_profile && Object.keys(parsed.behavioral_profile).length > 0
-      ? parsed.behavioral_profile
+    const behavioralProfile = extractedBehavioral && Object.keys(extractedBehavioral).length > 0
+      ? extractedBehavioral
       : existingBehavioral
 
     // Upsert memory (behavioral_profile column is JSONB, added via ALTER TABLE)
