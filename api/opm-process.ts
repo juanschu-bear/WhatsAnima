@@ -255,12 +255,15 @@ export default async function handler(req: any, res: any) {
 
     // Try OPM v4.0 async API: POST /analyze → poll /status → GET /results
     let opmData: any = null;
+    let opmError: string | null = null;
+    let fallbackUsed: string | null = null;
     try {
       console.log('[opm-process] Calling OPM v4.0 /analyze — blob size:', blob.size, 'bytes, type:', blob.type);
       opmData = await callOpmV4(blob, finalFilename, conversationId, 'echo');
       console.log('[opm-process] OPM v4.0 returned results');
     } catch (opmErr: any) {
-      console.warn('[opm-process] OPM v4.0 failed:', opmErr.message, '— will attempt LLM fallback');
+      opmError = opmErr.message || String(opmErr);
+      console.warn('[opm-process] OPM v4.0 failed:', opmError, '— will attempt LLM fallback');
     }
 
     // If OPM failed, run LLM fallback on transcript
@@ -327,15 +330,28 @@ export default async function handler(req: any, res: any) {
 
       opmData = await llmFallbackAnalysis(transcript, audioDurationSec);
       if (opmData) {
+        fallbackUsed = 'llm_transcript';
         console.log('[opm-process] LLM fallback produced analysis');
       } else {
+        fallbackUsed = 'none_available';
         console.warn('[opm-process] LLM fallback returned null — transcript:', transcript ? `"${transcript.slice(0, 40)}"` : 'null',
           '| CLOUDFLARE_ACCOUNT_ID:', process.env.CLOUDFLARE_ACCOUNT_ID ? 'set' : 'MISSING',
           '| CLOUDFLARE_AI_TOKEN:', process.env.CLOUDFLARE_AI_TOKEN ? 'set' : 'MISSING');
       }
     }
 
-    return res.status(200).json({ success: true, data: opmData });
+    return res.status(200).json({
+      success: true,
+      data: opmData,
+      _debug: {
+        opm_error: opmError,
+        fallback: fallbackUsed,
+        blob_size: blob.size,
+        blob_type: blob.type,
+        opm_base: OPM_BASE,
+        has_data: opmData !== null,
+      },
+    });
   } catch (error: any) {
     console.error('[opm-process] Error:', error.message || error);
     return res.status(500).json({ error: error.message || 'OPM processing failed' });
