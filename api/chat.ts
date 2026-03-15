@@ -294,6 +294,40 @@ async function loadOwnerPromptAndMemory(conversationId: string | undefined): Pro
   }
 }
 
+/** Detect the dominant language of a text string. Returns 'en', 'de', 'es', or 'unknown'. */
+function detectLanguage(text: string): string {
+  const lower = text.toLowerCase().replace(/[^a-záéíóúüñäöß\s]/g, ' ')
+  const words = lower.split(/\s+/).filter((w) => w.length > 1)
+  if (words.length === 0) return 'unknown'
+
+  // Common function words that strongly indicate a language
+  const de = new Set(['ich','du','er','sie','wir','ihr','ist','bin','bist','sind','das','der','die','den','dem','des','ein','eine','einer','einem','einen','und','oder','aber','nicht','auch','noch','schon','doch','mal','was','wie','wer','wo','wann','warum','wenn','weil','dass','haben','habe','hat','hatte','sein','war','kann','kannst','könnte','muss','mein','dein','kein','mir','dir','ihm','uns','für','mit','von','bei','nach','aus','auf','über','unter','vor','hinter','neben','zwischen','sehr','gut','jetzt','hier','dort','heute','morgen','gestern','immer','nie','viel','mehr','ganz','nur','alle','alles','diese','dieser','diesem','diesen','etwas','nichts','vielleicht','eigentlich','natürlich','wirklich','gerade','trotzdem','bereits','deshalb','möchte','würde','sollte','gibt','gehen','kommen','machen','sagen','wissen','sehen','heißt','danke','bitte','hallo','ja','nein','okay'])
+  const es = new Set(['yo','tú','él','ella','nosotros','ellos','ellas','usted','ustedes','es','soy','eres','somos','son','el','la','los','las','un','una','unos','unas','y','o','pero','no','también','ya','qué','cómo','quién','dónde','cuándo','por','porque','que','si','cuando','para','con','sin','desde','hasta','entre','sobre','muy','bien','ahora','aquí','hoy','mañana','ayer','siempre','nunca','mucho','más','todo','todos','esta','este','esto','estos','estas','algo','nada','quizás','realmente','puede','puedo','puedes','tiene','tengo','tienes','haber','hacer','decir','saber','ver','dar','estar','estoy','estás','está','hay','ir','voy','vas','va','vamos','como','gracias','hola','sí','bueno','pues','oye','mira','verdad','creo','quiero','necesito','entiendo','claro','vale','entonces','también','después','antes','mejor','peor','otro','otra','cada','mismo','donde','mientras','aunque','además','dentro','fuera'])
+  const en = new Set(['i','you','he','she','we','they','it','is','am','are','was','were','the','a','an','and','or','but','not','also','yet','what','how','who','where','when','why','if','because','that','for','with','from','have','has','had','do','does','did','can','could','would','should','will','shall','may','might','my','your','his','her','our','their','me','him','us','them','very','well','now','here','today','tomorrow','yesterday','always','never','much','more','all','this','these','those','something','nothing','maybe','really','just','about','think','know','want','need','like','going','been','being','get','got','make','say','said','see','come','take','give','go','good','thanks','thank','hello','yes','no','okay','right','sure','actually','pretty','already','though','still','anyway','basically','honestly','literally','probably','definitely','sorry','please','again','after','before','better','another','same','every','between','own','most','some','any','which','other','into','than','then','only','even','back','over','down'])
+
+  let deScore = 0, esScore = 0, enScore = 0
+  for (const w of words) {
+    if (de.has(w)) deScore++
+    if (es.has(w)) esScore++
+    if (en.has(w)) enScore++
+  }
+
+  // German-specific characters boost
+  if (/[äöüß]/.test(lower)) deScore += 2
+  // Spanish-specific characters boost
+  if (/[áéíóúñ¿¡]/.test(lower)) esScore += 2
+
+  const max = Math.max(deScore, esScore, enScore)
+  if (max === 0) return 'unknown'
+  // Require a minimum signal to avoid false positives on short messages
+  if (max < 2 && words.length > 3) return 'unknown'
+  if (deScore === max) return 'de'
+  if (esScore === max) return 'es'
+  return 'en'
+}
+
+const LANG_NAMES: Record<string, string> = { en: 'English', de: 'German', es: 'Spanish' }
+
 function getMessageTypeTag(msg: ChatMessage): string {
   if (msg.msgType === 'voice' || msg.isVoice) return '[VOICE] '
   if (msg.msgType === 'video' || msg.isVideo) return '[VIDEO] '
@@ -504,6 +538,27 @@ When greeting or introducing yourself, use the name ${ownerName}. First-person s
         isVoice,
       },
     ]
+
+    // --- Language switch detection: inject instruction directly before last user message ---
+    const lastUserMsg = messages[messages.length - 1]
+    const currentLang = detectLanguage(lastUserMsg.content)
+    if (currentLang !== 'unknown') {
+      // Find the previous user message to compare
+      let prevLang = 'unknown'
+      for (let i = messages.length - 2; i >= 0; i--) {
+        if (messages[i].role === 'user') {
+          prevLang = detectLanguage(messages[i].content)
+          break
+        }
+      }
+      // Inject if language changed OR if there's no previous user message (first message — enforce language)
+      if (prevLang !== 'unknown' && prevLang !== currentLang) {
+        const langName = LANG_NAMES[currentLang] || currentLang
+        const prevLangName = LANG_NAMES[prevLang] || prevLang
+        const langInstruction = `[CRITICAL LANGUAGE OVERRIDE: The user just switched from ${prevLangName} to ${langName}. You MUST respond in ${langName}. Do NOT respond in ${prevLangName}. This overrides all prior conversation context.]`
+        lastUserMsg.content = `${langInstruction}\n${lastUserMsg.content}`
+      }
+    }
 
     let content = await callAnthropic(apiKey, systemPrompt, messages)
     if (!content) {
