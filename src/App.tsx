@@ -10,6 +10,7 @@ import Invite from './pages/Invite'
 import Chat from './pages/Chat'
 import AvatarSelect from './pages/AvatarSelect'
 import Settings from './pages/Settings'
+import Status from './pages/Status'
 import AuthCallback from './pages/AuthCallback'
 
 export default function App() {
@@ -21,6 +22,7 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
           <Route path="/invite/:token" element={<Invite />} />
+          <Route path="/status" element={<Status />} />
           <Route path="/chat/:conversationId" element={<Chat />} />
           <Route
             path="/avatars"
