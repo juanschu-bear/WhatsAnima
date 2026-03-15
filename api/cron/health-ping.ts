@@ -18,15 +18,6 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
-  // Verify cron secret for GET requests (Vercel cron sends this header).
-  // HEAD requests (e.g. UptimeRobot) skip auth but still execute all checks.
-  if (req.method === 'GET') {
-    const cronSecret = process.env.CRON_SECRET
-    if (cronSecret && req.headers['authorization'] !== `Bearer ${cronSecret}`) {
-      return res.status(401).json({ error: 'Unauthorized' })
-    }
-  }
-
   const supabase = getSupabaseAdmin()
   if (!supabase) {
     return res.status(200).json({ ok: false, error: 'Supabase not configured', skipped: true })
