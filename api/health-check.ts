@@ -36,9 +36,10 @@ const EXPECTED_SCHEMA: Record<string, string[]> = {
 }
 
 type CheckResult = {
-  status: 'ok' | 'fail'
+  status: 'ok' | 'fail' | 'degraded'
   message?: string
   details?: any
+  response_time_ms?: number
 }
 
 async function checkDbSchema(supabase: any): Promise<CheckResult> {
@@ -153,6 +154,93 @@ async function checkTts(): Promise<CheckResult> {
   }
 }
 
+async function checkChatApi(baseUrl: string): Promise<CheckResult> {
+  try {
+    const resp = await fetch(`${baseUrl}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+      signal: AbortSignal.timeout(10_000),
+    })
+    // We expect 400/422 (missing params) — that still proves the endpoint is reachable
+    if (resp.status < 500) {
+      return { status: 'ok', message: `Chat API reachable (${resp.status})` }
+    }
+    return { status: 'fail', message: `Chat API returned ${resp.status}` }
+  } catch (err: any) {
+    return {
+      status: 'fail',
+      message: 'Chat API unreachable',
+      details: err.message || String(err),
+    }
+  }
+}
+
+async function checkTranscription(): Promise<CheckResult> {
+  const apiKey = process.env.DEEPGRAM_API_KEY
+  if (!apiKey) {
+    return { status: 'fail', message: 'Missing DEEPGRAM_API_KEY' }
+  }
+  try {
+    const resp = await fetch('https://api.deepgram.com/v1/projects', {
+      headers: { Authorization: `Token ${apiKey}` },
+      signal: AbortSignal.timeout(10_000),
+    })
+    if (resp.ok) {
+      return { status: 'ok', message: 'Deepgram API reachable and authenticated' }
+    }
+    return {
+      status: 'fail',
+      message: `Deepgram returned ${resp.status}`,
+      details: resp.status === 401 ? 'Invalid API key' : await resp.text().catch(() => ''),
+    }
+  } catch (err: any) {
+    return {
+      status: 'fail',
+      message: 'Deepgram unreachable',
+      details: err.message || String(err),
+    }
+  }
+}
+
+async function checkTunnelLatency(): Promise<CheckResult> {
+  const url = 'https://boardroom-api.onioko.com/health'
+  try {
+    const start = Date.now()
+    const resp = await fetch(url, {
+      method: 'GET',
+      signal: AbortSignal.timeout(15_000),
+    })
+    const elapsed = Date.now() - start
+
+    if (!resp.ok) {
+      return {
+        status: 'fail',
+        message: `Tunnel returned ${resp.status}`,
+        response_time_ms: elapsed,
+      }
+    }
+    if (elapsed > 5000) {
+      return {
+        status: 'degraded',
+        message: `Tunnel latency high: ${elapsed}ms`,
+        response_time_ms: elapsed,
+      }
+    }
+    return {
+      status: 'ok',
+      message: `Tunnel latency ${elapsed}ms`,
+      response_time_ms: elapsed,
+    }
+  } catch (err: any) {
+    return {
+      status: 'fail',
+      message: 'Tunnel unreachable',
+      details: err.message || String(err),
+    }
+  }
+}
+
 export default async function handler(req: any, res: any) {
   if (req.method !== 'GET') {
     res.setHeader('Allow', 'GET')
@@ -161,18 +249,23 @@ export default async function handler(req: any, res: any) {
 
   const { client } = getSupabaseAdmin()
 
+  const baseUrl = process.env.VITE_APP_URL || `https://${req.headers.host}`
+
   // Run all checks in parallel
-  const [dbSchema, opm, auth, tts] = await Promise.all([
+  const [dbSchema, opm, auth, tts, chatApi, transcription, tunnelLatency] = await Promise.all([
     client
       ? checkDbSchema(client)
       : { status: 'fail' as const, message: 'Supabase not configured — skipping schema check' },
     checkOpm(),
     checkAuth(),
     checkTts(),
+    checkChatApi(baseUrl),
+    checkTranscription(),
+    checkTunnelLatency(),
   ])
 
-  const checks = { db_schema: dbSchema, opm, auth, tts }
-  const allOk = Object.values(checks).every((c) => c.status === 'ok')
+  const checks = { db_schema: dbSchema, opm, auth, tts, chat_api: chatApi, transcription, tunnel_latency: tunnelLatency }
+  const allOk = Object.values(checks).every((c) => c.status === 'ok' || c.status === 'degraded')
 
   return res.status(allOk ? 200 : 500).json({
     status: allOk ? 'healthy' : 'unhealthy',

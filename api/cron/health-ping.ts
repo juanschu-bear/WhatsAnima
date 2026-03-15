@@ -10,7 +10,7 @@ function getSupabaseAdmin() {
   return createClient(url, key)
 }
 
-const CHECK_NAMES = ['db_schema', 'opm', 'auth', 'tts'] as const
+const CHECK_NAMES = ['db_schema', 'opm', 'auth', 'tts', 'chat_api', 'transcription', 'tunnel_latency'] as const
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'GET') {
@@ -102,7 +102,7 @@ export default async function handler(req: any, res: any) {
       // Resolve open incident
       const { data: openIncident } = await supabase
         .from('wa_incidents')
-        .select('id')
+        .select('id, started_at, message')
         .eq('check_name', name)
         .is('resolved_at', null)
         .order('started_at', { ascending: false })
@@ -110,9 +110,17 @@ export default async function handler(req: any, res: any) {
         .maybeSingle()
 
       if (openIncident) {
+        const durationMs = new Date(now).getTime() - new Date(openIncident.started_at).getTime()
+        const durationMins = Math.floor(durationMs / 60_000)
+        const durationStr = durationMins < 60
+          ? `${durationMins}m`
+          : `${Math.floor(durationMins / 60)}h ${durationMins % 60}m`
+
+        const summary = `${openIncident.message || name + ' was down'}. Duration: ${durationStr}. Resolved automatically when the service recovered.`
+
         await supabase
           .from('wa_incidents')
-          .update({ resolved_at: now })
+          .update({ resolved_at: now, resolution_summary: summary })
           .eq('id', openIncident.id)
       }
     }
