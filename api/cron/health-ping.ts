@@ -18,15 +18,6 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
-  // Verify CRON_SECRET when configured (Vercel Cron sends this automatically)
-  const cronSecret = process.env.CRON_SECRET
-  if (cronSecret) {
-    const auth = req.headers['authorization']
-    if (auth !== `Bearer ${cronSecret}`) {
-      return res.status(401).json({ error: 'Unauthorized' })
-    }
-  }
-
   const supabase = getSupabaseAdmin()
   if (!supabase) {
     return res.status(200).json({ ok: false, error: 'Supabase not configured', skipped: true })
