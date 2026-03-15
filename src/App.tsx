@@ -33,9 +33,9 @@ export default function App() {
           <Route
             path="/"
             element={
-              <OwnerRoute>
+              <ProtectedRoute>
                 <Home />
-              </OwnerRoute>
+              </ProtectedRoute>
             }
           />
           <Route
