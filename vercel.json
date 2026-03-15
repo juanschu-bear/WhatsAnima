@@ -7,8 +7,16 @@
     "api/opm-process.ts": { "maxDuration": 120 },
     "api/ingest-video.ts": { "maxDuration": 120 },
     "api/transcribe.ts": { "maxDuration": 60 },
-    "api/health-check.ts": { "maxDuration": 30 }
+    "api/health-check.ts": { "maxDuration": 30 },
+    "api/cron/health-ping.ts": { "maxDuration": 30 },
+    "api/status-data.ts": { "maxDuration": 15 }
   },
+  "crons": [
+    {
+      "path": "/api/cron/health-ping",
+      "schedule": "*/5 * * * *"
+    }
+  ],
   "headers": [
     {
       "source": "/((?!api/|assets/).*)",
