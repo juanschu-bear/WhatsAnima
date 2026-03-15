@@ -270,15 +270,18 @@ export default function VideoCall() {
     setStatusText('Connecting...')
 
     try {
+      const requestBody = {
+        persona_name: personaName,
+        persona: personaName,
+        replica_id: replicaId,
+        language,
+        user_name: buildUserName(user, conversation),
+      }
+      console.log('[VideoCall] startSession request', requestBody)
       const response = await fetch(`${LIVE_CALL_API_BASE}/api/sessions/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          persona_name: personaName,
-          replica_id: replicaId,
-          language,
-          user_name: buildUserName(user, conversation),
-        }),
+        body: JSON.stringify(requestBody),
       })
 
       if (!response.ok) {
@@ -289,7 +292,10 @@ export default function VideoCall() {
         session_id?: string
         join_url?: string
         status?: string
+        persona?: string
+        replica_id?: string
       }
+      console.log('[VideoCall] startSession response', payload)
 
       if (!payload.join_url || !payload.session_id) {
         throw new Error('Backend did not return a join URL.')
