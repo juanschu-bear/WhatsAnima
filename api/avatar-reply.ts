@@ -199,6 +199,7 @@ async function saveMessage(
 }
 
 export default async function handler(req: any, res: any) {
+  try {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST')
     return res.status(405).json({ error: 'Method not allowed' })
@@ -276,7 +277,6 @@ export default async function handler(req: any, res: any) {
     }
   }
 
-  try {
     // --- 1. Generate AI response ---
     const priorMessages: ChatMessage[] = Array.isArray(history)
       ? history.filter(
@@ -352,7 +352,11 @@ export default async function handler(req: any, res: any) {
 
     return res.status(200).json({ messages: [saved] })
   } catch (error: any) {
-    console.error('[avatar-reply] Pipeline failed:', error.message || error)
-    return res.status(500).json({ error: 'Avatar reply failed' })
+    console.error('[avatar-reply] Handler error:', error)
+    return res.status(500).json({
+      error: error.message || 'Unknown error',
+      stack: error.stack || null,
+      name: error.name || null,
+    })
   }
 }
