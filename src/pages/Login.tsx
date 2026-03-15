@@ -51,6 +51,7 @@ export default function Login() {
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'SIGNED_IN') {
+        if (role) localStorage.setItem('wa_login_role', role)
         navigate(role === 'owner' ? '/' : '/avatars', { replace: true })
       }
     })
@@ -117,6 +118,9 @@ export default function Login() {
       setLoading(false)
       return
     }
+
+    // Persist role before magic-link redirect
+    if (role) localStorage.setItem('wa_login_role', role)
 
     // Magic link flow — redirect through /auth/callback with PKCE
     const nextPath = role === 'owner' ? '/' : '/avatars'
