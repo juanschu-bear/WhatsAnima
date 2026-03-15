@@ -15,7 +15,8 @@
     "api/transcribe.ts": { "maxDuration": 60 },
     "api/health-check.ts": { "maxDuration": 30 },
     "api/cron/health-ping.ts": { "maxDuration": 30 },
-    "api/status-data.ts": { "maxDuration": 15 }
+    "api/status-data.ts": { "maxDuration": 15 },
+    "api/avatar-reply.ts": { "maxDuration": 60 }
   },
   "headers": [
     {

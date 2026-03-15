@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import * as webpush from 'web-push'
 import {
   callAnthropic,
   loadOwnerPromptAndMemory,
@@ -71,6 +72,100 @@ async function uploadAudioBuffer(supabase: ReturnType<typeof createClient>, conv
   return data.publicUrl
 }
 
+/**
+ * Send a Web Push notification to the contact of a conversation.
+ * Looks up contact email → auth user → push subscriptions.
+ * Fire-and-forget: errors are logged but never block the response.
+ */
+async function sendPushToContact(
+  supabase: ReturnType<typeof createClient>,
+  conversationId: string,
+  avatarName: string,
+  messagePreview: string
+) {
+  const vapidPublic = process.env.VAPID_PUBLIC_KEY
+  const vapidPrivate = process.env.VAPID_PRIVATE_KEY
+  const vapidEmail = process.env.VAPID_EMAIL || 'mailto:hello@whatsanima.com'
+  if (!vapidPublic || !vapidPrivate) return
+
+  try {
+    // 1. Get contact email and owner name from conversation
+    const { data: conv } = await supabase
+      .from('wa_conversations')
+      .select('contact_id, owner_id')
+      .eq('id', conversationId)
+      .single()
+    if (!conv?.contact_id) return
+
+    const { data: contact } = await supabase
+      .from('wa_contacts')
+      .select('email')
+      .eq('id', conv.contact_id)
+      .single()
+    if (!contact?.email) return
+
+    // Get avatar display name for the notification title
+    if (!avatarName && conv.owner_id) {
+      const { data: owner } = await supabase
+        .from('wa_owners')
+        .select('display_name')
+        .eq('id', conv.owner_id)
+        .single()
+      if (owner?.display_name) avatarName = owner.display_name
+    }
+
+    // 2. Find auth user by email
+    const { data: authData } = await supabase.auth.admin.listUsers()
+    const authUser = authData?.users?.find(
+      (u: any) => u.email?.toLowerCase() === contact.email.toLowerCase()
+    )
+    if (!authUser) return
+
+    // 3. Fetch push subscriptions for this user
+    const { data: subs } = await supabase
+      .from('wa_push_subscriptions')
+      .select('endpoint, p256dh, auth')
+      .eq('user_id', authUser.id)
+    if (!subs || subs.length === 0) return
+
+    // 4. Send push notifications
+    webpush.setVapidDetails(vapidEmail, vapidPublic, vapidPrivate)
+    const payload = JSON.stringify({
+      title: avatarName,
+      body: messagePreview,
+      icon: '/icon-192.png',
+      badge: '/icon-192.png',
+      tag: `wa-msg-${conversationId}`,
+      url: `/chat/${conversationId}`,
+      conversationId,
+      sound: 'chime',
+    })
+
+    const staleEndpoints: string[] = []
+    await Promise.allSettled(
+      subs.map(async (sub) => {
+        try {
+          await webpush.sendNotification(
+            { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+            payload
+          )
+        } catch (err: any) {
+          if (err.statusCode === 410 || err.statusCode === 404) {
+            staleEndpoints.push(sub.endpoint)
+          }
+        }
+      })
+    )
+
+    // Cleanup stale subscriptions
+    if (staleEndpoints.length > 0) {
+      await supabase.from('wa_push_subscriptions').delete().in('endpoint', staleEndpoints)
+    }
+  } catch (err: any) {
+    console.warn('[avatar-reply] Push notification failed (non-blocking):', err.message)
+  }
+}
+
 async function saveMessage(
   supabase: ReturnType<typeof createClient>,
   conversationId: string,
@@ -104,6 +199,7 @@ async function saveMessage(
 }
 
 export default async function handler(req: any, res: any) {
+  try {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST')
     return res.status(405).json({ error: 'Method not allowed' })
@@ -181,7 +277,6 @@ export default async function handler(req: any, res: any) {
     }
   }
 
-  try {
     // --- 1. Generate AI response ---
     const priorMessages: ChatMessage[] = Array.isArray(history)
       ? history.filter(
@@ -225,6 +320,10 @@ export default async function handler(req: any, res: any) {
         savedMessages.push(await saveMessage(supabase, conversationId, 'text', 'Sorry, the image could not be generated right now. Please try again.'))
       }
 
+      // Fire-and-forget push notification
+      const imgPreview = textPart || 'Sent an image'
+      sendPushToContact(supabase, conversationId, '', imgPreview.slice(0, 100)).catch(() => {})
+
       return res.status(200).json({ messages: savedMessages })
     }
 
@@ -247,9 +346,17 @@ export default async function handler(req: any, res: any) {
     const msgType = specialType ?? (audioUrl ? 'voice' : 'text')
     const saved = await saveMessage(supabase, conversationId, msgType, replyText, audioUrl)
 
+    // Fire-and-forget push notification
+    const preview = replyText.split('\n')[0].slice(0, 100)
+    sendPushToContact(supabase, conversationId, '', preview).catch(() => {})
+
     return res.status(200).json({ messages: [saved] })
   } catch (error: any) {
-    console.error('[avatar-reply] Pipeline failed:', error.message || error)
-    return res.status(500).json({ error: 'Avatar reply failed' })
+    console.error('[avatar-reply] Handler error:', error)
+    return res.status(500).json({
+      error: error.message || 'Unknown error',
+      stack: error.stack || null,
+      name: error.name || null,
+    })
   }
 }
