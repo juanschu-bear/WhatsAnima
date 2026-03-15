@@ -26,109 +26,117 @@ export default async function handler(req: any, res: any) {
 
   const supabase = getSupabaseAdmin()
   if (!supabase) {
-    return res.status(500).json({ error: 'Supabase not configured' })
+    return res.status(200).json({ ok: false, error: 'Supabase not configured', skipped: true })
   }
-
-  // Call the existing health-check endpoint using the production URL
-  const baseUrl =
-    process.env.VITE_APP_URL || 'https://whats-anima.vercel.app'
-
-  let checks: Record<string, { status: string; message?: string }>
-  const timings: Record<string, number> = {}
 
   try {
-    const overallStart = Date.now()
+    // Call the existing health-check endpoint using the production URL
+    const baseUrl =
+      process.env.VITE_APP_URL || 'https://whats-anima.vercel.app'
 
-    const resp = await fetch(`${baseUrl}/api/health-check`, {
-      method: 'GET',
-      signal: AbortSignal.timeout(25_000),
-    })
+    let checks: Record<string, { status: string; message?: string }>
+    const timings: Record<string, number> = {}
 
-    const elapsed = Date.now() - overallStart
-    const body = await resp.json()
-    checks = body.checks || {}
+    try {
+      const overallStart = Date.now()
 
-    // Approximate per-check timing (we only have total; distribute evenly as fallback)
-    const perCheck = Math.round(elapsed / CHECK_NAMES.length)
-    for (const name of CHECK_NAMES) {
-      timings[name] = perCheck
-    }
-  } catch (err: any) {
-    // Health-check endpoint itself is down — mark everything as fail
-    checks = {}
-    for (const name of CHECK_NAMES) {
-      checks[name] = { status: 'fail', message: 'Health-check endpoint unreachable: ' + (err.message || String(err)) }
-      timings[name] = 0
-    }
-  }
-
-  const now = new Date().toISOString()
-
-  // Insert check results
-  const rows = CHECK_NAMES.map((name) => ({
-    timestamp: now,
-    check_name: name,
-    status: checks[name]?.status || 'fail',
-    message: checks[name]?.message || null,
-    response_time_ms: timings[name] || 0,
-  }))
-
-  await supabase.from('wa_health_checks').insert(rows)
-
-  // --- Incident detection: compare with previous status ---
-  for (const name of CHECK_NAMES) {
-    const currentStatus = checks[name]?.status || 'fail'
-
-    // Get the most recent previous check for this service (before this run)
-    const { data: prev } = await supabase
-      .from('wa_health_checks')
-      .select('status')
-      .eq('check_name', name)
-      .lt('timestamp', now)
-      .order('timestamp', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-
-    const prevStatus = prev?.status || 'ok' // assume ok if no history
-
-    if (prevStatus === 'ok' && currentStatus === 'fail') {
-      // Open new incident
-      await supabase.from('wa_incidents').insert({
-        check_name: name,
-        started_at: now,
-        message: checks[name]?.message || `${name} is down`,
+      const resp = await fetch(`${baseUrl}/api/health-check`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(25_000),
       })
-    } else if (prevStatus === 'fail' && currentStatus === 'ok') {
-      // Resolve open incident
-      const { data: openIncident } = await supabase
-        .from('wa_incidents')
-        .select('id, started_at, message')
+
+      const elapsed = Date.now() - overallStart
+      const body = await resp.json()
+      checks = body.checks || {}
+
+      // Approximate per-check timing (we only have total; distribute evenly as fallback)
+      const perCheck = Math.round(elapsed / CHECK_NAMES.length)
+      for (const name of CHECK_NAMES) {
+        timings[name] = perCheck
+      }
+    } catch (err: any) {
+      // Health-check endpoint itself is down — mark everything as fail
+      checks = {}
+      for (const name of CHECK_NAMES) {
+        checks[name] = { status: 'fail', message: 'Health-check endpoint unreachable: ' + (err.message || String(err)) }
+        timings[name] = 0
+      }
+    }
+
+    const now = new Date().toISOString()
+
+    // Insert check results
+    const rows = CHECK_NAMES.map((name) => ({
+      timestamp: now,
+      check_name: name,
+      status: checks[name]?.status || 'fail',
+      message: checks[name]?.message || null,
+      response_time_ms: timings[name] || 0,
+    }))
+
+    const { error: insertErr } = await supabase.from('wa_health_checks').insert(rows)
+    if (insertErr) {
+      console.error('Failed to insert health checks:', insertErr.message)
+    }
+
+    // --- Incident detection: compare with previous status ---
+    for (const name of CHECK_NAMES) {
+      const currentStatus = checks[name]?.status || 'fail'
+
+      // Get the most recent previous check for this service (before this run)
+      const { data: prev } = await supabase
+        .from('wa_health_checks')
+        .select('status')
         .eq('check_name', name)
-        .is('resolved_at', null)
-        .order('started_at', { ascending: false })
+        .lt('timestamp', now)
+        .order('timestamp', { ascending: false })
         .limit(1)
         .maybeSingle()
 
-      if (openIncident) {
-        const durationMs = new Date(now).getTime() - new Date(openIncident.started_at).getTime()
-        const durationMins = Math.floor(durationMs / 60_000)
-        const durationStr = durationMins < 60
-          ? `${durationMins}m`
-          : `${Math.floor(durationMins / 60)}h ${durationMins % 60}m`
+      const prevStatus = prev?.status || 'ok' // assume ok if no history
 
-        const summary = `${openIncident.message || name + ' was down'}. Duration: ${durationStr}. Resolved automatically when the service recovered.`
-
-        await supabase
+      if (prevStatus === 'ok' && currentStatus === 'fail') {
+        // Open new incident
+        await supabase.from('wa_incidents').insert({
+          check_name: name,
+          started_at: now,
+          message: checks[name]?.message || `${name} is down`,
+        })
+      } else if (prevStatus === 'fail' && currentStatus === 'ok') {
+        // Resolve open incident
+        const { data: openIncident } = await supabase
           .from('wa_incidents')
-          .update({ resolved_at: now, resolution_summary: summary })
-          .eq('id', openIncident.id)
+          .select('id, started_at, message')
+          .eq('check_name', name)
+          .is('resolved_at', null)
+          .order('started_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+
+        if (openIncident) {
+          const durationMs = new Date(now).getTime() - new Date(openIncident.started_at).getTime()
+          const durationMins = Math.floor(durationMs / 60_000)
+          const durationStr = durationMins < 60
+            ? `${durationMins}m`
+            : `${Math.floor(durationMins / 60)}h ${durationMins % 60}m`
+
+          const summary = `${openIncident.message || name + ' was down'}. Duration: ${durationStr}. Resolved automatically when the service recovered.`
+
+          await supabase
+            .from('wa_incidents')
+            .update({ resolved_at: now, resolution_summary: summary })
+            .eq('id', openIncident.id)
+        }
       }
     }
+
+    // --- Cleanup: delete checks older than 8 days ---
+    const cutoff = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString()
+    await supabase.from('wa_health_checks').delete().lt('timestamp', cutoff)
+
+    return res.status(200).json({ ok: true, timestamp: now, checks: rows.length })
+  } catch (err: any) {
+    console.error('Health ping failed:', err)
+    return res.status(200).json({ ok: false, error: err.message || String(err) })
   }
-
-  // --- Cleanup: delete checks older than 8 days ---
-  const cutoff = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString()
-  await supabase.from('wa_health_checks').delete().lt('timestamp', cutoff)
-
-  return res.status(200).json({ ok: true, timestamp: now, checks: rows.length })
 }

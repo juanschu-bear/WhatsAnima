@@ -10,7 +10,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Ping health endpoint
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          curl -fsSL \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            https://whats-anima.vercel.app/api/cron/health-ping
+          HTTP_CODE=$(curl -sS -o /tmp/response.json -w '%{http_code}' \
+            --retry 2 --retry-delay 5 --max-time 30 \
+            ${CRON_SECRET:+-H "Authorization: Bearer $CRON_SECRET"} \
+            https://whats-anima.vercel.app/api/cron/health-ping)
+
+          echo "HTTP status: $HTTP_CODE"
+          cat /tmp/response.json 2>/dev/null || true
+          echo ""
+
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+            echo "Health ping succeeded"
+          else
+            echo "::error::Health ping returned HTTP $HTTP_CODE"
+            exit 1
+          fi
