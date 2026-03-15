@@ -11,6 +11,7 @@ type SupportedLanguage = 'English' | 'Deutsch' | 'Español'
 
 const LIVE_CALL_API_BASE =
   (import.meta.env.VITE_LIVE_CALL_API_BASE as string | undefined) || 'https://anima.onioko.com'
+const FALLBACK_REPLICA_ID = 'r987f6e6f73c'
 
 const LANGUAGES: Array<{ label: SupportedLanguage; accent: string }> = [
   { label: 'English', accent: 'from-cyan-400/70 to-sky-500/80' },
@@ -157,6 +158,9 @@ export default function VideoCall() {
 
   async function startCall() {
     if (!conversation || !conversationId) return
+    const owner = conversation.wa_owners
+    const personaName = owner.display_name?.trim() || 'Avatar'
+    const replicaId = owner.tavus_replica_id?.trim() || FALLBACK_REPLICA_ID
 
     const existingCall = callObjectRef.current
     if (existingCall) {
@@ -177,7 +181,8 @@ export default function VideoCall() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          persona_name: conversation.wa_owners.display_name,
+          persona_name: personaName,
+          replica_id: replicaId,
           language,
           user_name: buildUserName(user, conversation),
         }),
@@ -294,17 +299,19 @@ export default function VideoCall() {
 
   const owner = conversation.wa_owners
   const callReady = phase === 'connected'
+  const personaName = owner.display_name?.trim() || 'Avatar'
+  const replicaId = owner.tavus_replica_id?.trim() || FALLBACK_REPLICA_ID
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top,rgba(0,195,170,0.16),transparent_30%),radial-gradient(circle_at_85%_20%,rgba(53,127,255,0.16),transparent_24%),linear-gradient(180deg,#03060b_0%,#07111a_48%,#02050a_100%)] text-white">
+    <div className="relative h-[100dvh] min-h-[100dvh] overflow-hidden bg-[radial-gradient(circle_at_top,rgba(0,195,170,0.16),transparent_30%),radial-gradient(circle_at_85%_20%,rgba(53,127,255,0.16),transparent_24%),linear-gradient(180deg,#03060b_0%,#07111a_48%,#02050a_100%)] text-white supports-[-webkit-touch-callout:none]:min-h-[-webkit-fill-available]">
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:44px_44px] opacity-30" />
 
-      <div className="relative z-10 flex min-h-screen flex-col">
-        <header className="flex items-center justify-between px-4 pb-4 pt-[max(1rem,env(safe-area-inset-top))] sm:px-6">
+      <div className="relative z-10 flex h-full min-h-0 flex-col">
+        <header className="flex items-center justify-between px-4 pb-3 pt-[max(1rem,env(safe-area-inset-top))] sm:px-6 sm:pb-4">
           <button
             type="button"
             onClick={() => void leaveCall()}
-            className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/6 text-white/80 transition hover:bg-white/10 hover:text-white"
+            className="inline-flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-white/6 text-white/80 transition hover:bg-white/10 hover:text-white"
             aria-label="Back to chat"
           >
             <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -315,17 +322,17 @@ export default function VideoCall() {
           <div className="text-center">
             <p className="text-xs uppercase tracking-[0.3em] text-white/45">Live video call</p>
             <h1 className="mt-1 text-base font-semibold tracking-[-0.02em] text-white sm:text-lg">
-              {owner.display_name}
+              {personaName}
             </h1>
           </div>
 
-          <div className="min-w-[44px] text-right text-xs text-white/55">
+          <div className="min-w-[52px] text-right text-[11px] text-white/55">
             {sessionId ? <span>#{sessionId.slice(0, 6)}</span> : null}
           </div>
         </header>
 
-        <div className="flex flex-1 flex-col px-4 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] sm:px-6">
-          <div className="relative flex flex-1 overflow-hidden rounded-[32px] border border-white/8 bg-[linear-gradient(180deg,rgba(9,18,28,0.94),rgba(4,10,18,0.96))] shadow-[0_40px_120px_rgba(0,0,0,0.45)]">
+        <div className="flex min-h-0 flex-1 flex-col px-3 pb-[calc(env(safe-area-inset-bottom)+0.875rem)] sm:px-6 sm:pb-[calc(env(safe-area-inset-bottom)+1.25rem)]">
+          <div className="relative flex min-h-0 flex-1 overflow-hidden rounded-[28px] border border-white/8 bg-[linear-gradient(180deg,rgba(9,18,28,0.94),rgba(4,10,18,0.96))] shadow-[0_40px_120px_rgba(0,0,0,0.45)] sm:rounded-[32px]">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(112,240,222,0.13),transparent_32%)]" />
 
             <div className="relative flex h-full w-full items-center justify-center">
@@ -340,14 +347,14 @@ export default function VideoCall() {
                 <div className="flex max-w-md flex-col items-center px-6 text-center">
                   <div className="relative">
                     <img
-                      src={resolveAvatarUrl(owner.display_name)}
-                      alt={owner.display_name}
-                      className="h-28 w-28 rounded-full object-cover ring-1 ring-white/10 sm:h-36 sm:w-36"
+                      src={resolveAvatarUrl(personaName)}
+                      alt={personaName}
+                      className="h-24 w-24 rounded-full object-cover ring-1 ring-white/10 sm:h-36 sm:w-36"
                     />
                     <span className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full border-4 border-[#08111a] bg-[#70f0de]" />
                   </div>
                   <p className="mt-6 text-2xl font-semibold tracking-[-0.03em] text-white sm:text-3xl">
-                    {owner.display_name}
+                    {personaName}
                   </p>
                   <p className="mt-3 text-sm leading-6 text-white/62 sm:text-base">
                     {phase === 'setup'
@@ -357,13 +364,13 @@ export default function VideoCall() {
                 </div>
               )}
 
-              <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-center px-4 pt-5">
-                <div className="rounded-full border border-white/10 bg-black/28 px-4 py-2 text-xs font-medium tracking-[0.22em] text-white/78 backdrop-blur-xl">
+              <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-center px-3 pt-4 sm:px-4 sm:pt-5">
+                <div className="rounded-full border border-white/10 bg-black/28 px-3 py-2 text-[11px] font-medium tracking-[0.22em] text-white/78 backdrop-blur-xl sm:px-4 sm:text-xs">
                   {statusText}
                 </div>
               </div>
 
-              <div className="absolute bottom-5 left-5 h-36 w-24 overflow-hidden rounded-[24px] border border-white/12 bg-[linear-gradient(180deg,rgba(22,31,45,0.95),rgba(10,16,27,0.98))] shadow-[0_18px_60px_rgba(0,0,0,0.35)] sm:h-44 sm:w-32">
+              <div className="absolute bottom-4 left-4 h-32 w-[5.5rem] overflow-hidden rounded-[22px] border border-white/12 bg-[linear-gradient(180deg,rgba(22,31,45,0.95),rgba(10,16,27,0.98))] shadow-[0_18px_60px_rgba(0,0,0,0.35)] sm:bottom-5 sm:left-5 sm:h-44 sm:w-32 sm:rounded-[24px]">
                 {isCameraEnabled ? (
                   <video
                     ref={localVideoRef}
@@ -384,8 +391,8 @@ export default function VideoCall() {
               </div>
 
               {phase === 'setup' ? (
-                <div className="absolute inset-x-0 bottom-28 flex justify-center px-4">
-                  <div className="w-full max-w-xl rounded-[28px] border border-white/10 bg-[linear-gradient(180deg,rgba(6,14,24,0.95),rgba(6,10,18,0.98))] p-5 shadow-[0_28px_90px_rgba(0,0,0,0.45)] backdrop-blur-2xl">
+                <div className="absolute inset-x-0 bottom-24 flex justify-center px-3 sm:bottom-28 sm:px-4">
+                  <div className="w-full max-w-xl rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(6,14,24,0.95),rgba(6,10,18,0.98))] p-4 shadow-[0_28px_90px_rgba(0,0,0,0.45)] backdrop-blur-2xl sm:rounded-[28px] sm:p-5">
                     <p className="text-xs uppercase tracking-[0.26em] text-white/45">Session language</p>
                     <div className="mt-4 grid gap-3 sm:grid-cols-3">
                       {LANGUAGES.map((item) => {
@@ -395,7 +402,7 @@ export default function VideoCall() {
                             key={item.label}
                             type="button"
                             onClick={() => setLanguage(item.label)}
-                            className={`rounded-[22px] border px-4 py-4 text-left transition ${
+                            className={`rounded-[20px] border px-4 py-4 text-left transition ${
                               active
                                 ? `border-white/20 bg-gradient-to-br ${item.accent} text-[#041018]`
                                 : 'border-white/10 bg-white/[0.03] text-white/78 hover:bg-white/[0.06]'
@@ -413,23 +420,26 @@ export default function VideoCall() {
                     <button
                       type="button"
                       onClick={() => void startCall()}
-                      className="mt-5 inline-flex w-full items-center justify-center rounded-[22px] bg-[linear-gradient(135deg,#79f5e4,#48c2ff)] px-5 py-3.5 text-sm font-semibold text-[#041018] shadow-[0_20px_50px_rgba(72,194,255,0.25)] transition hover:brightness-105"
+                      className="mt-5 inline-flex min-h-12 w-full items-center justify-center rounded-[20px] bg-[linear-gradient(135deg,#79f5e4,#48c2ff)] px-5 py-3.5 text-sm font-semibold text-[#041018] shadow-[0_20px_50px_rgba(72,194,255,0.25)] transition hover:brightness-105"
                     >
                       Start live call
                     </button>
+                    <p className="mt-3 text-center text-[11px] text-white/42">
+                      Persona: {personaName} · Replica: {replicaId}
+                    </p>
                   </div>
                 </div>
               ) : null}
 
               {error ? (
-                <div className="absolute inset-x-0 bottom-28 flex justify-center px-4">
-                  <div className="w-full max-w-lg rounded-[24px] border border-red-400/20 bg-[linear-gradient(180deg,rgba(39,14,19,0.95),rgba(24,9,13,0.98))] p-5 text-center shadow-[0_28px_80px_rgba(0,0,0,0.38)]">
+                <div className="absolute inset-x-0 bottom-24 flex justify-center px-3 sm:bottom-28 sm:px-4">
+                  <div className="w-full max-w-lg rounded-[24px] border border-red-400/20 bg-[linear-gradient(180deg,rgba(39,14,19,0.95),rgba(24,9,13,0.98))] p-4 text-center shadow-[0_28px_80px_rgba(0,0,0,0.38)] sm:p-5">
                     <p className="text-sm font-semibold text-white">Unable to start the call</p>
                     <p className="mt-2 text-sm leading-6 text-white/72">{error}</p>
                     <button
                       type="button"
                       onClick={() => void startCall()}
-                      className="mt-4 rounded-full border border-white/12 bg-white/6 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-white/10"
+                      className="mt-4 min-h-11 rounded-full border border-white/12 bg-white/6 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-white/10"
                     >
                       Retry
                     </button>
@@ -439,11 +449,11 @@ export default function VideoCall() {
             </div>
           </div>
 
-          <div className="mt-5 flex items-center justify-center gap-3 sm:gap-4">
+          <div className="mt-4 flex items-center justify-center gap-3 px-1 sm:mt-5 sm:gap-4">
             <button
               type="button"
               onClick={() => void toggleMic()}
-              className={`flex h-14 w-14 items-center justify-center rounded-full border transition ${
+              className={`flex h-14 w-14 touch-manipulation items-center justify-center rounded-full border transition sm:h-[3.75rem] sm:w-[3.75rem] ${
                 isMicEnabled
                   ? 'border-white/10 bg-white/6 text-white hover:bg-white/10'
                   : 'border-red-400/20 bg-red-500/12 text-red-200 hover:bg-red-500/18'
@@ -464,7 +474,7 @@ export default function VideoCall() {
             <button
               type="button"
               onClick={() => void toggleCamera()}
-              className={`flex h-14 w-14 items-center justify-center rounded-full border transition ${
+              className={`flex h-14 w-14 touch-manipulation items-center justify-center rounded-full border transition sm:h-[3.75rem] sm:w-[3.75rem] ${
                 isCameraEnabled
                   ? 'border-white/10 bg-white/6 text-white hover:bg-white/10'
                   : 'border-red-400/20 bg-red-500/12 text-red-200 hover:bg-red-500/18'
@@ -485,7 +495,7 @@ export default function VideoCall() {
             <button
               type="button"
               onClick={() => void leaveCall()}
-              className="flex h-14 min-w-24 items-center justify-center rounded-full bg-[linear-gradient(135deg,#ff6a73,#ff3d54)] px-6 text-sm font-semibold text-white shadow-[0_20px_50px_rgba(255,61,84,0.28)] transition hover:brightness-105"
+              className="flex h-14 min-w-[6.5rem] touch-manipulation items-center justify-center rounded-full bg-[linear-gradient(135deg,#ff6a73,#ff3d54)] px-6 text-sm font-semibold text-white shadow-[0_20px_50px_rgba(255,61,84,0.28)] transition hover:brightness-105"
             >
               Leave
             </button>
