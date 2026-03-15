@@ -18,14 +18,13 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
-  if (req.method === 'HEAD') {
-    return res.status(200).end()
-  }
-
-  // Verify cron secret if configured (Vercel sends this header)
-  const cronSecret = process.env.CRON_SECRET
-  if (cronSecret && req.headers['authorization'] !== `Bearer ${cronSecret}`) {
-    return res.status(401).json({ error: 'Unauthorized' })
+  // Verify cron secret for GET requests (Vercel cron sends this header).
+  // HEAD requests (e.g. UptimeRobot) skip auth but still execute all checks.
+  if (req.method === 'GET') {
+    const cronSecret = process.env.CRON_SECRET
+    if (cronSecret && req.headers['authorization'] !== `Bearer ${cronSecret}`) {
+      return res.status(401).json({ error: 'Unauthorized' })
+    }
   }
 
   const supabase = getSupabaseAdmin()
@@ -138,9 +137,11 @@ export default async function handler(req: any, res: any) {
     const cutoff = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString()
     await supabase.from('wa_health_checks').delete().lt('timestamp', cutoff)
 
+    if (req.method === 'HEAD') return res.status(200).end()
     return res.status(200).json({ ok: true, timestamp: now, checks: rows.length })
   } catch (err: any) {
     console.error('Health ping failed:', err)
+    if (req.method === 'HEAD') return res.status(200).end()
     return res.status(200).json({ ok: false, error: err.message || String(err) })
   }
 }
