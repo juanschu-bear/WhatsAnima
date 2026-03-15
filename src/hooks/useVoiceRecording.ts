@@ -190,7 +190,7 @@ export function useVoiceRecording({
           onTranscript(message.id, finalTranscript)
         }
 
-        const voiceReplied = await sendAvatarReply(finalTranscript !== '[Voice message]' ? finalTranscript : 'a voice message', {
+        const voiceReplied = await sendAvatarReply(finalTranscript, {
           isVoice: true,
           voiceDurationSec: durationSeconds,
           perception: opmResponse,

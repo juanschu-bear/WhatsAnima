@@ -442,7 +442,7 @@ export default async function handler(req: any, res: any) {
     return res.status(500).json({ error: 'Missing ANTHROPIC_API_KEY' })
   }
 
-  const {
+  let {
     message,
     conversationId,
     history,
@@ -466,6 +466,37 @@ export default async function handler(req: any, res: any) {
 
   if (!message || typeof message !== 'string' || !message.trim()) {
     return res.status(400).json({ error: 'Message content is required' })
+  }
+
+  // --- Voice transcript resolution: if the message is a placeholder, fetch the real transcript from DB ---
+  const VOICE_PLACEHOLDERS = ['a voice message', '[Voice message]', 'Voice note', '[voice message]']
+  if (isVoice && userMessageId && VOICE_PLACEHOLDERS.includes(message.trim())) {
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY
+    if (supabaseUrl && supabaseKey) {
+      const supabase = createClient(supabaseUrl, supabaseKey)
+      // First try the message content itself
+      const { data: msgRow } = await supabase
+        .from('wa_messages')
+        .select('content')
+        .eq('id', userMessageId)
+        .maybeSingle()
+      if (msgRow?.content && !VOICE_PLACEHOLDERS.includes(msgRow.content.trim())) {
+        console.log('[chat] Resolved voice transcript from wa_messages:', msgRow.content.slice(0, 60))
+        message = msgRow.content
+      } else {
+        // Fallback: try the perception log transcript
+        const { data: logRow } = await supabase
+          .from('wa_perception_logs')
+          .select('transcript')
+          .eq('message_id', userMessageId)
+          .maybeSingle()
+        if (logRow?.transcript) {
+          console.log('[chat] Resolved voice transcript from perception log:', logRow.transcript.slice(0, 60))
+          message = logRow.transcript
+        }
+      }
+    }
   }
 
   // --- Duplicate check: if userMessageId is provided, check if an avatar reply already exists ---
