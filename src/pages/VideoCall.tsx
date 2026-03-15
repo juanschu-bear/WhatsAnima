@@ -9,11 +9,27 @@ type ConversationData = Awaited<ReturnType<typeof getConversation>>
 type CallPhase = 'setup' | 'starting' | 'joining' | 'connected' | 'error'
 type SupportedLanguage = 'English' | 'Deutsch' | 'Español'
 type ViewMode = 'speaker' | 'side-by-side'
+interface BackendPersona {
+  id: string
+  key?: string
+  name: string
+  role?: string
+  is_active?: boolean
+}
 
 const LIVE_CALL_API_BASE =
   (import.meta.env.VITE_LIVE_CALL_API_BASE as string | undefined) || 'https://anima.onioko.com'
 const FALLBACK_REPLICA_ID = 'r987f6e6f73c'
-const PERSONA_OPTIONS = ['MAXIM', 'ARIA', 'Juan Schubert'] as const
+const FALLBACK_PERSONAS: BackendPersona[] = [
+  { id: 'aria', name: 'ARIA', role: 'Executive Coach' },
+  { id: 'marcus', name: 'MARCUS', role: 'Technical Interviewer' },
+  { id: 'victoria', name: 'VICTORIA', role: 'Venture Capital Partner' },
+  { id: 'dr_chen', name: 'DR_CHEN', role: 'Clinical Psychologist' },
+  { id: 'elena', name: 'ELENA', role: 'Creative Director' },
+  { id: 'maxim', name: 'MAXIM', role: 'Sales Strategist' },
+  { id: 'konstantin', name: 'KONSTANTIN', role: 'Geopolitical Analyst' },
+  { id: 'dante', name: 'DANTE', role: 'Philosopher & Ethics Advisor' },
+]
 
 const LANGUAGES: Array<{ label: SupportedLanguage; accent: string }> = [
   { label: 'English', accent: 'from-cyan-400/70 to-sky-500/80' },
@@ -65,6 +81,28 @@ function attachStream(element: HTMLVideoElement | null, stream: MediaStream | nu
   }
 }
 
+function getParticipantName(participant: any) {
+  return [
+    participant?.user_name,
+    participant?.user_name?.trim?.(),
+    participant?.userData?.name,
+    participant?.info?.name,
+    participant?.name,
+    participant?.session_id,
+  ]
+    .find((value) => typeof value === 'string' && value.trim().length > 0) ?? ''
+}
+
+function isPipecatParticipant(participant: any) {
+  const name = getParticipantName(participant).toLowerCase()
+  return name.includes('pipecat') || name.includes('bot')
+}
+
+function pickAvatarParticipant(participants: any[]) {
+  const visibleRemotes = participants.filter((participant) => !participant?.local && !isPipecatParticipant(participant))
+  return visibleRemotes.find((participant) => getParticipantTrack(participant, 'video')) ?? visibleRemotes[0] ?? null
+}
+
 export default function VideoCall() {
   const navigate = useNavigate()
   const { conversationId } = useParams<{ conversationId: string }>()
@@ -72,8 +110,10 @@ export default function VideoCall() {
 
   const [conversation, setConversation] = useState<ConversationData | null>(null)
   const [loadingConversation, setLoadingConversation] = useState(true)
+  const [personas, setPersonas] = useState<BackendPersona[]>(FALLBACK_PERSONAS)
+  const [loadingPersonas, setLoadingPersonas] = useState(true)
   const [language, setLanguage] = useState<SupportedLanguage>('English')
-  const [selectedPersona, setSelectedPersona] = useState<(typeof PERSONA_OPTIONS)[number]>('MAXIM')
+  const [selectedPersona, setSelectedPersona] = useState('MAXIM')
   const [viewMode, setViewMode] = useState<ViewMode>('speaker')
   const [phase, setPhase] = useState<CallPhase>('setup')
   const [statusText, setStatusText] = useState('Ready to join')
@@ -101,10 +141,6 @@ export default function VideoCall() {
       .then((data) => {
         if (cancelled) return
         setConversation(data)
-        const ownerPersona = data.wa_owners.display_name?.trim()
-        if (ownerPersona && PERSONA_OPTIONS.includes(ownerPersona as (typeof PERSONA_OPTIONS)[number])) {
-          setSelectedPersona(ownerPersona as (typeof PERSONA_OPTIONS)[number])
-        }
       })
       .catch((loadError) => {
         console.error('[VideoCall] conversation load failed', loadError)
@@ -120,6 +156,33 @@ export default function VideoCall() {
       cancelled = true
     }
   }, [conversationId])
+
+  useEffect(() => {
+    let cancelled = false
+
+    fetch(`${LIVE_CALL_API_BASE}/api/personas`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`Persona fetch failed (${response.status})`)
+        const payload = await response.json() as { personas?: BackendPersona[] }
+        const activePersonas = (payload.personas ?? []).filter((persona) => persona?.is_active !== false)
+        if (cancelled || activePersonas.length === 0) return
+        setPersonas(activePersonas)
+        if (activePersonas.some((persona) => persona.name === selectedPersona)) return
+        setSelectedPersona(activePersonas[0].name)
+      })
+      .catch((loadError) => {
+        console.error('[VideoCall] persona list failed', loadError)
+        if (cancelled) return
+        setPersonas(FALLBACK_PERSONAS)
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingPersonas(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     return () => {
@@ -142,15 +205,31 @@ export default function VideoCall() {
     attachStream(remoteVideoRef.current, remoteStream, false)
   }, [remoteParticipant])
 
-  function syncParticipants(callObject: ReturnType<typeof DailyIframe.createCallObject>) {
+  function syncParticipants(callObject: ReturnType<typeof DailyIframe.createCallObject>, eventName?: string) {
     const participants = Object.values(callObject.participants() || {}) as any[]
     const local = participants.find((participant) => participant?.local) ?? null
-    const remote = participants.find((participant) => !participant?.local) ?? null
+    const remote = pickAvatarParticipant(participants)
 
     setLocalParticipant(local)
     setRemoteParticipant(remote)
+    if (remote && getParticipantTrack(remote, 'video')) {
+      attachStream(remoteVideoRef.current, buildParticipantStream(remote, true), false)
+    }
     setStatusText(remote && getParticipantTrack(remote, 'video') ? 'Connected' : 'Avatar joining...')
     setPhase('connected')
+    console.log('[VideoCall] syncParticipants', {
+      eventName,
+      sessionId,
+      local: local ? getParticipantName(local) : null,
+      avatar: remote ? getParticipantName(remote) : null,
+      participants: participants.map((participant) => ({
+        name: getParticipantName(participant),
+        local: Boolean(participant?.local),
+        hiddenBot: isPipecatParticipant(participant),
+        hasVideo: Boolean(getParticipantTrack(participant, 'video')),
+        hasAudio: Boolean(getParticipantTrack(participant, 'audio')),
+      })),
+    })
   }
 
   async function leaveCall() {
@@ -223,21 +302,43 @@ export default function VideoCall() {
       const callObject = DailyIframe.createCallObject()
       callObjectRef.current = callObject
 
-      const handleParticipantChange = () => {
-        syncParticipants(callObject)
+      const logEvent = (eventName: string, event?: any) => {
+        console.log(`[VideoCall] ${eventName}`, {
+          sessionId: payload.session_id,
+          participant: event?.participant
+            ? {
+                name: getParticipantName(event.participant),
+                local: Boolean(event.participant?.local),
+                hiddenBot: isPipecatParticipant(event.participant),
+                hasVideo: Boolean(getParticipantTrack(event.participant, 'video')),
+                hasAudio: Boolean(getParticipantTrack(event.participant, 'audio')),
+              }
+            : null,
+          event,
+        })
+      }
+      const handleParticipantChange = (eventName: string, event?: any) => {
+        logEvent(eventName, event)
+        syncParticipants(callObject, eventName)
+        if (event?.participant && !event.participant?.local && !isPipecatParticipant(event.participant) && getParticipantTrack(event.participant, 'video')) {
+          attachStream(remoteVideoRef.current, buildParticipantStream(event.participant, true), false)
+        }
       }
 
-      callObject.on('joined-meeting', handleParticipantChange)
-      callObject.on('participant-joined', handleParticipantChange)
-      callObject.on('participant-updated', handleParticipantChange)
-      callObject.on('participant-left', handleParticipantChange)
-      callObject.on('track-started', handleParticipantChange)
-      callObject.on('track-stopped', handleParticipantChange)
-      callObject.on('camera-error', () => {
+      callObject.on('joined-meeting', (event: any) => handleParticipantChange('joined-meeting', event))
+      callObject.on('participant-joined', (event: any) => handleParticipantChange('participant-joined', event))
+      callObject.on('participant-updated', (event: any) => handleParticipantChange('participant-updated', event))
+      callObject.on('participant-left', (event: any) => handleParticipantChange('participant-left', event))
+      callObject.on('track-started', (event: any) => handleParticipantChange('track-started', event))
+      callObject.on('track-stopped', (event: any) => handleParticipantChange('track-stopped', event))
+      callObject.on('active-speaker-change', (event: any) => logEvent('active-speaker-change', event))
+      callObject.on('camera-error', (event: any) => {
+        logEvent('camera-error', event)
         setError('Camera access was blocked. Enable camera permissions and retry.')
         setPhase('error')
       })
-      callObject.on('error', () => {
+      callObject.on('error', (event: any) => {
+        logEvent('error', event)
         setError('The live call failed to connect. Retry to create a new session.')
         setPhase('error')
       })
@@ -245,7 +346,7 @@ export default function VideoCall() {
       await callObject.join({ url: payload.join_url })
       await callObject.setLocalAudio(isMicEnabled)
       await callObject.setLocalVideo(isCameraEnabled)
-      syncParticipants(callObject)
+      syncParticipants(callObject, 'post-join')
     } catch (startError) {
       const failedCall = callObjectRef.current
       callObjectRef.current = null
@@ -317,6 +418,7 @@ export default function VideoCall() {
   const callReady = phase === 'connected'
   const personaName = selectedPersona
   const replicaId = owner.tavus_replica_id?.trim() || FALLBACK_REPLICA_ID
+  const selectedPersonaDetails = personas.find((persona) => persona.name === selectedPersona) ?? null
   const showRemoteVideo = Boolean(remoteParticipant && getParticipantTrack(remoteParticipant, 'video'))
   const showLocalVideo = Boolean(localParticipant && getParticipantTrack(localParticipant, 'video') && isCameraEnabled)
   const remoteTile = (
@@ -391,8 +493,13 @@ export default function VideoCall() {
             </h1>
           </div>
 
-          <div className="min-w-[52px] text-right text-[11px] text-white/55">
-            {sessionId ? <span>#{sessionId.slice(0, 6)}</span> : null}
+          <div className="min-w-[78px] text-right text-[11px] text-white/55">
+            {sessionId ? (
+              <div>
+                <div className="uppercase tracking-[0.18em] text-white/35">Session</div>
+                <div className="mt-1 font-medium text-white/70">{sessionId.slice(0, 8)}</div>
+              </div>
+            ) : null}
           </div>
         </header>
 
@@ -443,17 +550,21 @@ export default function VideoCall() {
                     <label className="mt-3 block">
                       <select
                         value={selectedPersona}
-                        onChange={(event) => setSelectedPersona(event.target.value as (typeof PERSONA_OPTIONS)[number])}
+                        onChange={(event) => setSelectedPersona(event.target.value)}
                         className="min-h-12 w-full appearance-none rounded-[20px] border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-medium text-white outline-none transition focus:border-[#79f5e4]/40"
+                        disabled={loadingPersonas}
                       >
-                        {PERSONA_OPTIONS.map((option) => (
-                          <option key={option} value={option} className="bg-[#0b1520] text-white">
-                            {option}
+                        {personas.map((persona) => (
+                          <option key={persona.id || persona.name} value={persona.name} className="bg-[#0b1520] text-white">
+                            {persona.name} {persona.role ? `- ${persona.role}` : ''}
                           </option>
                         ))}
                       </select>
                     </label>
-                    <p className="text-xs uppercase tracking-[0.26em] text-white/45">Session language</p>
+                    {selectedPersonaDetails?.role ? (
+                      <p className="mt-2 text-sm text-white/60">{selectedPersonaDetails.role}</p>
+                    ) : null}
+                    <p className="mt-4 text-xs uppercase tracking-[0.26em] text-white/45">Session language</p>
                     <div className="mt-4 grid gap-3 sm:grid-cols-3">
                       {LANGUAGES.map((item) => {
                         const active = language === item.label
