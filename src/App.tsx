@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { AuthProvider } from './contexts/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
+import OwnerRoute from './components/OwnerRoute'
 import Home from './pages/Home'
 import Login from './pages/Login'
 import Signup from './pages/Signup'
@@ -32,25 +33,25 @@ export default function App() {
           <Route
             path="/"
             element={
-              <ProtectedRoute>
+              <OwnerRoute>
                 <Home />
-              </ProtectedRoute>
+              </OwnerRoute>
             }
           />
           <Route
             path="/dashboard"
             element={
-              <ProtectedRoute>
+              <OwnerRoute>
                 <Dashboard />
-              </ProtectedRoute>
+              </OwnerRoute>
             }
           />
           <Route
             path="/settings"
             element={
-              <ProtectedRoute>
+              <OwnerRoute>
                 <Settings />
-              </ProtectedRoute>
+              </OwnerRoute>
             }
           />
         </Routes>

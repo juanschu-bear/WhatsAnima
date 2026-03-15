@@ -34,6 +34,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const signOut = async () => {
+    localStorage.removeItem('wa_login_role')
     await supabase.auth.signOut()
   }
 
