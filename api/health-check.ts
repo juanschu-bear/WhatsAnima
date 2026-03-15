@@ -87,8 +87,7 @@ async function checkOpm(): Promise<CheckResult> {
   const url = 'https://boardroom-api.onioko.com/health'
   try {
     const resp = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'GET',
       signal: AbortSignal.timeout(10_000),
     })
     if (resp.ok) {
