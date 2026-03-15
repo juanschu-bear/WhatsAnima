@@ -13,9 +13,13 @@ function getSupabaseAdmin() {
 const CHECK_NAMES = ['db_schema', 'opm', 'auth', 'tts', 'chat_api', 'transcription', 'tunnel_latency'] as const
 
 export default async function handler(req: any, res: any) {
-  if (req.method !== 'GET') {
-    res.setHeader('Allow', 'GET')
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    res.setHeader('Allow', 'GET, HEAD')
     return res.status(405).json({ error: 'Method not allowed' })
+  }
+
+  if (req.method === 'HEAD') {
+    return res.status(200).end()
   }
 
   // Verify cron secret if configured (Vercel sends this header)
