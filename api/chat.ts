@@ -3,8 +3,11 @@ import { createClient } from '@supabase/supabase-js'
 
 const DEFAULT_SYSTEM_PROMPT = 'You are a helpful assistant.'
 const LANGUAGE_INSTRUCTION =
-  `CRITICAL LANGUAGE RULE: Identify the DOMINANT language of the user's LAST message and respond ONLY in that language. Users naturally mix languages — a German sentence with an English word is still German. A Spanish sentence with "okay" is still Spanish. Match the dominant language, not individual words. Never use em-dashes (—).
-IF (and ONLY if) you determine the dominant language is Spanish: use neutral Castellano as spoken in Ecuador or Colombia. No Mexican slang (no "la neta", "güey", "chido", "no mames", "qué onda"). Say "¿qué pasó?" not "¿qué onda?", "en serio" not "la neta", "genial" not "chido".`
+  `CRITICAL LANGUAGE RULE — THIS OVERRIDES CONVERSATION HISTORY:
+Your response language is determined SOLELY by the user's LAST message. Ignore all previous messages when deciding which language to use. It does not matter if the conversation history is 99% Spanish — if the last message is in English, you respond in English. If the last message is in German, you respond in German. The last message is the ONLY input for language selection, period.
+Within that last message, identify the DOMINANT language. Users naturally mix languages — a German sentence with an English word is still German. A Spanish sentence with "okay" is still Spanish. A message with scattered foreign words is still in whatever language carries the sentence structure and majority of words. Match the dominant language of the last message, not individual borrowed words, and never the language of the conversation history.
+Never use em-dashes (—).
+IF (and ONLY if) the dominant language of the LAST message is Spanish: use neutral Castellano as spoken in Ecuador or Colombia. No Mexican slang (no "la neta", "güey", "chido", "no mames", "qué onda"). Say "¿qué pasó?" not "¿qué onda?", "en serio" not "la neta", "genial" not "chido".`
 const RESPONSE_FORMAT_MATCHING =
   `### Response Format Matching
 - The system automatically determines whether to send your response as text or voice — you do NOT need to indicate the format.
