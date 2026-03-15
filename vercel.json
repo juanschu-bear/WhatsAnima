@@ -1,4 +1,10 @@
 {
+  "crons": [
+    {
+      "path": "/api/cron/health-ping",
+      "schedule": "*/5 * * * *"
+    }
+  ],
   "functions": {
     "api/chat.ts": { "maxDuration": 60 },
     "api/generate-image.ts": { "maxDuration": 120 },
