@@ -20,7 +20,7 @@ export default async function handler(req: any, res: any) {
   }
 
   // Cache for 60s to avoid hammering DB on every page load
-  res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=120')
+  res.setHeader('Cache-Control', 's-maxage=30, stale-while-revalidate=30')
 
   const supabase = getSupabaseAdmin()
   if (!supabase) {
@@ -35,7 +35,8 @@ export default async function handler(req: any, res: any) {
       .from('wa_health_checks')
       .select('check_name, status, message, response_time_ms, timestamp')
       .gte('timestamp', sevenDaysAgo)
-      .order('timestamp', { ascending: true }),
+      .order('timestamp', { ascending: true })
+      .limit(50000),
     supabase
       .from('wa_incidents')
       .select('*')
