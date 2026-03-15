@@ -28,6 +28,8 @@ import {
   showLocalNotification,
   incrementUnreadBadge,
   clearUnreadBadge,
+  subscribeToPush,
+  isPushSubscribed,
 } from '../lib/notifications'
 
 type MessageType = 'text' | 'voice' | 'video' | 'image' | 'flashcard' | 'quiz' | 'lesson' | 'fillin'
@@ -1297,6 +1299,25 @@ export default function Chat() {
       })
       .finally(() => setLoading(false))
   }, [conversationId])
+
+  // Auto-prompt for push notifications on first visit
+  useEffect(() => {
+    if (!conversation) return
+    const PUSH_PROMPTED_KEY = 'wa_push_prompted'
+    if (localStorage.getItem(PUSH_PROMPTED_KEY)) return
+    localStorage.setItem(PUSH_PROMPTED_KEY, '1')
+    // Small delay so the UI settles before the browser permission dialog
+    const timer = setTimeout(async () => {
+      try {
+        const already = await isPushSubscribed()
+        if (already) return
+        const { supabase } = await import('../lib/supabase')
+        const { data: { user } } = await supabase.auth.getUser()
+        if (user?.id) await subscribeToPush(user.id)
+      } catch {}
+    }, 2000)
+    return () => clearTimeout(timer)
+  }, [conversation])
 
   // Clear badge when user returns to the chat
   useEffect(() => {

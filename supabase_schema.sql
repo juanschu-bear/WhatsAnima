@@ -410,4 +410,24 @@ ALTER TABLE public.wa_messages DROP CONSTRAINT IF EXISTS wa_messages_type_check;
 ALTER TABLE public.wa_messages ADD CONSTRAINT wa_messages_type_check
   CHECK (type IN ('text', 'voice', 'video', 'image', 'flashcard'));
 
+-- =============================================================
+-- Push Subscriptions: Web Push endpoints per user
+-- =============================================================
+CREATE TABLE IF NOT EXISTS public.wa_push_subscriptions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL,
+  endpoint TEXT NOT NULL,
+  p256dh TEXT NOT NULL DEFAULT '',
+  auth TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(endpoint)
+);
+
+ALTER TABLE public.wa_push_subscriptions ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "push_select" ON public.wa_push_subscriptions FOR SELECT USING (TRUE);
+CREATE POLICY "push_insert" ON public.wa_push_subscriptions FOR INSERT WITH CHECK (TRUE);
+CREATE POLICY "push_update" ON public.wa_push_subscriptions FOR UPDATE USING (TRUE);
+CREATE POLICY "push_delete" ON public.wa_push_subscriptions FOR DELETE USING (TRUE);
+
 NOTIFY pgrst, 'reload schema';
