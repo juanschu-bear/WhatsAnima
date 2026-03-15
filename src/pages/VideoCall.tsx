@@ -8,10 +8,12 @@ import { getConversation } from '../lib/api'
 type ConversationData = Awaited<ReturnType<typeof getConversation>>
 type CallPhase = 'setup' | 'starting' | 'joining' | 'connected' | 'error'
 type SupportedLanguage = 'English' | 'Deutsch' | 'Español'
+type ViewMode = 'speaker' | 'side-by-side'
 
 const LIVE_CALL_API_BASE =
   (import.meta.env.VITE_LIVE_CALL_API_BASE as string | undefined) || 'https://anima.onioko.com'
 const FALLBACK_REPLICA_ID = 'r987f6e6f73c'
+const PERSONA_OPTIONS = ['MAXIM', 'ARIA', 'Juan Schubert'] as const
 
 const LANGUAGES: Array<{ label: SupportedLanguage; accent: string }> = [
   { label: 'English', accent: 'from-cyan-400/70 to-sky-500/80' },
@@ -37,10 +39,16 @@ function buildUserName(user: ReturnType<typeof useAuth>['user'], conversation: C
   )
 }
 
+function getParticipantTrack(participant: any, kind: 'video' | 'audio') {
+  const source = participant?.tracks?.[kind]
+  const candidate = source?.track || source?.persistentTrack
+  return candidate instanceof MediaStreamTrack ? candidate : null
+}
+
 function buildParticipantStream(participant: any, includeAudio: boolean) {
   const stream = new MediaStream()
-  const videoTrack = participant?.tracks?.video?.persistentTrack
-  const audioTrack = participant?.tracks?.audio?.persistentTrack
+  const videoTrack = getParticipantTrack(participant, 'video')
+  const audioTrack = getParticipantTrack(participant, 'audio')
 
   if (videoTrack instanceof MediaStreamTrack) stream.addTrack(videoTrack)
   if (includeAudio && audioTrack instanceof MediaStreamTrack) stream.addTrack(audioTrack)
@@ -65,6 +73,8 @@ export default function VideoCall() {
   const [conversation, setConversation] = useState<ConversationData | null>(null)
   const [loadingConversation, setLoadingConversation] = useState(true)
   const [language, setLanguage] = useState<SupportedLanguage>('English')
+  const [selectedPersona, setSelectedPersona] = useState<(typeof PERSONA_OPTIONS)[number]>('MAXIM')
+  const [viewMode, setViewMode] = useState<ViewMode>('speaker')
   const [phase, setPhase] = useState<CallPhase>('setup')
   const [statusText, setStatusText] = useState('Ready to join')
   const [error, setError] = useState<string | null>(null)
@@ -91,6 +101,10 @@ export default function VideoCall() {
       .then((data) => {
         if (cancelled) return
         setConversation(data)
+        const ownerPersona = data.wa_owners.display_name?.trim()
+        if (ownerPersona && PERSONA_OPTIONS.includes(ownerPersona as (typeof PERSONA_OPTIONS)[number])) {
+          setSelectedPersona(ownerPersona as (typeof PERSONA_OPTIONS)[number])
+        }
       })
       .catch((loadError) => {
         console.error('[VideoCall] conversation load failed', loadError)
@@ -128,14 +142,14 @@ export default function VideoCall() {
     attachStream(remoteVideoRef.current, remoteStream, false)
   }, [remoteParticipant])
 
-  async function syncParticipants(callObject: ReturnType<typeof DailyIframe.createCallObject>) {
+  function syncParticipants(callObject: ReturnType<typeof DailyIframe.createCallObject>) {
     const participants = Object.values(callObject.participants() || {}) as any[]
     const local = participants.find((participant) => participant?.local) ?? null
     const remote = participants.find((participant) => !participant?.local) ?? null
 
     setLocalParticipant(local)
     setRemoteParticipant(remote)
-    setStatusText(remote ? 'Connected' : 'Avatar joining...')
+    setStatusText(remote && getParticipantTrack(remote, 'video') ? 'Connected' : 'Avatar joining...')
     setPhase('connected')
   }
 
@@ -159,7 +173,7 @@ export default function VideoCall() {
   async function startCall() {
     if (!conversation || !conversationId) return
     const owner = conversation.wa_owners
-    const personaName = owner.display_name?.trim() || 'Avatar'
+    const personaName = selectedPersona
     const replicaId = owner.tavus_replica_id?.trim() || FALLBACK_REPLICA_ID
 
     const existingCall = callObjectRef.current
@@ -203,20 +217,22 @@ export default function VideoCall() {
       }
 
       setSessionId(payload.session_id)
-      setStatusText('Connecting...')
+      setStatusText('Avatar joining...')
       setPhase('joining')
 
       const callObject = DailyIframe.createCallObject()
       callObjectRef.current = callObject
 
       const handleParticipantChange = () => {
-        void syncParticipants(callObject)
+        syncParticipants(callObject)
       }
 
       callObject.on('joined-meeting', handleParticipantChange)
       callObject.on('participant-joined', handleParticipantChange)
       callObject.on('participant-updated', handleParticipantChange)
       callObject.on('participant-left', handleParticipantChange)
+      callObject.on('track-started', handleParticipantChange)
+      callObject.on('track-stopped', handleParticipantChange)
       callObject.on('camera-error', () => {
         setError('Camera access was blocked. Enable camera permissions and retry.')
         setPhase('error')
@@ -229,7 +245,7 @@ export default function VideoCall() {
       await callObject.join({ url: payload.join_url })
       await callObject.setLocalAudio(isMicEnabled)
       await callObject.setLocalVideo(isCameraEnabled)
-      await syncParticipants(callObject)
+      syncParticipants(callObject)
     } catch (startError) {
       const failedCall = callObjectRef.current
       callObjectRef.current = null
@@ -299,8 +315,57 @@ export default function VideoCall() {
 
   const owner = conversation.wa_owners
   const callReady = phase === 'connected'
-  const personaName = owner.display_name?.trim() || 'Avatar'
+  const personaName = selectedPersona
   const replicaId = owner.tavus_replica_id?.trim() || FALLBACK_REPLICA_ID
+  const showRemoteVideo = Boolean(remoteParticipant && getParticipantTrack(remoteParticipant, 'video'))
+  const showLocalVideo = Boolean(localParticipant && getParticipantTrack(localParticipant, 'video') && isCameraEnabled)
+  const remoteTile = (
+    <>
+      {showRemoteVideo ? (
+        <video
+          ref={remoteVideoRef}
+          autoPlay
+          playsInline
+          className="h-full w-full object-cover transition-opacity duration-500"
+        />
+      ) : (
+        <div className="flex h-full w-full max-w-md flex-col items-center justify-center px-6 text-center">
+          <div className="relative">
+            <img
+              src={resolveAvatarUrl(personaName)}
+              alt={personaName}
+              className="h-24 w-24 rounded-full object-cover ring-1 ring-white/10 sm:h-36 sm:w-36"
+            />
+            <span className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full border-4 border-[#08111a] bg-[#70f0de]" />
+          </div>
+          <p className="mt-6 text-2xl font-semibold tracking-[-0.03em] text-white sm:text-3xl">
+            {personaName}
+          </p>
+          <p className="mt-3 text-sm leading-6 text-white/62 sm:text-base">
+            {phase === 'setup' ? 'Choose a language and start the room.' : statusText}
+          </p>
+        </div>
+      )}
+    </>
+  )
+  const localTile = (
+    <>
+      {showLocalVideo ? (
+        <video
+          ref={localVideoRef}
+          autoPlay
+          muted
+          playsInline
+          className="h-full w-full object-cover"
+          style={{ transform: 'scaleX(-1)' }}
+        />
+      ) : (
+        <div className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.08),transparent_45%),linear-gradient(180deg,rgba(14,19,30,0.98),rgba(7,10,18,0.98))] px-3 text-center text-xs text-white/50">
+          Camera off
+        </div>
+      )}
+    </>
+  )
 
   return (
     <div className="relative h-[100dvh] min-h-[100dvh] overflow-hidden bg-[radial-gradient(circle_at_top,rgba(0,195,170,0.16),transparent_30%),radial-gradient(circle_at_85%_20%,rgba(53,127,255,0.16),transparent_24%),linear-gradient(180deg,#03060b_0%,#07111a_48%,#02050a_100%)] text-white supports-[-webkit-touch-callout:none]:min-h-[-webkit-fill-available]">
@@ -336,32 +401,23 @@ export default function VideoCall() {
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(112,240,222,0.13),transparent_32%)]" />
 
             <div className="relative flex h-full w-full items-center justify-center">
-              {callReady && remoteParticipant ? (
-                <video
-                  ref={remoteVideoRef}
-                  autoPlay
-                  playsInline
-                  className="h-full w-full object-cover transition-opacity duration-500"
-                />
-              ) : (
-                <div className="flex max-w-md flex-col items-center px-6 text-center">
-                  <div className="relative">
-                    <img
-                      src={resolveAvatarUrl(personaName)}
-                      alt={personaName}
-                      className="h-24 w-24 rounded-full object-cover ring-1 ring-white/10 sm:h-36 sm:w-36"
-                    />
-                    <span className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full border-4 border-[#08111a] bg-[#70f0de]" />
+              {callReady && viewMode === 'side-by-side' ? (
+                <div className="grid h-full w-full grid-cols-2 gap-[1px] bg-white/6">
+                  <div className="relative min-h-0 overflow-hidden bg-black/20">
+                    {remoteTile}
+                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-4 py-3 text-sm font-semibold text-white/88">
+                      {personaName}
+                    </div>
                   </div>
-                  <p className="mt-6 text-2xl font-semibold tracking-[-0.03em] text-white sm:text-3xl">
-                    {personaName}
-                  </p>
-                  <p className="mt-3 text-sm leading-6 text-white/62 sm:text-base">
-                    {phase === 'setup'
-                      ? 'Choose a language and start the room.'
-                      : statusText}
-                  </p>
+                  <div className="relative min-h-0 overflow-hidden bg-black/20">
+                    {localTile}
+                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-4 py-3 text-sm font-semibold text-white/88">
+                      You
+                    </div>
+                  </div>
                 </div>
+              ) : (
+                remoteTile
               )}
 
               <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-center px-3 pt-4 sm:px-4 sm:pt-5">
@@ -370,29 +426,33 @@ export default function VideoCall() {
                 </div>
               </div>
 
-              <div className="absolute bottom-4 left-4 h-32 w-[5.5rem] overflow-hidden rounded-[22px] border border-white/12 bg-[linear-gradient(180deg,rgba(22,31,45,0.95),rgba(10,16,27,0.98))] shadow-[0_18px_60px_rgba(0,0,0,0.35)] sm:bottom-5 sm:left-5 sm:h-44 sm:w-32 sm:rounded-[24px]">
-                {isCameraEnabled ? (
-                  <video
-                    ref={localVideoRef}
-                    autoPlay
-                    muted
-                    playsInline
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <div className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.08),transparent_45%),linear-gradient(180deg,rgba(14,19,30,0.98),rgba(7,10,18,0.98))] px-3 text-center text-xs text-white/50">
-                    Camera off
+              {viewMode === 'speaker' ? (
+                <div className="absolute bottom-4 left-4 h-32 w-[5.5rem] overflow-hidden rounded-[22px] border border-white/12 bg-[linear-gradient(180deg,rgba(22,31,45,0.95),rgba(10,16,27,0.98))] shadow-[0_18px_60px_rgba(0,0,0,0.35)] sm:bottom-5 sm:left-5 sm:h-44 sm:w-32 sm:rounded-[24px]">
+                  {localTile}
+                  <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/72 to-transparent px-3 py-2 text-[11px] text-white/80">
+                    <span>You</span>
+                    <span className={`h-2.5 w-2.5 rounded-full ${isMicEnabled ? 'bg-[#70f0de]' : 'bg-red-400'}`} />
                   </div>
-                )}
-                <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/72 to-transparent px-3 py-2 text-[11px] text-white/80">
-                  <span>You</span>
-                  <span className={`h-2.5 w-2.5 rounded-full ${isMicEnabled ? 'bg-[#70f0de]' : 'bg-red-400'}`} />
                 </div>
-              </div>
+              ) : null}
 
               {phase === 'setup' ? (
                 <div className="absolute inset-x-0 bottom-24 flex justify-center px-3 sm:bottom-28 sm:px-4">
                   <div className="w-full max-w-xl rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(6,14,24,0.95),rgba(6,10,18,0.98))] p-4 shadow-[0_28px_90px_rgba(0,0,0,0.45)] backdrop-blur-2xl sm:rounded-[28px] sm:p-5">
+                    <p className="text-xs uppercase tracking-[0.26em] text-white/45">Persona</p>
+                    <label className="mt-3 block">
+                      <select
+                        value={selectedPersona}
+                        onChange={(event) => setSelectedPersona(event.target.value as (typeof PERSONA_OPTIONS)[number])}
+                        className="min-h-12 w-full appearance-none rounded-[20px] border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-medium text-white outline-none transition focus:border-[#79f5e4]/40"
+                      >
+                        {PERSONA_OPTIONS.map((option) => (
+                          <option key={option} value={option} className="bg-[#0b1520] text-white">
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                     <p className="text-xs uppercase tracking-[0.26em] text-white/45">Session language</p>
                     <div className="mt-4 grid gap-3 sm:grid-cols-3">
                       {LANGUAGES.map((item) => {
@@ -425,7 +485,7 @@ export default function VideoCall() {
                       Start live call
                     </button>
                     <p className="mt-3 text-center text-[11px] text-white/42">
-                      Persona: {personaName} · Replica: {replicaId}
+                      Owner avatar: {owner.display_name || 'Unconfigured'} · Session persona: {selectedPersona} · Replica: {replicaId}
                     </p>
                   </div>
                 </div>
@@ -449,7 +509,26 @@ export default function VideoCall() {
             </div>
           </div>
 
-          <div className="mt-4 flex items-center justify-center gap-3 px-1 sm:mt-5 sm:gap-4">
+          <div className="mt-3 flex items-center justify-center gap-2 px-1 sm:mt-4">
+            <div className="rounded-full border border-white/10 bg-white/6 p-1">
+              <button
+                type="button"
+                onClick={() => setViewMode('speaker')}
+                className={`rounded-full px-3 py-2 text-xs font-medium transition ${viewMode === 'speaker' ? 'bg-white text-[#06101a]' : 'text-white/72 hover:text-white'}`}
+              >
+                Speaker view
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('side-by-side')}
+                className={`rounded-full px-3 py-2 text-xs font-medium transition ${viewMode === 'side-by-side' ? 'bg-white text-[#06101a]' : 'text-white/72 hover:text-white'}`}
+              >
+                Side by side
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-3 flex items-center justify-center gap-3 px-1 sm:mt-4 sm:gap-4">
             <button
               type="button"
               onClick={() => void toggleMic()}
