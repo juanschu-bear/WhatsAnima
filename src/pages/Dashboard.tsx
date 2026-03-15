@@ -10,6 +10,7 @@ import {
   listConversations,
   listInvitationLinks,
   listMessages,
+  softDeleteOwner,
   toggleInvitationLink,
   type ConversationListItem,
   type MessageType,
@@ -553,7 +554,7 @@ export default function Dashboard() {
   return (
     <div className="brand-scene flex h-[100dvh] flex-col overflow-hidden px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-[calc(env(safe-area-inset-top)+1rem)] text-white sm:px-6 sm:pb-[calc(env(safe-area-inset-bottom)+1.5rem)] sm:pt-[calc(env(safe-area-inset-top)+1.5rem)]">
       <div className="relative z-10 mx-auto flex min-h-0 flex-1 max-w-[1680px] flex-col gap-4">
-        <header className="brand-panel shrink-0 rounded-[34px] p-4 sm:p-5">
+        <header className="brand-panel relative z-20 shrink-0 rounded-[34px] p-4 sm:p-5">
           <div className="grid gap-4 xl:grid-cols-[1.2fr_2fr_auto] xl:items-center">
             <div className="flex items-center gap-4">
               <div className="relative">
@@ -580,28 +581,47 @@ export default function Dashboard() {
                   <div className="absolute left-0 top-full z-50 mt-2 w-64 rounded-[20px] border border-white/10 bg-[#0b1a22] p-2 shadow-[0_20px_60px_rgba(0,0,0,0.5)]">
                     <p className="px-3 py-2 text-[10px] uppercase tracking-[0.24em] text-white/40">{L('allOwners')}</p>
                     {allOwners.map((o) => (
-                      <button
-                        key={o.id}
-                        type="button"
-                        onClick={() => switchToOwner(o)}
-                        className={`flex w-full items-center gap-3 rounded-[14px] px-3 py-3 text-left transition ${
-                          o.id === ownerId
-                            ? 'border border-[#00a884]/40 bg-[#00a884]/10 text-[#00a884]'
-                            : 'border border-transparent text-white hover:bg-white/5'
-                        }`}
-                      >
-                        <img
-                          src={resolveAvatarUrl(o.display_name)}
-                          alt={o.display_name || 'Owner'}
-                          className="h-9 w-9 shrink-0 rounded-full object-cover"
-                        />
-                        <span className="truncate text-sm font-medium">{o.display_name || 'Unnamed'}</span>
-                        {o.id === ownerId ? (
-                          <svg className="ml-auto h-4 w-4 shrink-0 text-[#00a884]" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                          </svg>
+                      <div key={o.id} className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => switchToOwner(o)}
+                          className={`flex min-w-0 flex-1 items-center gap-3 rounded-[14px] px-3 py-3 text-left transition ${
+                            o.id === ownerId
+                              ? 'border border-[#00a884]/40 bg-[#00a884]/10 text-[#00a884]'
+                              : 'border border-transparent text-white hover:bg-white/5'
+                          }`}
+                        >
+                          <img
+                            src={resolveAvatarUrl(o.display_name)}
+                            alt={o.display_name || 'Owner'}
+                            className="h-9 w-9 shrink-0 rounded-full object-cover"
+                          />
+                          <span className="truncate text-sm font-medium">{o.display_name || 'Unnamed'}</span>
+                          {o.id === ownerId ? (
+                            <svg className="ml-auto h-4 w-4 shrink-0 text-[#00a884]" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                          ) : null}
+                        </button>
+                        {o.id !== ownerId ? (
+                          <button
+                            type="button"
+                            title={L('delete')}
+                            onClick={async (e) => {
+                              e.stopPropagation()
+                              const name = o.display_name || 'Unnamed'
+                              if (!window.confirm(`"${name}" wirklich löschen?`)) return
+                              await softDeleteOwner(o.id)
+                              setAllOwners((prev) => prev.filter((x) => x.id !== o.id))
+                            }}
+                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white/30 transition hover:bg-red-500/15 hover:text-red-400"
+                          >
+                            <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
                         ) : null}
-                      </button>
+                      </div>
                     ))}
                   </div>
                 ) : null}
