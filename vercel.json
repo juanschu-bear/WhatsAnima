@@ -11,12 +11,6 @@
     "api/cron/health-ping.ts": { "maxDuration": 30 },
     "api/status-data.ts": { "maxDuration": 15 }
   },
-  "crons": [
-    {
-      "path": "/api/cron/health-ping",
-      "schedule": "0 * * * *"
-    }
-  ],
   "headers": [
     {
       "source": "/((?!api/|assets/).*)",
