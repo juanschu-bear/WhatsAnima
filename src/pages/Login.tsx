@@ -249,8 +249,8 @@ export default function Login() {
   // --- RENDER ---
 
   const panel = (children: React.ReactNode, showBack = true) => (
-    <div className="brand-scene min-h-screen">
-      <div className="relative z-10 flex min-h-screen items-start justify-center px-6 pb-24 pt-12 sm:pt-16 md:pt-20">
+    <div className="brand-scene min-h-[100dvh]">
+      <div className="relative z-10 flex min-h-[100dvh] items-center justify-center px-6 py-8">
         <div className="brand-panel w-full max-w-md rounded-[32px] p-7 sm:p-8">
           <img
             src="/Icon.PNG"
