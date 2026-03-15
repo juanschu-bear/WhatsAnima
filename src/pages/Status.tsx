@@ -100,7 +100,7 @@ export default function Status() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [tooltip, setTooltip] = useState<TooltipData | null>(null)
-  const tooltipTimeout = useRef<ReturnType<typeof setTimeout>>()
+  const tooltipTimeout = useRef<ReturnType<typeof setTimeout>>(undefined)
 
   useEffect(() => {
     fetch('/api/status-data')
@@ -157,29 +157,31 @@ export default function Status() {
           ) : error ? (
             <p className="mt-3 text-sm text-red-400">Unable to load status: {error}</p>
           ) : (
-            <div className="mt-4 flex items-center justify-center gap-2">
-              <span className={`inline-block h-3 w-3 rounded-full ${allOk && !hasDegraded ? 'bg-[#00a884] shadow-[0_0_8px_rgba(0,168,132,0.5)]' : allOk && hasDegraded ? 'bg-yellow-400 shadow-[0_0_8px_rgba(250,204,21,0.5)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]'}`} />
-              <span className="text-sm font-medium text-white/80">
-                {allOk && !hasDegraded ? 'All systems operational' : allOk && hasDegraded ? 'Some systems degraded' : 'Some systems are experiencing issues'}
-              </span>
-            </div>
-            {affectedServices.length > 0 && (
-              <div className="mt-2 flex flex-wrap items-center justify-center gap-1.5">
-                {affectedServices.map((svc) => (
-                  <span
-                    key={svc.name}
-                    className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                      svc.current_status === 'fail'
-                        ? 'bg-red-500/10 text-red-400'
-                        : 'bg-yellow-400/10 text-yellow-400'
-                    }`}
-                  >
-                    <span className={`inline-block h-1.5 w-1.5 rounded-full ${svc.current_status === 'fail' ? 'bg-red-500' : 'bg-yellow-400'}`} />
-                    {DISPLAY_NAMES[svc.name] || svc.name}
-                  </span>
-                ))}
+            <>
+              <div className="mt-4 flex items-center justify-center gap-2">
+                <span className={`inline-block h-3 w-3 rounded-full ${allOk && !hasDegraded ? 'bg-[#00a884] shadow-[0_0_8px_rgba(0,168,132,0.5)]' : allOk && hasDegraded ? 'bg-yellow-400 shadow-[0_0_8px_rgba(250,204,21,0.5)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]'}`} />
+                <span className="text-sm font-medium text-white/80">
+                  {allOk && !hasDegraded ? 'All systems operational' : allOk && hasDegraded ? 'Some systems degraded' : 'Some systems are experiencing issues'}
+                </span>
               </div>
-            )}
+              {affectedServices.length > 0 && (
+                <div className="mt-2 flex flex-wrap items-center justify-center gap-1.5">
+                  {affectedServices.map((svc) => (
+                    <span
+                      key={svc.name}
+                      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                        svc.current_status === 'fail'
+                          ? 'bg-red-500/10 text-red-400'
+                          : 'bg-yellow-400/10 text-yellow-400'
+                      }`}
+                    >
+                      <span className={`inline-block h-1.5 w-1.5 rounded-full ${svc.current_status === 'fail' ? 'bg-red-500' : 'bg-yellow-400'}`} />
+                      {DISPLAY_NAMES[svc.name] || svc.name}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </div>
 
