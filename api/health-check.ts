@@ -1,0 +1,183 @@
+import { createClient } from '@supabase/supabase-js'
+
+function getSupabaseAdmin() {
+  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+  const key =
+    process.env.SUPABASE_SERVICE_KEY ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_KEY
+  if (!url) return { client: null, missing: 'SUPABASE_URL' }
+  if (!key) return { client: null, missing: 'SUPABASE_SERVICE_KEY' }
+  return { client: createClient(url, key), missing: null }
+}
+
+// Expected columns per table — add new columns here when schema changes
+const EXPECTED_SCHEMA: Record<string, string[]> = {
+  wa_owners: [
+    'id', 'user_id', 'display_name', 'email', 'voice_id', 'system_prompt',
+    'tavus_replica_id', 'opm_api_url', 'is_self_avatar', 'communication_style',
+    'deleted_at', 'created_at', 'updated_at',
+  ],
+  wa_messages: [
+    'id', 'conversation_id', 'sender', 'type', 'content',
+    'media_url', 'duration_sec', 'read_at', 'created_at',
+  ],
+  wa_perception_logs: [
+    'id', 'message_id', 'conversation_id', 'contact_id', 'owner_id',
+    'transcript', 'primary_emotion', 'secondary_emotion',
+    'behavioral_summary', 'conversation_hooks', 'fired_rules',
+    'recommended_tone', 'prosodic_summary', 'audio_duration_sec', 'created_at',
+  ],
+  wa_voice_baseline: [
+    'id', 'contact_id', 'owner_id', 'current_tier', 'tier_name',
+    'confidence', 'cumulative_audio_sec', 'baseline_data',
+    'sample_count', 'locked_at', 'updated_at',
+  ],
+}
+
+type CheckResult = {
+  status: 'ok' | 'fail'
+  message?: string
+  details?: any
+}
+
+async function checkDbSchema(supabase: any): Promise<CheckResult> {
+  const missing: Record<string, string[]> = {}
+
+  for (const [table, expectedCols] of Object.entries(EXPECTED_SCHEMA)) {
+    try {
+      // Select a single row to discover columns — works even on empty tables
+      const { data, error } = await supabase
+        .from(table)
+        .select(expectedCols.join(','))
+        .limit(0)
+
+      if (error) {
+        // Parse which columns are actually missing from the error message
+        const msg = error.message || ''
+        if (msg.includes('does not exist') || msg.includes('relation')) {
+          missing[table] = ['TABLE_MISSING']
+        } else {
+          // Try individual columns to find the missing ones
+          const tableMissing: string[] = []
+          for (const col of expectedCols) {
+            const { error: colErr } = await supabase
+              .from(table)
+              .select(col)
+              .limit(0)
+            if (colErr) tableMissing.push(col)
+          }
+          if (tableMissing.length > 0) missing[table] = tableMissing
+        }
+      }
+    } catch (err: any) {
+      missing[table] = ['QUERY_ERROR: ' + (err.message || String(err))]
+    }
+  }
+
+  const hasMissing = Object.keys(missing).length > 0
+  return {
+    status: hasMissing ? 'fail' : 'ok',
+    message: hasMissing ? 'Missing columns detected' : 'All expected columns present',
+    ...(hasMissing && { details: missing }),
+  }
+}
+
+async function checkOpm(): Promise<CheckResult> {
+  const url = 'https://boardroom-api.onioko.com/health'
+  try {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(10_000),
+    })
+    if (resp.ok) {
+      return { status: 'ok', message: `OPM reachable (${resp.status})` }
+    }
+    const body = await resp.text().catch(() => '')
+    return {
+      status: 'fail',
+      message: `OPM returned ${resp.status}`,
+      details: body.slice(0, 500),
+    }
+  } catch (err: any) {
+    return {
+      status: 'fail',
+      message: 'OPM unreachable',
+      details: err.message || String(err),
+    }
+  }
+}
+
+async function checkAuth(): Promise<CheckResult> {
+  const { client, missing } = getSupabaseAdmin()
+  if (!client) {
+    return { status: 'fail', message: `Missing env var: ${missing}` }
+  }
+  try {
+    // Lightweight query to verify the connection works
+    const { error } = await client.from('wa_owners').select('id').limit(1)
+    if (error) {
+      return { status: 'fail', message: 'Supabase query failed', details: error.message }
+    }
+    return { status: 'ok', message: 'Supabase service key connection works' }
+  } catch (err: any) {
+    return { status: 'fail', message: 'Supabase connection error', details: err.message }
+  }
+}
+
+async function checkTts(): Promise<CheckResult> {
+  const apiKey = process.env.ELEVENLABS_API_KEY || process.env.VITE_ELEVENLABS_API_KEY
+  if (!apiKey) {
+    return { status: 'fail', message: 'Missing ELEVENLABS_API_KEY' }
+  }
+  try {
+    // Hit the user endpoint — lightweight authenticated check
+    const resp = await fetch('https://api.elevenlabs.io/v1/user', {
+      headers: { 'xi-api-key': apiKey },
+      signal: AbortSignal.timeout(10_000),
+    })
+    if (resp.ok) {
+      return { status: 'ok', message: 'ElevenLabs API reachable and authenticated' }
+    }
+    return {
+      status: 'fail',
+      message: `ElevenLabs returned ${resp.status}`,
+      details: resp.status === 401 ? 'Invalid API key' : await resp.text().catch(() => ''),
+    }
+  } catch (err: any) {
+    return {
+      status: 'fail',
+      message: 'ElevenLabs unreachable',
+      details: err.message || String(err),
+    }
+  }
+}
+
+export default async function handler(req: any, res: any) {
+  if (req.method !== 'GET') {
+    res.setHeader('Allow', 'GET')
+    return res.status(405).json({ error: 'Method not allowed' })
+  }
+
+  const { client } = getSupabaseAdmin()
+
+  // Run all checks in parallel
+  const [dbSchema, opm, auth, tts] = await Promise.all([
+    client
+      ? checkDbSchema(client)
+      : { status: 'fail' as const, message: 'Supabase not configured — skipping schema check' },
+    checkOpm(),
+    checkAuth(),
+    checkTts(),
+  ])
+
+  const checks = { db_schema: dbSchema, opm, auth, tts }
+  const allOk = Object.values(checks).every((c) => c.status === 'ok')
+
+  return res.status(allOk ? 200 : 500).json({
+    status: allOk ? 'healthy' : 'unhealthy',
+    timestamp: new Date().toISOString(),
+    checks,
+  })
+}
