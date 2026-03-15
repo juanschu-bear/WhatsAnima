@@ -29,14 +29,16 @@ export default async function handler(req: any, res: any) {
 
   const sevenDaysAgo = new Date(Date.now() - SEVEN_DAYS_MS).toISOString()
 
-  // Fetch last 7 days of checks + incidents in parallel
-  const [checksResult, incidentsResult] = await Promise.all([
+  // Fetch last 7 days of checks (paginated to bypass PostgREST max-rows cap)
+  // and incidents in parallel
+  const PAGE_SIZE = 1000
+  const [firstPage, incidentsResult] = await Promise.all([
     supabase
       .from('wa_health_checks')
       .select('check_name, status, message, response_time_ms, timestamp')
       .gte('timestamp', sevenDaysAgo)
       .order('timestamp', { ascending: false })
-      .limit(50000),
+      .range(0, PAGE_SIZE - 1),
     supabase
       .from('wa_incidents')
       .select('*')
@@ -44,7 +46,25 @@ export default async function handler(req: any, res: any) {
       .order('started_at', { ascending: false }),
   ])
 
-  const checks = checksResult.data || []
+  let checks = firstPage.data || []
+
+  // Keep fetching until we get all rows (server may cap each page)
+  if (checks.length === PAGE_SIZE) {
+    let offset = PAGE_SIZE
+    while (true) {
+      const { data } = await supabase
+        .from('wa_health_checks')
+        .select('check_name, status, message, response_time_ms, timestamp')
+        .gte('timestamp', sevenDaysAgo)
+        .order('timestamp', { ascending: false })
+        .range(offset, offset + PAGE_SIZE - 1)
+      if (!data || data.length === 0) break
+      checks = checks.concat(data)
+      if (data.length < PAGE_SIZE) break
+      offset += PAGE_SIZE
+    }
+  }
+
   const incidents = incidentsResult.data || []
 
   // Build per-service summary
@@ -79,8 +99,9 @@ function buildTimeline(checks: any[], sinceIso: string) {
 
   for (const check of checks) {
     const ts = new Date(check.timestamp).getTime()
-    const idx = Math.floor((ts - sinceMs) / slotDuration)
-    if (idx >= 0 && idx < slots) {
+    if (isNaN(ts)) continue
+    const idx = Math.min(Math.floor((ts - sinceMs) / slotDuration), slots - 1)
+    if (idx >= 0) {
       // Priority: fail > degraded > ok > no_data
       if (timeline[idx] === 'no_data') {
         timeline[idx] = check.status === 'ok' ? 'ok' : check.status === 'degraded' ? 'degraded' : 'fail'
