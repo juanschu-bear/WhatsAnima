@@ -51,7 +51,7 @@ export default function Login() {
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'SIGNED_IN') {
-        navigate(role === 'owner' ? '/dashboard' : '/avatars', { replace: true })
+        navigate(role === 'owner' ? '/' : '/avatars', { replace: true })
       }
     })
     return () => subscription.unsubscribe()
@@ -119,7 +119,7 @@ export default function Login() {
     }
 
     // Magic link flow — redirect through /auth/callback with PKCE
-    const nextPath = role === 'owner' ? '/dashboard' : '/avatars'
+    const nextPath = role === 'owner' ? '/' : '/avatars'
     const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`
 
     const { error: otpError } = await supabase.auth.signInWithOtp({
