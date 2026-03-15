@@ -29,11 +29,9 @@ export default async function handler(req: any, res: any) {
     return res.status(500).json({ error: 'Supabase not configured' })
   }
 
-  // Call the existing health-check endpoint
+  // Call the existing health-check endpoint using the production URL
   const baseUrl =
-    process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : process.env.VITE_APP_URL || 'http://localhost:3000'
+    process.env.VITE_APP_URL || 'https://whats-anima.vercel.app'
 
   let checks: Record<string, { status: string; message?: string }>
   const timings: Record<string, number> = {}
