@@ -55,7 +55,7 @@ interface ConversationRow {
 export async function listAllOwners() {
   const { data, error } = await supabase
     .from('wa_owners')
-    .select('id, display_name, voice_id, system_prompt, tavus_replica_id')
+    .select('id, display_name')
     .is('deleted_at', null)
     .order('display_name', { ascending: true })
   if (error) throw error

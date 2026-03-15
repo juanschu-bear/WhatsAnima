@@ -27,7 +27,9 @@ export default function AvatarSelect() {
   const [formEmail, setFormEmail] = useState(user?.email || '')
   const [submitting, setSubmitting] = useState(false)
 
-  useEffect(() => {
+  function loadOwners() {
+    setLoading(true)
+    setError(null)
     listAllOwners()
       .then((data) => setOwners(data as OwnerOption[]))
       .catch((err) => {
@@ -35,6 +37,10 @@ export default function AvatarSelect() {
         setError('Unable to load available avatars.')
       })
       .finally(() => setLoading(false))
+  }
+
+  useEffect(() => {
+    loadOwners()
   }, [])
 
   async function selectAvatar(owner: OwnerOption) {
@@ -190,8 +196,17 @@ export default function AvatarSelect() {
         </div>
 
         {error ? (
-          <div className="mt-6 rounded-2xl border border-red-400/15 bg-red-500/15 px-4 py-3 text-sm text-red-200">
-            {error}
+          <div className="mt-6 space-y-3">
+            <div className="rounded-2xl border border-red-400/15 bg-red-500/15 px-4 py-3 text-sm text-red-200">
+              {error}
+            </div>
+            <button
+              type="button"
+              onClick={loadOwners}
+              className="w-full rounded-2xl border border-white/10 bg-[#1f2c34]/80 px-4 py-3 text-sm font-medium text-white/70 transition hover:border-[#00a884]/60 hover:text-[#00a884]"
+            >
+              Retry
+            </button>
           </div>
         ) : null}
 
@@ -239,7 +254,15 @@ export default function AvatarSelect() {
           ) : null}
         </div>
 
-        <div className="mt-8 flex justify-center">
+        <div className="mt-8 flex items-center justify-center gap-6">
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            className="text-sm text-white/50 transition hover:text-white/80"
+          >
+            {'\u2190'} {t(locale, 'backToOptions')}
+          </button>
+          <span className="text-white/20">|</span>
           <button
             type="button"
             onClick={signOut}
