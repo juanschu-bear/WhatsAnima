@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 interface ServiceStatus {
   name: string
@@ -7,6 +7,14 @@ interface ServiceStatus {
   last_check: string | null
   uptime_percent: number | null
   timeline: ('ok' | 'fail' | 'degraded' | 'no_data')[]
+}
+
+interface TooltipData {
+  x: number
+  y: number
+  date: string
+  status: string
+  duration: string
 }
 
 interface Incident {
@@ -64,10 +72,35 @@ function durationString(start: string, end: string | null): string {
   return `${days}d ${hrs % 24}h`
 }
 
+const SLOT_COUNT = 84
+const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
+const SLOT_DURATION_MS = SEVEN_DAYS_MS / SLOT_COUNT
+
+const STATUS_LABELS: Record<string, string> = {
+  ok: 'Operational',
+  degraded: 'Degraded',
+  fail: 'Down',
+  no_data: 'No data',
+}
+
+function slotTooltip(slotIndex: number, status: string): { date: string; statusLabel: string; duration: string } {
+  const slotStart = new Date(Date.now() - SEVEN_DAYS_MS + slotIndex * SLOT_DURATION_MS)
+  const slotEnd = new Date(slotStart.getTime() + SLOT_DURATION_MS)
+  const fmt = (d: Date) =>
+    d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  return {
+    date: `${fmt(slotStart)} – ${fmt(slotEnd)}`,
+    statusLabel: STATUS_LABELS[status] || status,
+    duration: '~2 hours',
+  }
+}
+
 export default function Status() {
   const [data, setData] = useState<StatusData | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [tooltip, setTooltip] = useState<TooltipData | null>(null)
+  const tooltipTimeout = useRef<ReturnType<typeof setTimeout>>(undefined)
 
   useEffect(() => {
     fetch('/api/status-data')
@@ -83,6 +116,24 @@ export default function Status() {
   const hasDegraded = data?.services.some((s) => s.current_status === 'degraded')
   const openIncidents = data?.incidents.filter((i) => !i.resolved_at) || []
   const resolvedIncidents = data?.incidents.filter((i) => i.resolved_at) || []
+  const affectedServices = data?.services.filter((s) => s.current_status === 'fail' || s.current_status === 'degraded') || []
+
+  function handleSlotHover(e: React.MouseEvent, slotIndex: number, status: string) {
+    clearTimeout(tooltipTimeout.current)
+    const rect = (e.target as HTMLElement).getBoundingClientRect()
+    const info = slotTooltip(slotIndex, status)
+    setTooltip({
+      x: rect.left + rect.width / 2,
+      y: rect.top - 8,
+      date: info.date,
+      status: info.statusLabel,
+      duration: info.duration,
+    })
+  }
+
+  function handleSlotLeave() {
+    tooltipTimeout.current = setTimeout(() => setTooltip(null), 100)
+  }
 
   return (
     <div className="min-h-[100dvh] bg-[linear-gradient(140deg,_#020a12_0%,_#071420_35%,_#060e1a_65%,_#030810_100%)] text-white">
@@ -106,12 +157,31 @@ export default function Status() {
           ) : error ? (
             <p className="mt-3 text-sm text-red-400">Unable to load status: {error}</p>
           ) : (
-            <div className="mt-4 flex items-center justify-center gap-2">
-              <span className={`inline-block h-3 w-3 rounded-full ${allOk && !hasDegraded ? 'bg-[#00a884] shadow-[0_0_8px_rgba(0,168,132,0.5)]' : allOk && hasDegraded ? 'bg-yellow-400 shadow-[0_0_8px_rgba(250,204,21,0.5)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]'}`} />
-              <span className="text-sm font-medium text-white/80">
-                {allOk && !hasDegraded ? 'All systems operational' : allOk && hasDegraded ? 'Some systems degraded' : 'Some systems are experiencing issues'}
-              </span>
-            </div>
+            <>
+              <div className="mt-4 flex items-center justify-center gap-2">
+                <span className={`inline-block h-3 w-3 rounded-full ${allOk && !hasDegraded ? 'bg-[#00a884] shadow-[0_0_8px_rgba(0,168,132,0.5)]' : allOk && hasDegraded ? 'bg-yellow-400 shadow-[0_0_8px_rgba(250,204,21,0.5)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]'}`} />
+                <span className="text-sm font-medium text-white/80">
+                  {allOk && !hasDegraded ? 'All systems operational' : allOk && hasDegraded ? 'Some systems degraded' : 'Some systems are experiencing issues'}
+                </span>
+              </div>
+              {affectedServices.length > 0 && (
+                <div className="mt-2 flex flex-wrap items-center justify-center gap-1.5">
+                  {affectedServices.map((svc) => (
+                    <span
+                      key={svc.name}
+                      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                        svc.current_status === 'fail'
+                          ? 'bg-red-500/10 text-red-400'
+                          : 'bg-yellow-400/10 text-yellow-400'
+                      }`}
+                    >
+                      <span className={`inline-block h-1.5 w-1.5 rounded-full ${svc.current_status === 'fail' ? 'bg-red-500' : 'bg-yellow-400'}`} />
+                      {DISPLAY_NAMES[svc.name] || svc.name}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </div>
 
@@ -152,11 +222,11 @@ export default function Status() {
                 </div>
 
                 {/* Timeline bar */}
-                <div className="mt-3 flex gap-px overflow-hidden rounded-md" title="Last 7 days — each segment is ~2 hours">
+                <div className="mt-3 flex gap-px overflow-hidden rounded-md">
                   {svc.timeline.map((slot, i) => (
                     <div
                       key={i}
-                      className={`h-[18px] flex-1 transition-colors ${
+                      className={`h-[18px] flex-1 cursor-pointer transition-colors ${
                         slot === 'ok'
                           ? 'bg-[#00a884]/60 hover:bg-[#00a884]/80'
                           : slot === 'degraded'
@@ -165,6 +235,8 @@ export default function Status() {
                               ? 'bg-red-500/60 hover:bg-red-500/80'
                               : 'bg-white/[0.04] hover:bg-white/[0.08]'
                       }`}
+                      onMouseEnter={(e) => handleSlotHover(e, i, slot)}
+                      onMouseLeave={handleSlotLeave}
                     />
                   ))}
                 </div>
@@ -232,6 +304,27 @@ export default function Status() {
           Checks run every 5 minutes. Data retained for 7 days.
         </p>
       </div>
+
+      {/* Timeline tooltip */}
+      {tooltip && (
+        <div
+          className="pointer-events-none fixed z-50 -translate-x-1/2 -translate-y-full rounded-lg border border-white/10 bg-[#0d1926] px-3 py-2 shadow-xl"
+          style={{ left: tooltip.x, top: tooltip.y }}
+        >
+          <p className="text-[11px] font-medium text-white/90">{tooltip.date}</p>
+          <div className="mt-0.5 flex items-center gap-1.5">
+            <span className={`inline-block h-1.5 w-1.5 rounded-full ${
+              tooltip.status === 'Operational' ? 'bg-[#00a884]'
+                : tooltip.status === 'Degraded' ? 'bg-yellow-400'
+                  : tooltip.status === 'Down' ? 'bg-red-500'
+                    : 'bg-white/25'
+            }`} />
+            <span className="text-[10px] text-white/60">{tooltip.status}</span>
+            <span className="text-[10px] text-white/30">· {tooltip.duration}</span>
+          </div>
+          <div className="absolute left-1/2 top-full -translate-x-1/2 border-4 border-transparent border-t-[#0d1926]" />
+        </div>
+      )}
     </div>
   )
 }
