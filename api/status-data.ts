@@ -10,7 +10,7 @@ function getSupabaseAdmin() {
   return createClient(url, key)
 }
 
-const CHECK_NAMES = ['db_schema', 'opm', 'auth', 'tts'] as const
+const CHECK_NAMES = ['db_schema', 'opm', 'auth', 'tts', 'chat_api', 'transcription', 'tunnel_latency'] as const
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
 
 export default async function handler(req: any, res: any) {
@@ -74,17 +74,19 @@ function buildTimeline(checks: any[], sinceIso: string) {
   const nowMs = Date.now()
   const slotDuration = (nowMs - sinceMs) / slots
 
-  const timeline: ('ok' | 'fail' | 'no_data')[] = new Array(slots).fill('no_data')
+  const timeline: ('ok' | 'fail' | 'degraded' | 'no_data')[] = new Array(slots).fill('no_data')
 
   for (const check of checks) {
     const ts = new Date(check.timestamp).getTime()
     const idx = Math.floor((ts - sinceMs) / slotDuration)
     if (idx >= 0 && idx < slots) {
-      // A slot is 'fail' if any check in it failed, otherwise 'ok'
+      // Priority: fail > degraded > ok > no_data
       if (timeline[idx] === 'no_data') {
-        timeline[idx] = check.status === 'ok' ? 'ok' : 'fail'
-      } else if (check.status !== 'ok') {
+        timeline[idx] = check.status === 'ok' ? 'ok' : check.status === 'degraded' ? 'degraded' : 'fail'
+      } else if (check.status === 'fail') {
         timeline[idx] = 'fail'
+      } else if (check.status === 'degraded' && timeline[idx] === 'ok') {
+        timeline[idx] = 'degraded'
       }
     }
   }

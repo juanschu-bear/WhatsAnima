@@ -2,11 +2,11 @@ import { useEffect, useState } from 'react'
 
 interface ServiceStatus {
   name: string
-  current_status: 'ok' | 'fail' | 'unknown'
+  current_status: 'ok' | 'fail' | 'degraded' | 'unknown'
   last_message: string | null
   last_check: string | null
   uptime_percent: number | null
-  timeline: ('ok' | 'fail' | 'no_data')[]
+  timeline: ('ok' | 'fail' | 'degraded' | 'no_data')[]
 }
 
 interface Incident {
@@ -15,6 +15,7 @@ interface Incident {
   started_at: string
   resolved_at: string | null
   message: string | null
+  resolution_summary: string | null
 }
 
 interface StatusData {
@@ -24,9 +25,12 @@ interface StatusData {
 
 const DISPLAY_NAMES: Record<string, string> = {
   db_schema: 'Database',
-  opm: 'Perception Engine',
+  opm: 'OPM',
   auth: 'Authentication',
   tts: 'Text-to-Speech',
+  chat_api: 'Chat API',
+  transcription: 'Transcription',
+  tunnel_latency: 'Tunnel Latency',
 }
 
 function relativeTime(iso: string): string {
@@ -75,7 +79,8 @@ export default function Status() {
       .catch((e) => { setError(e.message); setLoading(false) })
   }, [])
 
-  const allOk = data?.services.every((s) => s.current_status === 'ok')
+  const allOk = data?.services.every((s) => s.current_status === 'ok' || s.current_status === 'degraded')
+  const hasDegraded = data?.services.some((s) => s.current_status === 'degraded')
   const openIncidents = data?.incidents.filter((i) => !i.resolved_at) || []
   const resolvedIncidents = data?.incidents.filter((i) => i.resolved_at) || []
 
@@ -102,9 +107,9 @@ export default function Status() {
             <p className="mt-3 text-sm text-red-400">Unable to load status: {error}</p>
           ) : (
             <div className="mt-4 flex items-center justify-center gap-2">
-              <span className={`inline-block h-3 w-3 rounded-full ${allOk ? 'bg-[#00a884] shadow-[0_0_8px_rgba(0,168,132,0.5)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]'}`} />
+              <span className={`inline-block h-3 w-3 rounded-full ${allOk && !hasDegraded ? 'bg-[#00a884] shadow-[0_0_8px_rgba(0,168,132,0.5)]' : allOk && hasDegraded ? 'bg-yellow-400 shadow-[0_0_8px_rgba(250,204,21,0.5)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]'}`} />
               <span className="text-sm font-medium text-white/80">
-                {allOk ? 'All systems operational' : 'Some systems are experiencing issues'}
+                {allOk && !hasDegraded ? 'All systems operational' : allOk && hasDegraded ? 'Some systems degraded' : 'Some systems are experiencing issues'}
               </span>
             </div>
           )}
@@ -125,9 +130,11 @@ export default function Status() {
                       className={`inline-block h-2.5 w-2.5 rounded-full ${
                         svc.current_status === 'ok'
                           ? 'bg-[#00a884] shadow-[0_0_6px_rgba(0,168,132,0.5)]'
-                          : svc.current_status === 'fail'
-                            ? 'bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.5)]'
-                            : 'bg-white/25'
+                          : svc.current_status === 'degraded'
+                            ? 'bg-yellow-400 shadow-[0_0_6px_rgba(250,204,21,0.5)]'
+                            : svc.current_status === 'fail'
+                              ? 'bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.5)]'
+                              : 'bg-white/25'
                       }`}
                     />
                     <span className="text-sm font-semibold">{DISPLAY_NAMES[svc.name] || svc.name}</span>
@@ -138,8 +145,8 @@ export default function Status() {
                         {svc.uptime_percent}%
                       </span>
                     )}
-                    <span className={`text-[10px] ${svc.current_status === 'ok' ? 'text-[#00a884]/70' : svc.current_status === 'fail' ? 'text-red-400/70' : 'text-white/30'}`}>
-                      {svc.current_status === 'ok' ? 'Operational' : svc.current_status === 'fail' ? 'Down' : 'Unknown'}
+                    <span className={`text-[10px] ${svc.current_status === 'ok' ? 'text-[#00a884]/70' : svc.current_status === 'degraded' ? 'text-yellow-400/70' : svc.current_status === 'fail' ? 'text-red-400/70' : 'text-white/30'}`}>
+                      {svc.current_status === 'ok' ? 'Operational' : svc.current_status === 'degraded' ? 'Degraded' : svc.current_status === 'fail' ? 'Down' : 'Unknown'}
                     </span>
                   </div>
                 </div>
@@ -152,9 +159,11 @@ export default function Status() {
                       className={`h-[18px] flex-1 transition-colors ${
                         slot === 'ok'
                           ? 'bg-[#00a884]/60 hover:bg-[#00a884]/80'
-                          : slot === 'fail'
-                            ? 'bg-red-500/60 hover:bg-red-500/80'
-                            : 'bg-white/[0.04] hover:bg-white/[0.08]'
+                          : slot === 'degraded'
+                            ? 'bg-yellow-400/60 hover:bg-yellow-400/80'
+                            : slot === 'fail'
+                              ? 'bg-red-500/60 hover:bg-red-500/80'
+                              : 'bg-white/[0.04] hover:bg-white/[0.08]'
                       }`}
                     />
                   ))}
@@ -203,6 +212,11 @@ export default function Status() {
                       <span className="shrink-0 text-[10px] text-white/30">Resolved — {durationString(inc.started_at, inc.resolved_at)}</span>
                     </div>
                     {inc.message && <p className="mt-1 text-xs text-white/40">{inc.message}</p>}
+                    {inc.resolution_summary && (
+                      <p className="mt-1.5 text-xs text-white/50 border-l-2 border-[#00a884]/30 pl-2.5">
+                        {inc.resolution_summary}
+                      </p>
+                    )}
                     <p className="mt-1 text-[10px] text-white/25">
                       {formatTimestamp(inc.started_at)} → {formatTimestamp(inc.resolved_at!)}
                     </p>
