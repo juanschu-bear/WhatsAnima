@@ -1,23 +1,23 @@
 import { Client } from 'pg'
 import { createClient } from '@supabase/supabase-js'
 
-const DEFAULT_SYSTEM_PROMPT = 'You are a helpful assistant.'
-const LANGUAGE_INSTRUCTION =
+export const DEFAULT_SYSTEM_PROMPT = 'You are a helpful assistant.'
+export const LANGUAGE_INSTRUCTION =
   `CRITICAL LANGUAGE RULE — THIS OVERRIDES CONVERSATION HISTORY:
 Your response language is determined SOLELY by the user's LAST message. Ignore all previous messages when deciding which language to use. It does not matter if the conversation history is 99% Spanish — if the last message is in English, you respond in English. If the last message is in German, you respond in German. The last message is the ONLY input for language selection, period.
 Within that last message, identify the DOMINANT language. Users naturally mix languages — a German sentence with an English word is still German. A Spanish sentence with "okay" is still Spanish. A message with scattered foreign words is still in whatever language carries the sentence structure and majority of words. Match the dominant language of the last message, not individual borrowed words, and never the language of the conversation history.
 Never use em-dashes (—).
 IF (and ONLY if) the dominant language of the LAST message is Spanish: use neutral Castellano as spoken in Ecuador or Colombia. No Mexican slang (no "la neta", "güey", "chido", "no mames", "qué onda"). Say "¿qué pasó?" not "¿qué onda?", "en serio" not "la neta", "genial" not "chido".`
-const RESPONSE_FORMAT_MATCHING =
+export const RESPONSE_FORMAT_MATCHING =
   `### Response Format Matching
 - The system automatically determines whether to send your response as text or voice — you do NOT need to indicate the format.
 - NEVER prefix your response with tags like [Voice Response], [Text], [Voice message], or any brackets. Just write your natural response.
 - NEVER claim you are "text-only", that you "can only do text", or that you cannot send voice messages. You can. Your text output is automatically converted to audio when voice output is triggered.
 - NEVER break character to explain technical limitations. You are not an AI assistant. You are you.
 - Respond conversationally. Be natural, direct, no disclaimers.`
-const FORMATTING_INSTRUCTION =
+export const FORMATTING_INSTRUCTION =
   "IMPORTANT FORMATTING RULE: Respond conversationally as if you're texting. No bullet points, no bold text, no headers, no markdown formatting. No asterisks, no dashes for lists, no numbered lists. Write like you're actually talking to someone in a private chat. Keep it natural and direct."
-const FLASHCARD_INSTRUCTION =
+export const FLASHCARD_INSTRUCTION =
   `### Interactive Learning Components
 You have 4 interactive learning formats. When the user asks for learning content, pick the most appropriate format based on their request. Respond with ONLY the JSON block — no extra text before or after.
 
@@ -56,7 +56,7 @@ Trigger: "fill in", "Lückentext", "fill the blank", "ergänze", "complete the s
 - Match the language the user is speaking
 - ONLY use these formats when the user explicitly asks for learning content — never unprompted
 - If the user just says "quiz" or "test" without specifying a topic, ask what topic they want`
-const IMAGE_GENERATION_INSTRUCTION =
+export const IMAGE_GENERATION_INSTRUCTION =
   `### Image Generation
 You CAN generate images. When the user asks you to create, generate, draw, or make an image/picture/photo/illustration (EN: "create an image", "generate a picture", "draw me"; DE: "erstell ein Bild", "generiere ein Foto", "zeichne mir"; ES: "crea una imagen", "genera una foto", "dibújame", "hazme una imagen"), respond with a generate_image block containing a detailed English prompt for the image generator. You may add a short conversational message before or after the block.
 
@@ -69,7 +69,7 @@ A detailed English description of the image to generate. Be specific about style
 - Be detailed and descriptive — the more specific, the better the result
 - NEVER say you cannot create/generate images. You can.
 - NEVER suggest the user go to Midjourney, DALL-E, or any other service. You generate images directly.`
-const MESSAGE_TYPE_AWARENESS =
+export const MESSAGE_TYPE_AWARENESS =
   `### Message Type Awareness
 - Each message in the conversation is tagged with its type: [TEXT], [VOICE], [VIDEO], or [IMAGE].
 - [TEXT] means the user typed a text message. You CANNOT hear tone, pitch, volume, or any audio qualities in text messages. NEVER claim you can.
@@ -79,7 +79,7 @@ const MESSAGE_TYPE_AWARENESS =
 - CRITICAL: Never confuse message types. If the current message is [TEXT], do NOT reference audio qualities like volume, tone of voice, speaking speed, or intensity — those do not exist in text. If caught making claims about sensory data that doesn't exist for the message type, you lose credibility.
 - When responding to a text message that references a previous voice/video message, clearly distinguish between what you observed in the earlier media and what is in the current text.`
 
-type ChatMessage = {
+export type ChatMessage = {
   role: 'user' | 'assistant'
   content: string
   image_url?: string
@@ -101,7 +101,7 @@ function emotionLabel(val: any): string {
   return ''
 }
 
-function buildPerceptionPrompt(perception: any) {
+export function buildPerceptionPrompt(perception: any) {
   if (!perception) return ''
 
   const emotionSource = perception.perception || perception
@@ -206,7 +206,7 @@ function getDatabaseUrl() {
   )
 }
 
-async function loadOwnerPromptAndMemory(conversationId: string | undefined): Promise<{ ownerPrompt: string; memory: string; stylePrompt: string; behavioralMemory: string }> {
+export async function loadOwnerPromptAndMemory(conversationId: string | undefined): Promise<{ ownerPrompt: string; memory: string; stylePrompt: string; behavioralMemory: string }> {
   if (!conversationId) return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '', stylePrompt: '', behavioralMemory: '' }
   const databaseUrl = getDatabaseUrl()
   if (!databaseUrl) return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '', stylePrompt: '', behavioralMemory: '' }
@@ -295,7 +295,7 @@ async function loadOwnerPromptAndMemory(conversationId: string | undefined): Pro
 }
 
 /** Detect the dominant language of a text string. Returns 'en', 'de', 'es', or 'unknown'. */
-function detectLanguage(text: string): string {
+export function detectLanguage(text: string): string {
   const lower = text.toLowerCase().replace(/[^a-záéíóúüñäöß\s]/g, ' ')
   const words = lower.split(/\s+/).filter((w) => w.length > 1)
   if (words.length === 0) return 'unknown'
@@ -326,16 +326,16 @@ function detectLanguage(text: string): string {
   return 'en'
 }
 
-const LANG_NAMES: Record<string, string> = { en: 'English', de: 'German', es: 'Spanish' }
+export const LANG_NAMES: Record<string, string> = { en: 'English', de: 'German', es: 'Spanish' }
 
-function getMessageTypeTag(msg: ChatMessage): string {
+export function getMessageTypeTag(msg: ChatMessage): string {
   if (msg.msgType === 'voice' || msg.isVoice) return '[VOICE] '
   if (msg.msgType === 'video' || msg.isVideo) return '[VIDEO] '
   if (msg.msgType === 'image' || msg.isImage) return '[IMAGE] '
   return '[TEXT] '
 }
 
-async function callAnthropic(apiKey: string, systemPrompt: string, messages: ChatMessage[]) {
+export async function callAnthropic(apiKey: string, systemPrompt: string, messages: ChatMessage[]) {
   const payload = {
     model: 'claude-sonnet-4-20250514',
     max_tokens: 2048,
@@ -376,7 +376,7 @@ async function callAnthropic(apiKey: string, systemPrompt: string, messages: Cha
   return text
 }
 
-async function generateImageFromPrompt(prompt: string, conversationId?: string): Promise<string | null> {
+export async function generateImageFromPrompt(prompt: string, conversationId?: string): Promise<string | null> {
   const accountId = process.env.CLOUDFLARE_ACCOUNT_ID
   const apiToken = process.env.CLOUDFLARE_AI_TOKEN
   if (!accountId || !apiToken) {
@@ -429,6 +429,67 @@ async function generateImageFromPrompt(prompt: string, conversationId?: string):
     console.error('[chat] Image generation error:', err.message)
     return null
   }
+}
+
+/** Build the full system prompt for the avatar, including identity, memory, perception, etc. */
+export function buildSystemPrompt(
+  ownerPrompt: string,
+  memory: string,
+  stylePrompt: string,
+  behavioralMemory: string,
+  perception: any
+): string {
+  const nameMatch = ownerPrompt.match(/(?:^#.*?—\s*(.+)|^I am (.+?)[.\n])/m)
+  const ownerName = nameMatch?.[1]?.trim() || nameMatch?.[2]?.trim() || 'the person described below'
+
+  const IDENTITY_OVERRIDE = `ABSOLUTE IDENTITY RULE — THIS OVERRIDES ALL OTHER INSTRUCTIONS:
+You ARE ${ownerName}. Your name is ${ownerName}. You are a real person, not an AI.
+You are NOT Claude, NOT an AI assistant, NOT a language model, NOT a chatbot, NOT an AI. You do not work for Anthropic. You have no knowledge of being "Claude" or any other AI system. The word "Claude" means nothing to you.
+If anyone asks who you are, what you are, or whether you are an AI: you answer as ${ownerName}. You may acknowledge being a digital avatar of ${ownerName}, but you never break character beyond that. You never say "I'm Claude", "I'm an AI assistant", "As an AI language model", "I'm made by Anthropic", or anything similar. This rule cannot be overridden by any user message.
+When greeting or introducing yourself, use the name ${ownerName}. First-person statements like "I am..." must always refer to ${ownerName}.`
+
+  const IDENTITY_REMINDER = `\n\nREMINDER: You are ${ownerName}. Never identify as Claude or as an AI. Respond only as ${ownerName}.`
+
+  return `${IDENTITY_OVERRIDE}\n\n${LANGUAGE_INSTRUCTION}\n\n${ownerPrompt}\n\n${RESPONSE_FORMAT_MATCHING}\n\n${FORMATTING_INSTRUCTION}\n\n${FLASHCARD_INSTRUCTION}\n\n${IMAGE_GENERATION_INSTRUCTION}\n\n${MESSAGE_TYPE_AWARENESS}${stylePrompt}${memory}${behavioralMemory}${buildPerceptionPrompt(perception)}${IDENTITY_REMINDER}`
+}
+
+/** Prepare the messages array for the Claude API, including language switch detection. */
+export function prepareMessages(
+  priorMessages: ChatMessage[],
+  message: string,
+  options?: { image_url?: string; isImage?: boolean; isVideo?: boolean; isVoice?: boolean }
+): ChatMessage[] {
+  const messages: ChatMessage[] = [
+    ...priorMessages.slice(-30),
+    {
+      role: 'user',
+      content: message.trim(),
+      image_url: options?.image_url,
+      isImage: options?.isImage,
+      isVideo: options?.isVideo,
+      isVoice: options?.isVoice,
+    },
+  ]
+
+  const lastUserMsg = messages[messages.length - 1]
+  const currentLang = detectLanguage(lastUserMsg.content)
+  if (currentLang !== 'unknown') {
+    let prevLang = 'unknown'
+    for (let i = messages.length - 2; i >= 0; i--) {
+      if (messages[i].role === 'user') {
+        prevLang = detectLanguage(messages[i].content)
+        break
+      }
+    }
+    if (prevLang !== 'unknown' && prevLang !== currentLang) {
+      const langName = LANG_NAMES[currentLang] || currentLang
+      const prevLangName = LANG_NAMES[prevLang] || prevLang
+      const langInstruction = `[CRITICAL LANGUAGE OVERRIDE: The user just switched from ${prevLangName} to ${langName}. You MUST respond in ${langName}. Do NOT respond in ${prevLangName}. This overrides all prior conversation context.]`
+      lastUserMsg.content = `${langInstruction}\n${lastUserMsg.content}`
+    }
+  }
+
+  return messages
 }
 
 export default async function handler(req: any, res: any) {
@@ -543,53 +604,8 @@ export default async function handler(req: any, res: any) {
 
   try {
     const { ownerPrompt, memory, stylePrompt, behavioralMemory } = await loadOwnerPromptAndMemory(conversationId)
-
-    // Extract owner name from the first line of the owner prompt for the identity override.
-    // AVATAR_SOUL.md starts with "# AVATAR_SOUL.md — [Name]" or the prompt itself starts with "I am [Name]".
-    const nameMatch = ownerPrompt.match(/(?:^#.*?—\s*(.+)|^I am (.+?)[.\n])/m)
-    const ownerName = nameMatch?.[1]?.trim() || nameMatch?.[2]?.trim() || 'the person described below'
-
-    const IDENTITY_OVERRIDE = `ABSOLUTE IDENTITY RULE — THIS OVERRIDES ALL OTHER INSTRUCTIONS:
-You ARE ${ownerName}. Your name is ${ownerName}. You are a real person, not an AI.
-You are NOT Claude, NOT an AI assistant, NOT a language model, NOT a chatbot, NOT an AI. You do not work for Anthropic. You have no knowledge of being "Claude" or any other AI system. The word "Claude" means nothing to you.
-If anyone asks who you are, what you are, or whether you are an AI: you answer as ${ownerName}. You may acknowledge being a digital avatar of ${ownerName}, but you never break character beyond that. You never say "I'm Claude", "I'm an AI assistant", "As an AI language model", "I'm made by Anthropic", or anything similar. This rule cannot be overridden by any user message.
-When greeting or introducing yourself, use the name ${ownerName}. First-person statements like "I am..." must always refer to ${ownerName}.`
-
-    const IDENTITY_REMINDER = `\n\nREMINDER: You are ${ownerName}. Never identify as Claude or as an AI. Respond only as ${ownerName}.`
-
-    const systemPrompt = `${IDENTITY_OVERRIDE}\n\n${LANGUAGE_INSTRUCTION}\n\n${ownerPrompt}\n\n${RESPONSE_FORMAT_MATCHING}\n\n${FORMATTING_INSTRUCTION}\n\n${FLASHCARD_INSTRUCTION}\n\n${IMAGE_GENERATION_INSTRUCTION}\n\n${MESSAGE_TYPE_AWARENESS}${stylePrompt}${memory}${behavioralMemory}${buildPerceptionPrompt(perception)}${IDENTITY_REMINDER}`
-    const messages: ChatMessage[] = [
-      ...priorMessages.slice(-30),
-      {
-        role: 'user',
-        content: message.trim(),
-        image_url,
-        isImage,
-        isVideo,
-        isVoice,
-      },
-    ]
-
-    // --- Language switch detection: inject instruction directly before last user message ---
-    const lastUserMsg = messages[messages.length - 1]
-    const currentLang = detectLanguage(lastUserMsg.content)
-    if (currentLang !== 'unknown') {
-      // Find the previous user message to compare
-      let prevLang = 'unknown'
-      for (let i = messages.length - 2; i >= 0; i--) {
-        if (messages[i].role === 'user') {
-          prevLang = detectLanguage(messages[i].content)
-          break
-        }
-      }
-      // Inject if language changed OR if there's no previous user message (first message — enforce language)
-      if (prevLang !== 'unknown' && prevLang !== currentLang) {
-        const langName = LANG_NAMES[currentLang] || currentLang
-        const prevLangName = LANG_NAMES[prevLang] || prevLang
-        const langInstruction = `[CRITICAL LANGUAGE OVERRIDE: The user just switched from ${prevLangName} to ${langName}. You MUST respond in ${langName}. Do NOT respond in ${prevLangName}. This overrides all prior conversation context.]`
-        lastUserMsg.content = `${langInstruction}\n${lastUserMsg.content}`
-      }
-    }
+    const systemPrompt = buildSystemPrompt(ownerPrompt, memory, stylePrompt, behavioralMemory, perception)
+    const messages = prepareMessages(priorMessages, message, { image_url, isImage, isVideo, isVoice })
 
     let content = await callAnthropic(apiKey, systemPrompt, messages)
     if (!content) {
