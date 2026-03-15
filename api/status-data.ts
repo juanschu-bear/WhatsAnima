@@ -35,7 +35,7 @@ export default async function handler(req: any, res: any) {
       .from('wa_health_checks')
       .select('check_name, status, message, response_time_ms, timestamp')
       .gte('timestamp', sevenDaysAgo)
-      .order('timestamp', { ascending: true })
+      .order('timestamp', { ascending: false })
       .limit(50000),
     supabase
       .from('wa_incidents')
@@ -53,7 +53,7 @@ export default async function handler(req: any, res: any) {
     const total = serviceChecks.length
     const okCount = serviceChecks.filter((c: any) => c.status === 'ok').length
     const uptimePercent = total > 0 ? Math.round((okCount / total) * 10000) / 100 : null
-    const latest = serviceChecks.length > 0 ? serviceChecks[serviceChecks.length - 1] : null
+    const latest = serviceChecks.length > 0 ? serviceChecks[0] : null
 
     return {
       name,
