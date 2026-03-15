@@ -69,12 +69,6 @@ interface CaptionDraft {
   kind: 'image' | 'video'
   previewUrl: string
 }
-
-
-const BOARDROOM_API_BASE = 'https://boardroom-api.onioko.com'
-const LIVE_CALL_REPLICA_ID = 'rf5414018e80'
-const LIVE_CALL_PERSONA_ID = 'pipecat-stream'
-
 const WAVEFORM_BARS = Array.from({ length: 15 }, (_, index) => index)
 
 function formatClock(totalSeconds: number) {
@@ -1116,7 +1110,6 @@ export default function Chat() {
   const [transcriptMap, setTranscriptMap] = useState<Record<string, string>>({})
   const [mediaMenuOpen, setMediaMenuOpen] = useState(false)
   const [isDesktopLayout, setIsDesktopLayout] = useState(false)
-  const [liveCallState, setLiveCallState] = useState<'idle' | 'starting' | 'joining' | 'active'>('idle')
   const [inlineProcessing, setInlineProcessing] = useState<{ emoji: string; text: string } | null>(null)
   const avatarReplyInFlight = useRef(new Set<string>())
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -1763,67 +1756,6 @@ export default function Chat() {
 
   const owner = conversation.wa_owners
 
-  async function openLiveCall() {
-    if (liveCallState !== 'idle') return
-    setLiveCallState('starting')
-    try {
-      // Sync persona – include layers config so Tavus enables microphone input
-      await fetch(`${BOARDROOM_API_BASE}/api/tavus/personas/sync`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          persona_id: LIVE_CALL_PERSONA_ID,
-          persona_name: `${owner.display_name} Live`,
-          default_replica_id: owner.tavus_replica_id || LIVE_CALL_REPLICA_ID,
-          system_prompt: owner.system_prompt?.trim() || `You are ${owner.display_name} in a live WhatsAnima video call. Stay conversational and present.`,
-          layers: {
-            transport: {
-              input_settings: {
-                microphone: 'enabled',
-              },
-            },
-            tts: {
-              tts_engine: 'elevenlabs',
-              voice_id: owner.voice_id || 'lx8LAX2EUAKftVz0Dk5z',
-              model_id: 'eleven_multilingual_v2',
-            },
-          },
-        }),
-      })
-
-      // Create conversation
-      setLiveCallState('joining')
-      const convRes = await fetch(`${BOARDROOM_API_BASE}/api/tavus/conversations`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          persona_id: LIVE_CALL_PERSONA_ID,
-          replica_id: owner.tavus_replica_id || LIVE_CALL_REPLICA_ID,
-          properties: {
-            enable_recording: false,
-            apply_greenscreen: false,
-            language: 'multi',
-          },
-        }),
-      })
-
-      if (!convRes.ok) throw new Error('Failed to create video call')
-      const convData = await convRes.json()
-      const joinUrl = convData.conversation_url || convData.url
-      if (joinUrl) {
-        window.open(joinUrl, '_blank')
-        setLiveCallState('active')
-        setTimeout(() => setLiveCallState('idle'), 5000)
-      } else {
-        throw new Error('No join URL returned')
-      }
-    } catch (err) {
-      console.error('[LiveCall] Error:', err)
-      setError('Unable to start video call.')
-      setLiveCallState('idle')
-    }
-  }
-
   return (
     <div className="relative flex h-[100dvh] min-h-[100dvh] flex-col overflow-hidden bg-[linear-gradient(140deg,_#020a12_0%,_#071420_35%,_#060e1a_65%,_#030810_100%)] text-white supports-[-webkit-touch-callout:none]:min-h-[-webkit-fill-available]">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_-10%,rgba(0,168,132,0.12),transparent_60%)]" />
@@ -1877,8 +1809,7 @@ export default function Chat() {
             {/* Video call */}
             <button
               type="button"
-              onClick={() => void openLiveCall()}
-              disabled={liveCallState === 'starting' || liveCallState === 'joining'}
+              onClick={() => navigate(`/video-call/${conversation.id}`)}
               className="flex h-11 w-11 items-center justify-center rounded-full border border-[#74f0df]/25 bg-[linear-gradient(180deg,rgba(12,136,109,0.34),rgba(7,76,79,0.42))] text-[#9af8ea] shadow-[0_0_30px_rgba(48,214,193,0.18)] transition hover:border-[#74f0df]/50 hover:text-white disabled:opacity-50"
               title="Start live video call"
             >
