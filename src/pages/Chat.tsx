@@ -11,7 +11,7 @@ import { getConversation, listMessages, listPerceptionLogs, sendMessage, createP
 import { resolveAvatarUrl } from '../lib/avatars'
 import { t } from '../lib/i18n'
 import {
-  uploadMediaToStorage,
+  uploadAudioToStorage, uploadMediaToStorage,
   callOpmApi,
   readVideoMetadata, correctVideoOrientation,
 } from '../lib/mediaUtils'
@@ -1366,6 +1366,124 @@ export default function Chat() {
   }, [messages])
 
 
+  async function getAvatarReply(
+    userMessage: string,
+    options?: {
+      useVoice?: boolean
+      imageUrl?: string
+      isImage?: boolean
+      isVideo?: boolean
+      isVoice?: boolean
+      perception?: any
+      userMessageId?: string
+    }
+  ): Promise<{ content: string; mediaUrl: string | null; isGeneratedImage?: boolean }> {
+    try {
+      const {
+        useVoice = true,
+        imageUrl,
+        isImage = false,
+        isVideo = false,
+        isVoice = false,
+        perception,
+        userMessageId,
+      } = options ?? {}
+
+      const history = messages
+        .slice(-10)
+        .map((message) => ({
+          role: message.sender === 'contact' ? 'user' : 'assistant',
+          content: (message.content || '').trim(),
+          msgType: message.type as string,
+        }))
+        .filter((message) => message.content.length > 0)
+
+      setAvatarStatus('writing')
+      const chatResponse = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: userMessage,
+          conversationId,
+          history,
+          image_url: imageUrl,
+          isImage,
+          isVideo,
+          isVoice,
+          perception,
+          userMessageId,
+        }),
+      })
+
+      let replyText = ''
+      let generatedImageUrl: string | null = null
+      const chatData = await chatResponse.json().catch(() => ({}))
+      if (chatResponse.ok) {
+        replyText = typeof chatData?.content === 'string' ? chatData.content.trim() : ''
+        generatedImageUrl = typeof chatData?.image_url === 'string' ? chatData.image_url : null
+      } else {
+        console.error('[getAvatarReply] Chat API error:', chatData?.error || chatResponse.status)
+        throw new Error(`Chat API returned ${chatResponse.status}`)
+      }
+      // Safety net: strip any generate_image block that leaked through server-side processing
+      if (replyText.includes('```generate_image')) {
+        replyText = replyText.replace(/```generate_image\s*\n?[\s\S]*?\n?```/g, '').trim()
+      }
+
+      if (!replyText && !generatedImageUrl) {
+        replyText = 'Honestly? Give me the interesting part first.'
+      }
+
+      // If an image was generated, return it directly (no TTS needed for image responses)
+      if (generatedImageUrl) {
+        return { content: replyText, mediaUrl: generatedImageUrl, isGeneratedImage: true }
+      }
+
+      if (!useVoice) {
+        return { content: replyText, mediaUrl: null }
+      }
+
+      setAvatarStatus('recording')
+      const ownerVoiceId = conversation?.wa_owners?.voice_id
+      const response = await fetch('/api/tts', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          text: replyText,
+          ...(ownerVoiceId ? { voiceId: ownerVoiceId } : {}),
+        }),
+      })
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}))
+        const ttsError = errData?.error || `TTS HTTP ${response.status}`
+        console.error('[getAvatarReply] TTS FAILED:', ttsError)
+        // Still return the text so the user gets *something*, but log loudly
+        return { content: `[TTS ERROR: ${ttsError}] ${replyText}`, mediaUrl: null }
+      }
+
+      const audioBlob = await response.blob()
+      if (audioBlob.size === 0) {
+        console.error('[getAvatarReply] TTS returned empty audio blob')
+        return { content: '[TTS ERROR: empty audio] ' + replyText, mediaUrl: null }
+      }
+      const uploadedUrl = await uploadAudioToStorage(conversation!, audioBlob, 'audio/mpeg')
+
+      return {
+        content: replyText,
+        mediaUrl: uploadedUrl,
+      }
+    } catch (err) {
+      console.error('[getAvatarReply] FAILED:', err)
+      // Re-throw so sendAvatarReply's catch handles the immersive fallback
+      throw err
+    }
+  }
+
   async function sendAvatarReply(
     seedText: string,
     options?: {
@@ -1390,11 +1508,6 @@ export default function Chat() {
     }
     avatarReplyInFlight.current.add(dedupeKey)
 
-    // Capture values from component state at call time so they survive unmount
-    const capturedConversationId = conversationId
-    const capturedConversation = conversation
-    const capturedMessages = messages
-
     let replySucceeded = false
     // Set initial status based on context
     if (options?.isVoice) setAvatarStatus('listening')
@@ -1403,17 +1516,27 @@ export default function Chat() {
     else setAvatarStatus('thinking')
 
     try {
-      // --- Realistic voice-message delay (client-side UX only) ---
+      const useVoice = options?.useVoice ?? true
+
+      // --- Realistic voice-message delay ---
+      // Phase 1: "seen" delay (avatar notices the message)
+      // Phase 2: "listening" (avatar listens proportional to message length)
+      // Phase 3: "thinking" → proceeds with reply generation
       if (options?.isVoice && options.voiceDurationSec) {
+        // Phase 1: brief "seen" pause before listening indicator
         await new Promise((r) => setTimeout(r, VOICE_SEEN_DELAY_MS))
         setAvatarStatus('listening')
+
+        // Phase 2: listen for a realistic duration scaled to message length
         const listeningMs = getVoiceListeningDelay(options.voiceDurationSec)
         await new Promise((r) => setTimeout(r, listeningMs))
       }
 
+      // --- Realistic video-message delay ---
       if (options?.isVideo && options.videoDurationSec) {
         await new Promise((r) => setTimeout(r, VOICE_SEEN_DELAY_MS))
         setAvatarStatus('watching')
+
         const watchingMs = getVideoWatchingDelay(options.videoDurationSec)
         await new Promise((r) => setTimeout(r, watchingMs))
       }
@@ -1426,116 +1549,70 @@ export default function Chat() {
         setAvatarStatus('designing')
       }
 
-      // Build history from current messages
-      const history = capturedMessages
-        .slice(-10)
-        .map((message) => ({
-          role: message.sender === 'contact' ? 'user' : 'assistant',
-          content: (message.content || '').trim(),
-          msgType: message.type as string,
-        }))
-        .filter((message) => message.content.length > 0)
+      const replyPayload = await getAvatarReply(seedText, { ...options, userMessageId: options?.userMessageId })
 
-      const useVoice = options?.useVoice ?? true
-
-      // --- Fire ONE request to server-side avatar-reply endpoint ---
-      // The server handles: chat → TTS → upload → save to DB.
-      // Even if this component unmounts, the server finishes and the reply
-      // is in the DB when the user comes back.
-      setAvatarStatus('writing')
-      const response = await fetch('/api/avatar-reply', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: seedText,
-          conversationId: capturedConversationId,
-          history,
-          image_url: options?.imageUrl,
-          isImage: options?.isImage,
-          isVideo: options?.isVideo,
-          isVoice: options?.isVoice,
-          perception: options?.perception,
-          userMessageId: options?.userMessageId,
-          useVoice,
-          voiceId: capturedConversation?.wa_owners?.voice_id,
-        }),
-      })
-
-      const data = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        console.error('[sendAvatarReply] Server error:', data?.error || response.status)
-        throw new Error(data?.error || `Server returned ${response.status}`)
-      }
-
-      // Server returns { messages: [...savedMessages] }
-      const savedMessages: Message[] = data.messages || []
-      if (savedMessages.length === 0) throw new Error('No messages returned')
-
-      // Add all saved messages to local state
-      for (const msg of savedMessages) {
-        setMessages((current) => [...current, msg])
-        markAsInstantlyRead(String(msg.id))
-
-        // If voice reply, add transcript mapping
-        if (msg.type === 'voice' && msg.content && msg.media_url) {
-          setTranscriptMap((current) => ({
-            ...current,
-            [String(msg.id)]: String(msg.content),
-          }))
+      // Handle generated image responses
+      if (replyPayload.isGeneratedImage && replyPayload.mediaUrl) {
+        setAvatarStatus('designing')
+        if (replyPayload.content) {
+          const textReply = await sendMessage(conversationId, 'avatar', 'text', replyPayload.content)
+          setMessages((current) => [...current, textReply as Message])
+          markAsInstantlyRead(String((textReply as Message).id))
         }
+        const imageReply = await sendMessage(conversationId, 'avatar', 'image', '', replyPayload.mediaUrl)
+        setMessages((current) => [...current, imageReply as Message])
+        markAsInstantlyRead(String((imageReply as Message).id))
+        replySucceeded = true
+
+        // ── Notification for image reply ──
+        playNotificationSound()
+        if (!isAppVisible()) {
+          const avatarName = conversation?.wa_owners?.display_name || 'Avatar'
+          showLocalNotification(avatarName, 'Sent an image', conversationId)
+          incrementUnreadBadge()
+        }
+        return replySucceeded
       }
 
+      // Detect special response types (flashcard, quiz, lesson, fillin)
+      const specialMatch = replyPayload.content.match(/```(flashcard|quiz|lesson|fillin)\s*\n?[\s\S]*?\n?```/)
+      const specialType = specialMatch ? specialMatch[1] as MessageType : null
+      const hasAudio = !specialType && useVoice && !!replyPayload.mediaUrl
+      const msgType = specialType ?? (hasAudio ? 'voice' : 'text') as MessageType
+      const reply = await sendMessage(
+        conversationId,
+        'avatar',
+        msgType,
+        replyPayload.content,
+        hasAudio ? replyPayload.mediaUrl ?? undefined : undefined
+      )
+      setMessages((current) => [...current, reply as Message])
+      if (hasAudio) {
+        setTranscriptMap((current) => ({
+          ...current,
+          [String((reply as Message).id)]: String(replyPayload.content),
+        }))
+      }
+      // Mark avatar reply as instantly read by contact
+      markAsInstantlyRead(String((reply as Message).id))
       replySucceeded = true
 
-      // ── Notification ──
+      // ── Notification: sound + push/local notification ──
       playNotificationSound()
       if (!isAppVisible()) {
-        const avatarName = capturedConversation?.wa_owners?.display_name || 'Avatar'
-        const lastMsg = savedMessages[savedMessages.length - 1]
-        const preview = lastMsg.type === 'image'
-          ? 'Sent an image'
-          : typeof lastMsg.content === 'string'
-            ? lastMsg.content.slice(0, 100)
-            : 'New message'
-        showLocalNotification(avatarName, preview, capturedConversationId)
+        const avatarName = conversation?.wa_owners?.display_name || 'Avatar'
+        const preview = typeof replyPayload.content === 'string'
+          ? replyPayload.content.slice(0, 100)
+          : 'New message'
+        showLocalNotification(avatarName, preview, conversationId)
         incrementUnreadBadge()
       }
     } catch (err) {
       console.error('Avatar reply failed:', err)
-      // The server-side pipeline may still be running and will save the reply to DB.
-      // Only send fallback if we're certain the server didn't process it (e.g. network error).
-      // Check if a reply was already saved server-side before sending fallback.
-      if (capturedConversationId && options?.userMessageId) {
+      // Send an immersive fallback — never show technical errors
+      if (conversationId) {
         try {
-          // Give the server a moment to finish if it's still processing
-          await new Promise((r) => setTimeout(r, 2000))
-          const checkResponse = await fetch('/api/avatar-reply', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              message: seedText,
-              conversationId: capturedConversationId,
-              userMessageId: options.userMessageId,
-              history: [],
-              useVoice: false,
-            }),
-          })
-          const checkData = await checkResponse.json().catch(() => ({}))
-          if (checkData?._deduplicated && checkData?.messages?.length > 0) {
-            // Server already saved the reply — add it to local state
-            for (const msg of checkData.messages as Message[]) {
-              setMessages((current) => [...current, msg])
-            }
-            replySucceeded = true
-          }
-        } catch {
-          // Dedup check also failed — send fallback
-        }
-      }
-
-      if (!replySucceeded && capturedConversationId) {
-        try {
-          const name = getAvatarFirstName(capturedConversation?.wa_owners?.display_name)
+          const name = getAvatarFirstName(conversation?.wa_owners?.display_name)
           const excuses = [
             `${name} is in a meeting right now. Back in a sec!`,
             `${name} just stepped out for a coffee. One moment!`,
@@ -1545,7 +1622,7 @@ export default function Chat() {
             `${name} is dealing with something real quick. Back in a moment!`,
           ]
           const excuse = excuses[Math.floor(Math.random() * excuses.length)]
-          const fallback = await sendMessage(capturedConversationId, 'avatar', 'text', excuse)
+          const fallback = await sendMessage(conversationId, 'avatar', 'text', excuse)
           setMessages((current) => [...current, fallback as Message])
         } catch (fallbackErr) {
           console.error('Fallback message also failed:', fallbackErr)
