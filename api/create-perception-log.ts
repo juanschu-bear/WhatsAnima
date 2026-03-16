@@ -238,13 +238,12 @@ export default async function handler(req: any, res: any) {
       return res.status(500).json({ error: insertError.message })
     }
 
-    // 2. Canon: get cumulative audio for this contact+owner
+    // 2. Canon: get cumulative audio for this contact (across ALL owners)
     //    ONLY count logs with real OPM prosodic data — fallback (prosodic_summary=null) must not inflate Canon.
     const { data: durationData } = await supabase
       .from('wa_perception_logs')
       .select('audio_duration_sec')
       .eq('contact_id', contactId)
-      .eq('owner_id', ownerId)
       .not('audio_duration_sec', 'is', null)
       .not('prosodic_summary', 'is', null)
 
@@ -282,33 +281,35 @@ export default async function handler(req: any, res: any) {
       })
     }
 
-    // 4. Canon: check existing baseline and its tier
+    // 4. Canon: check existing baseline (per contact, NOT per owner)
     const { data: existingBaseline } = await supabase
       .from('wa_voice_baseline')
-      .select('id, current_tier, baseline_data, cumulative_audio_sec')
+      .select('id, current_tier, baseline_data, cumulative_audio_sec, sample_count')
       .eq('contact_id', contactId)
-      .eq('owner_id', ownerId)
       .maybeSingle()
 
     const existingTier = existingBaseline?.current_tier ?? 0
-    const needsRecalibration = currentTier.tier > existingTier
+    const tierJustAdvanced = currentTier.tier > existingTier
     let baselineData = existingBaseline?.baseline_data ?? null
-    let tierJustAdvanced = false
 
-    if (needsRecalibration) {
-      // New tier reached — full recalculation from ALL logs with real OPM data
+    // Update baseline after EVERY perception log with real OPM data, not just on tier advancement.
+    // This ensures sample_count stays accurate and the baseline improves continuously.
+    const hasRealOpmData = prosodicSummary != null
+    const needsUpdate = hasRealOpmData || tierJustAdvanced
+
+    if (needsUpdate) {
+      // Recalculate from ALL logs with real OPM data (across all owners for this contact)
       const { data: allLogs } = await supabase
         .from('wa_perception_logs')
         .select('prosodic_summary, primary_emotion, audio_duration_sec')
         .eq('contact_id', contactId)
-        .eq('owner_id', ownerId)
         .not('prosodic_summary', 'is', null)
 
       const newBaseline = computeBaseline(allLogs || [])
 
       if (newBaseline) {
         baselineData = newBaseline
-        tierJustAdvanced = true
+        console.log(`[canon] Baseline update for contact=${contactId}: tier=${currentTier.tier} samples=${newBaseline.sample_count} cumulative_sec=${Math.round(cumulativeSec)} tier_advanced=${tierJustAdvanced} has_opm=${hasRealOpmData}`)
 
         if (existingBaseline) {
           // Update existing baseline row
@@ -325,12 +326,11 @@ export default async function handler(req: any, res: any) {
             })
             .eq('id', existingBaseline.id)
         } else {
-          // First baseline ever — insert
+          // First baseline ever — insert (no owner_id, baseline is per contact)
           const { error: baselineError } = await supabase
             .from('wa_voice_baseline')
             .insert({
               contact_id: contactId,
-              owner_id: ownerId,
               current_tier: currentTier.tier,
               tier_name: currentTier.name,
               confidence: currentTier.confidence,
@@ -343,7 +343,11 @@ export default async function handler(req: any, res: any) {
             console.warn('[canon] Baseline insert error:', baselineError.message)
           }
         }
+      } else {
+        console.log(`[canon] Baseline update skipped for contact=${contactId}: computeBaseline returned null (no prosodic data in logs)`)
       }
+    } else {
+      console.log(`[canon] Baseline update skipped for contact=${contactId}: no real OPM data in this message (prosodic_summary is null) and no tier advancement`)
     }
 
     // 5. Compute delta against baseline (current or just-recalibrated)

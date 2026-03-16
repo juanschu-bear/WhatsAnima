@@ -110,13 +110,12 @@ export default async function handler(req: any, res: any) {
         }
       }
 
-      // Load Canon baseline info if available
-      if (contactId && ownerId) {
+      // Load Canon baseline info if available (baseline is per contact, not per owner)
+      if (contactId) {
         const { data: baseline } = await supabase
           .from('wa_voice_baseline')
           .select('current_tier, tier_name, confidence, baseline_data, cumulative_audio_sec')
           .eq('contact_id', contactId)
-          .eq('owner_id', ownerId)
           .maybeSingle()
 
         if (baseline && baseline.current_tier >= 1) {

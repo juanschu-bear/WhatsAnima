@@ -53,12 +53,11 @@ interface ConversationRow {
 }
 
 export async function listAllOwners() {
-  const { data, error } = await supabase
-    .from('wa_owners')
-    .select('id, display_name')
-    .is('deleted_at', null)
-    .order('display_name', { ascending: true })
-  if (error) throw error
+  const response = await fetch('/api/list-owners')
+  const data = await response.json()
+  if (!response.ok) {
+    throw new Error(data?.error || `Failed to load owners (${response.status})`)
+  }
   return data ?? []
 }
 
