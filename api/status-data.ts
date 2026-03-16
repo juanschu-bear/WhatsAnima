@@ -95,23 +95,32 @@ function buildTimeline(checks: any[], sinceIso: string) {
   const nowMs = Date.now()
   const slotDuration = (nowMs - sinceMs) / slots
 
-  const timeline: ('ok' | 'fail' | 'degraded' | 'no_data')[] = new Array(slots).fill('no_data')
+  // Collect all check statuses per slot, then decide by majority
+  const slotChecks: { ok: number; fail: number; degraded: number }[] = Array.from(
+    { length: slots },
+    () => ({ ok: 0, fail: 0, degraded: 0 })
+  )
 
   for (const check of checks) {
     const ts = new Date(check.timestamp).getTime()
     if (isNaN(ts)) continue
     const idx = Math.min(Math.floor((ts - sinceMs) / slotDuration), slots - 1)
     if (idx >= 0) {
-      // Priority: fail > degraded > ok > no_data
-      if (timeline[idx] === 'no_data') {
-        timeline[idx] = check.status === 'ok' ? 'ok' : check.status === 'degraded' ? 'degraded' : 'fail'
-      } else if (check.status === 'fail') {
-        timeline[idx] = 'fail'
-      } else if (check.status === 'degraded' && timeline[idx] === 'ok') {
-        timeline[idx] = 'degraded'
-      }
+      const status = check.status === 'ok' ? 'ok' : check.status === 'degraded' ? 'degraded' : 'fail'
+      slotChecks[idx][status]++
     }
   }
+
+  const FAIL_THRESHOLD = 0.3 // 30% of checks must fail to mark slot as "fail"
+
+  const timeline: ('ok' | 'fail' | 'degraded' | 'no_data')[] = slotChecks.map((counts) => {
+    const total = counts.ok + counts.fail + counts.degraded
+    if (total === 0) return 'no_data'
+    const failRatio = counts.fail / total
+    if (failRatio >= FAIL_THRESHOLD) return 'fail'
+    if (counts.fail > 0 || counts.degraded > 0) return 'degraded'
+    return 'ok'
+  })
 
   return timeline
 }
