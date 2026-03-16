@@ -181,8 +181,8 @@ export function useVoiceRecording({
           primaryEmotion: opmResponse?.perception?.primary_emotion ?? null,
           secondaryEmotion: opmResponse?.perception?.secondary_emotion ?? null,
           firedRules: opmResponse?.fired_rules ?? null,
-          behavioralSummary: opmResponse?.interpretation?.behavioral_summary ?? null,
-          conversationHooks: opmResponse?.interpretation?.conversation_hooks ?? null,
+          behavioralSummary: opmResponse?.behavioral_summary ?? opmResponse?.perception?.behavioral_summary ?? opmResponse?.interpretation?.behavioral_summary ?? null,
+          conversationHooks: opmResponse?.conversation_hooks ?? opmResponse?.interpretation?.conversation_hooks ?? null,
           prosodicSummary: opmResponse?.prosodic_summary ?? null,
           mediaType: 'audio',
         }).catch((logErr) => console.warn('[perception-log]', logErr.message))

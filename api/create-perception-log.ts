@@ -213,6 +213,16 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
+    console.log('[create-perception-log] behavioral_summary payload', {
+      conversationId,
+      contactId,
+      ownerId,
+      messageId: messageId ?? null,
+      behavioralSummary: behavioralSummary ?? null,
+      firedRulesCount: Array.isArray(firedRules) ? firedRules.length : 0,
+      hasProsodicSummary: prosodicSummary != null,
+    })
+
     // 1. Insert perception log with ALL data
     const { data: log, error: insertError } = await supabase
       .from('wa_perception_logs')

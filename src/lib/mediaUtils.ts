@@ -137,6 +137,10 @@ export function normalizeOpmResponse(raw: any) {
   const unwrapped = raw?.result || raw?.data || raw
   const echoAnalysis = unwrapped?.echo_analysis || null
   const standardAnalysis = unwrapped?.standard_analysis || null
+  const isPlaceholderSummary = (value: any) => {
+    const text = typeof value === 'string' ? value.trim().toLowerCase() : ''
+    return text === '[no session patterns detected]' || text === 'no session patterns detected'
+  }
 
   if (echoAnalysis || standardAnalysis) {
     const isEcho = !!echoAnalysis
@@ -145,14 +149,34 @@ export function normalizeOpmResponse(raw: any) {
     const firedRules = analysis.fired_rules || []
     const transcript = audioFeatures.transcript || analysis.transcript || ''
     const sessionObj = unwrapped.session || null
-    const lucidText =
+    const directBehavioralSummaryRaw =
+      analysis.behavioral_summary ||
+      analysis.oracle_pulse?.behavioral_interpretation ||
+      ''
+    const directBehavioralSummary = isPlaceholderSummary(directBehavioralSummaryRaw) ? '' : directBehavioralSummaryRaw
+    const sessionLucidRaw =
       sessionObj?.lucid_interpretation?.interpretation ||
       sessionObj?.session_interpretation?.interpretation ||
       ''
+    const sessionLucid = isPlaceholderSummary(sessionLucidRaw) ? '' : sessionLucidRaw
+    const lucidText = directBehavioralSummary || sessionLucid || ''
     const sessionPatterns = sessionObj?.session_analysis?.session_patterns || []
+    console.log('[normalizeOpmResponse] behavioral_summary extraction', {
+      analysisType: isEcho ? 'echo' : 'standard',
+      directBehavioralSummaryRaw,
+      directBehavioralSummary,
+      sessionLucidRaw,
+      sessionLucid,
+      finalBehavioralSummary: lucidText || null,
+      firedRulesCount: Array.isArray(firedRules) ? firedRules.length : 0,
+    })
 
     return {
       transcript,
+      behavioral_summary: lucidText || null,
+      conversation_hooks: sessionPatterns.map((pattern: any) =>
+        typeof pattern === 'string' ? pattern : pattern?.pattern || pattern?.description || JSON.stringify(pattern)
+      ),
       perception: {
         primary_emotion: audioFeatures.primary_emotion || null,
         secondary_emotion: audioFeatures.secondary_emotion || null,
