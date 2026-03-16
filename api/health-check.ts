@@ -203,6 +203,33 @@ async function checkTranscription(): Promise<CheckResult> {
   }
 }
 
+async function checkAvatarReply(baseUrl: string): Promise<CheckResult> {
+  try {
+    const resp = await fetch(`${baseUrl}/api/avatar-reply`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: 'health-check', conversationId: 'health-check' }),
+      signal: AbortSignal.timeout(10_000),
+    })
+    // Any non-500 response means the function loaded successfully
+    if (resp.status < 500) {
+      return { status: 'ok', message: `Avatar Reply reachable (${resp.status})` }
+    }
+    const body = await resp.text().catch(() => '')
+    return {
+      status: 'fail',
+      message: `Avatar Reply returned ${resp.status}`,
+      details: body.slice(0, 500),
+    }
+  } catch (err: any) {
+    return {
+      status: 'fail',
+      message: 'Avatar Reply unreachable',
+      details: err.message || String(err),
+    }
+  }
+}
+
 async function checkTunnelLatency(): Promise<CheckResult> {
   const url = 'https://boardroom-api.onioko.com/health'
   try {
@@ -252,7 +279,7 @@ export default async function handler(req: any, res: any) {
   const baseUrl = process.env.VITE_APP_URL || `https://${req.headers.host}`
 
   // Run all checks in parallel
-  const [dbSchema, opm, auth, tts, chatApi, transcription, tunnelLatency] = await Promise.all([
+  const [dbSchema, opm, auth, tts, chatApi, transcription, tunnelLatency, avatarReply] = await Promise.all([
     client
       ? checkDbSchema(client)
       : { status: 'fail' as const, message: 'Supabase not configured — skipping schema check' },
@@ -262,9 +289,10 @@ export default async function handler(req: any, res: any) {
     checkChatApi(baseUrl),
     checkTranscription(),
     checkTunnelLatency(),
+    checkAvatarReply(baseUrl),
   ])
 
-  const checks = { db_schema: dbSchema, opm, auth, tts, chat_api: chatApi, transcription, tunnel_latency: tunnelLatency }
+  const checks = { db_schema: dbSchema, opm, auth, tts, chat_api: chatApi, transcription, tunnel_latency: tunnelLatency, avatar_reply: avatarReply }
   const allOk = Object.values(checks).every((c) => c.status === 'ok' || c.status === 'degraded')
 
   return res.status(allOk ? 200 : 500).json({

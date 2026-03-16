@@ -10,7 +10,7 @@ function getSupabaseAdmin() {
   return createClient(url, key)
 }
 
-const CHECK_NAMES = ['db_schema', 'opm', 'auth', 'tts', 'chat_api', 'transcription', 'tunnel_latency'] as const
+const CHECK_NAMES = ['db_schema', 'opm', 'auth', 'tts', 'chat_api', 'transcription', 'tunnel_latency', 'avatar_reply'] as const
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
 
 export default async function handler(req: any, res: any) {

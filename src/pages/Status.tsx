@@ -39,6 +39,7 @@ const DISPLAY_NAMES: Record<string, string> = {
   chat_api: 'Chat API',
   transcription: 'Transcription',
   tunnel_latency: 'Tunnel Latency',
+  avatar_reply: 'Avatar Reply',
 }
 
 function relativeTime(iso: string): string {
