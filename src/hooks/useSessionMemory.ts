@@ -17,7 +17,7 @@ interface UseSessionMemoryOptions {
   sendAvatarReply: (text: string, options?: { useVoice?: boolean }) => Promise<boolean>
 }
 
-const SESSION_TIMEOUT_MS = 180_000 // 3 minutes
+const SESSION_TIMEOUT_MS = 600_000 // 10 minutes
 const DEFAULT_BUSY_COOLDOWN_MS = 600_000 // 10 minutes fallback when user says "busy" without duration
 const REMINDER_CHECK_INTERVAL_MS = 60_000 // check for due reminders every 60s
 
@@ -164,9 +164,15 @@ export function useSessionMemory({
 
     nudgeCountRef.current += 1
 
+    // Detect conversation language from recent contact messages to match nudge language
+    const recentContactMsgs = messages.filter((m) => m.sender === 'contact' && m.content).slice(-5)
+    const langHint = recentContactMsgs.length > 0
+      ? `IMPORTANT: The user has been writing in their language. Here are their recent messages for context: ${recentContactMsgs.map((m) => `"${(m.content || '').slice(0, 80)}"`).join(', ')}. You MUST reply in the SAME language the user has been using.`
+      : ''
+
     const prompt = nudgeCountRef.current === 1
-      ? 'The user has been quiet for a few minutes. Send a brief, natural follow-up based on the conversation context — like checking in, asking if they need more time, or offering encouragement. Keep it to 1-2 short sentences. Be natural, not robotic.'
-      : 'The user still hasn\'t replied after your last follow-up. Send one final gentle check-in — maybe ask if they\'re busy or if they want to continue later. Be understanding and chill, not pushy. One short sentence max.'
+      ? `The user has been quiet for a while. Send a brief, natural follow-up based on the conversation context — like checking in, asking if they need more time, or offering encouragement. Keep it to 1-2 short sentences. Be natural, not robotic. ${langHint}`
+      : `The user still hasn't replied after your last follow-up. Send one final gentle check-in — maybe ask if they're busy or if they want to continue later. Be understanding and chill, not pushy. One short sentence max. ${langHint}`
 
     sendAvatarReply(prompt, { useVoice: false })
   }
@@ -201,8 +207,8 @@ export function useSessionMemory({
       nudgeCountRef.current = 0
     }
 
-    // Progressive delay: base 3min, but after a nudge wait longer (5min)
-    const timeoutMs = nudgeCountRef.current > 0 ? 300_000 : SESSION_TIMEOUT_MS
+    // Progressive delay: base 10min, but after a nudge wait longer (15min)
+    const timeoutMs = nudgeCountRef.current > 0 ? 900_000 : SESSION_TIMEOUT_MS
     sessionTimerRef.current = window.setTimeout(() => {
       triggerMemoryUpdate()
       maybeAvatarNudge()
