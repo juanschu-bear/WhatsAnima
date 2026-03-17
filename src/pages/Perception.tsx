@@ -124,6 +124,18 @@ const RULE_STYLES: Record<string, { color: string; bg: string; border: string }>
   bimodal_emotional_arc: { color: 'text-cyan-300', bg: 'bg-cyan-500/12', border: 'border-cyan-400/20' },
 }
 
+const RULE_LABELS: Record<string, string> = {
+  high_authenticity_composite: 'Authenticity',
+  hesitation_cluster: 'Hesitation',
+  emotional_escalation: 'Escalation',
+  topic_avoidance_signal: 'Avoidance',
+  rehearsed_delivery_pattern: 'Rehearsed',
+  vocal_incongruence: 'Incongruence',
+  low_authenticity_composite: 'Low Authenticity',
+  over_controlled_smoothness: 'Over-Controlled',
+  bimodal_emotional_arc: 'Emotional Arc',
+}
+
 function titleCase(value: string | null | undefined, fallback = 'Unknown') {
   const text = (value || '').trim()
   if (!text) return fallback
@@ -187,12 +199,18 @@ function ruleStyle(value: string) {
   return RULE_STYLES[normalizeKey(value)] ?? { color: 'text-cyan-200', bg: 'bg-cyan-500/10', border: 'border-cyan-400/20' }
 }
 
+function ruleLabel(value: string, fallback?: string | null) {
+  const key = normalizeKey(value)
+  return RULE_LABELS[key] ?? fallback ?? titleCase(value)
+}
+
 function normalizeRules(value: unknown): Array<{ rawName: string; name: string; confidence: number | null; category: string | null }> {
   if (!Array.isArray(value)) return []
   return value
     .map((item) => {
       if (typeof item === 'string') {
-        return { rawName: normalizeKey(item), name: titleCase(item), confidence: null, category: null }
+        const rawName = normalizeKey(item)
+        return { rawName, name: ruleLabel(rawName), confidence: null, category: null }
       }
       if (!item || typeof item !== 'object') return null
       const obj = item as Record<string, unknown>
@@ -210,9 +228,10 @@ function normalizeRules(value: unknown): Array<{ rawName: string; name: string; 
         '',
       )
       if (!name) return null
+      const normalizedRawName = normalizeKey(rawName)
       return {
-        rawName: normalizeKey(rawName),
-        name,
+        rawName: normalizedRawName,
+        name: ruleLabel(normalizedRawName, name),
         confidence: toNumber(obj.confidence),
         category: typeof obj.category === 'string' ? titleCase(obj.category) : null,
       }
@@ -439,8 +458,14 @@ export default function Perception() {
   }, [filteredEntries])
 
   return (
-    <div className="h-[100dvh] overflow-hidden bg-[radial-gradient(circle_at_top,rgba(0,195,170,0.12),transparent_30%),radial-gradient(circle_at_82%_18%,rgba(72,137,255,0.12),transparent_24%),linear-gradient(180deg,#04101a_0%,#07111b_55%,#02060b_100%)] text-white">
-      <div className="mx-auto flex h-full max-w-[1560px] min-h-0 flex-col px-4 py-6 sm:px-6 lg:px-8">
+    <div className="min-h-[100dvh] overflow-x-hidden bg-[radial-gradient(circle_at_top,rgba(0,195,170,0.12),transparent_30%),radial-gradient(circle_at_82%_18%,rgba(72,137,255,0.12),transparent_24%),linear-gradient(180deg,#04101a_0%,#07111b_55%,#02060b_100%)] text-white xl:h-[100dvh] xl:overflow-hidden">
+      <div
+        className="mx-auto flex min-h-[100dvh] max-w-[1560px] flex-col px-4 sm:px-6 lg:px-8 xl:h-full xl:min-h-0"
+        style={{
+          paddingTop: 'max(1.5rem, env(safe-area-inset-top))',
+          paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))',
+        }}
+      >
         <header className="flex flex-col gap-4 rounded-[28px] border border-white/10 bg-[linear-gradient(180deg,rgba(9,20,31,0.94),rgba(4,10,18,0.98))] p-5 shadow-[0_30px_120px_rgba(0,0,0,0.35)] sm:p-6">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
@@ -531,8 +556,8 @@ export default function Perception() {
             {error}
           </div>
         ) : (
-          <div className="mt-6 grid min-h-0 flex-1 gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
-            <aside className="flex min-h-0 flex-col rounded-[28px] border border-white/8 bg-[linear-gradient(180deg,rgba(8,18,28,0.92),rgba(5,11,18,0.96))] p-3 shadow-[0_30px_90px_rgba(0,0,0,0.3)]">
+          <div className="mt-6 grid gap-5 xl:min-h-0 xl:flex-1 xl:grid-cols-[360px_minmax(0,1fr)]">
+            <aside className="rounded-[28px] border border-white/8 bg-[linear-gradient(180deg,rgba(8,18,28,0.92),rgba(5,11,18,0.96))] p-3 shadow-[0_30px_90px_rgba(0,0,0,0.3)] xl:flex xl:min-h-0 xl:flex-col">
               <div className="flex items-center justify-between px-2 pb-3 pt-1">
                 <div>
                   <p className="text-[11px] uppercase tracking-[0.25em] text-white/35">Timeline</p>
@@ -540,7 +565,7 @@ export default function Perception() {
                 </div>
               </div>
 
-              <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+              <div className="space-y-2 pr-1 max-xl:max-h-[42dvh] max-xl:overflow-y-auto xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
                 {filteredEntries.map((entry) => {
                   const active = entry.id === selectedEntry?.id
                   const primaryEmotionStyle = emotionStyle(entry.primaryEmotion)
@@ -569,7 +594,9 @@ export default function Perception() {
                               {primaryEmotionStyle.emoji} {entry.primaryEmotion}
                             </span>
                             {durationLabel ? (
-                              <span className="shrink-0 text-sm font-semibold tracking-[-0.02em] text-white/88">{durationLabel}</span>
+                              <span className="shrink-0 rounded-full border border-white/12 bg-white/[0.06] px-2.5 py-1 text-sm font-semibold tracking-[-0.02em] text-white">
+                                {durationLabel}
+                              </span>
                             ) : null}
                           </div>
                           <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
@@ -601,7 +628,7 @@ export default function Perception() {
               </div>
             </aside>
 
-            <main className="min-w-0 min-h-0 overflow-y-auto pr-1">
+            <main className="min-w-0 pr-1 xl:min-h-0 xl:overflow-y-auto">
               {selectedEntry ? (
                 <div className="space-y-5">
                   <section className="rounded-[30px] border border-white/8 bg-[linear-gradient(180deg,rgba(8,18,28,0.94),rgba(4,10,18,0.98))] p-5 shadow-[0_30px_100px_rgba(0,0,0,0.32)] sm:p-6">
