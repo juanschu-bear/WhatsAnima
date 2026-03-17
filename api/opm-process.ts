@@ -89,8 +89,8 @@ async function parseOpmRequest(req: any): Promise<{ blob: Blob; conversationId: 
 
 // OPM v4.0 — async job-based API (was /api/v1/process, now POST /analyze)
 const OPM_BASE = 'https://boardroom-api.onioko.com';
-const OPM_POLL_INTERVAL_MS = 1500;
-const OPM_TIMEOUT_MS = 15000;
+const OPM_POLL_INTERVAL_MS = 3000;
+const OPM_TIMEOUT_MS = 90000; // must leave room inside Vercel's function timeout
 
 function delay(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
 
@@ -281,8 +281,8 @@ export default async function handler(req: any, res: any) {
     if (!opmData) {
       console.log('[opm-process] Running LLM fallback analysis');
 
-      let transcript: string | null = null;
-      let audioDurationSec: number | null = null;
+    let transcript: string | null = null;
+    let audioDurationSec: number | null = null;
       try {
         const deepgramKey = process.env.DEEPGRAM_API_KEY;
         const elevenLabsKey = process.env.ELEVENLABS_API_KEY || process.env.VITE_ELEVENLABS_API_KEY;
@@ -308,6 +308,8 @@ export default async function handler(req: any, res: any) {
           if (sttRes.ok) {
             const sttData = await sttRes.json();
             transcript = sttData.results?.channels?.[0]?.alternatives?.[0]?.transcript?.trim() || null;
+            const dgDuration = sttData.metadata?.duration;
+            audioDurationSec = typeof dgDuration === 'number' && Number.isFinite(dgDuration) ? dgDuration : audioDurationSec;
             console.log('[opm-process] Deepgram transcript:', transcript ? `"${transcript.slice(0, 80)}..."` : '(empty)');
           } else {
             console.warn('[opm-process] Deepgram STT error:', sttRes.status, await sttRes.text().catch(() => ''));
@@ -328,6 +330,8 @@ export default async function handler(req: any, res: any) {
           if (sttRes.ok) {
             const sttData = await sttRes.json();
             transcript = sttData.text?.trim() || null;
+            const elDuration = sttData.audio_duration_seconds;
+            audioDurationSec = typeof elDuration === 'number' && Number.isFinite(elDuration) ? elDuration : audioDurationSec;
             console.log('[opm-process] ElevenLabs transcript:', transcript ? `"${transcript.slice(0, 80)}..."` : '(empty)');
           } else {
             console.warn('[opm-process] ElevenLabs STT error:', sttRes.status, await sttRes.text().catch(() => ''));

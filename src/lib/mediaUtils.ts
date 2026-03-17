@@ -215,8 +215,54 @@ export function normalizeOpmResponse(raw: any) {
 }
 
 export type OpmStageCallback = (emoji: string, text: string, progress: number) => void
-const OPM_CLIENT_TIMEOUT_MS = 15000
-const OPM_CLIENT_POLL_INTERVAL_MS = 1500
+const OPM_CLIENT_TIMEOUT_MS = 180000
+const OPM_CLIENT_POLL_INTERVAL_MS = 3000
+
+function hasMeaningfulOpmData(result: any) {
+  if (!result) return false
+  if (typeof result.transcript === 'string' && result.transcript.trim().length > 0) return true
+  if (result.perception?.primary_emotion || result.perception?.secondary_emotion) return true
+  if (result.behavioral_summary || result.interpretation?.behavioral_summary) return true
+  if (Array.isArray(result.fired_rules) && result.fired_rules.length > 0) return true
+  if (result.prosodic_summary && Object.keys(result.prosodic_summary).length > 0) return true
+  return false
+}
+
+async function callOpmViaProxy(
+  mediaBlob: Blob,
+  fileName: string,
+  conversation: ConversationRef,
+  onStage: OpmStageCallback,
+  uploadLabel: string,
+  watchingLabel: string,
+  firstName: string,
+) {
+  onStage('\uD83D\uDCE1', uploadLabel, 10)
+  const proxyForm = new FormData()
+  proxyForm.append('file', mediaBlob, fileName)
+  proxyForm.append('conversationId', conversation.id)
+  proxyForm.append('contactId', conversation.contact_id || '')
+  proxyForm.append('ownerId', conversation.owner_id || '')
+  const opmRes = await fetch('/api/opm-process', {
+    method: 'POST',
+    body: proxyForm,
+  })
+  onStage('\uD83D\uDD2C', watchingLabel, 40)
+  const opmJson = await opmRes.json().catch(() => ({}))
+  if (!opmRes.ok) {
+    console.warn('[callOpmApi] opm-process error:', opmJson.error)
+    return normalizeOpmResponse({})
+  }
+  if (opmJson._debug) {
+    console.log('[callOpmApi] server debug:', JSON.stringify(opmJson._debug))
+  }
+  if (!opmJson.data) {
+    console.warn('[callOpmApi] opm-process returned null data — OPM error:', opmJson._debug?.opm_error || 'unknown', '| fallback:', opmJson._debug?.fallback || 'unknown')
+  }
+  onStage('\uD83E\uDDE0', `${firstName} is reading your expressions...`, 70)
+  onStage('\uD83D\uDCAC', `${firstName} is composing a response...`, 95)
+  return normalizeOpmResponse(opmJson.data || {})
+}
 
 export async function callOpmApi(
   conversation: ConversationRef,
@@ -244,106 +290,92 @@ export async function callOpmApi(
     : `${firstName} is watching your message...`
 
   if (!opmUrl) {
-    // Send Blob as FormData to avoid Vercel's 4.5MB JSON body limit
+    return callOpmViaProxy(mediaBlob, fileName, conversation, onStage, uploadLabel, watchingLabel, firstName)
+  }
+
+  try {
+    // Real OPM: upload directly or via proxy
+    const useProxy = mediaType === 'video' && Boolean(opts?.orientation)
+    const uploadUrl = useProxy ? '/api/ingest-video' : `${opmUrl}/analyze`
     onStage('\uD83D\uDCE1', uploadLabel, 10)
-    const proxyForm = new FormData()
-    proxyForm.append('file', mediaBlob, fileName)
-    proxyForm.append('conversationId', conversation.id)
-    proxyForm.append('contactId', conversation.contact_id || '')
-    proxyForm.append('ownerId', conversation.owner_id || '')
-    const opmRes = await fetch('/api/opm-process', {
+    const formData = new FormData()
+    formData.append('video', mediaBlob, fileName)
+    formData.append('session_id', conversation.id || '')
+    formData.append('preset', preset)
+    if (opts?.orientation) formData.append('orientation', String(opts.orientation))
+
+    const submitRes = await fetch(uploadUrl, {
       method: 'POST',
-      body: proxyForm,
+      body: formData,
     })
-    onStage('\uD83D\uDD2C', watchingLabel, 40)
-    const opmJson = await opmRes.json().catch(() => ({}))
-    if (!opmRes.ok) {
-      console.warn('[callOpmApi] opm-process error:', opmJson.error)
-      return normalizeOpmResponse({})
+
+    if (!submitRes.ok) {
+      const errData = await submitRes.json().catch(() => ({}))
+      throw new Error(errData.error || 'processing_error')
     }
-    // Log server-side debug info so we can diagnose OPM failures
-    if (opmJson._debug) {
-      console.log('[callOpmApi] server debug:', JSON.stringify(opmJson._debug))
+
+    const submitData = await submitRes.json()
+    const jobId = submitData.job_id
+    const startTime = Date.now()
+    let jobComplete = false
+
+    onStage('\uD83D\uDD2C', watchingLabel, 25)
+
+    while (Date.now() - startTime < OPM_CLIENT_TIMEOUT_MS) {
+      await delay(OPM_CLIENT_POLL_INTERVAL_MS)
+      const statusRes = await fetch(`${opmUrl}/status/${jobId}`)
+      if (!statusRes.ok) continue
+      const statusData = await statusRes.json()
+      const jobStatus = String(statusData.status || '').toLowerCase()
+      const stage = String(statusData.stage || '').toLowerCase()
+
+      if (jobStatus === 'complete' || jobStatus === 'completed' || jobStatus === 'done') {
+        jobComplete = true
+        break
+      }
+      if (jobStatus === 'failed' || jobStatus === 'error') {
+        throw new Error(statusData.error || 'processing_error')
+      }
+
+      if (stage === 'cygnus' || stage === 'extracting' || jobStatus === 'processing') {
+        onStage('\uD83D\uDD2C', watchingLabel, 35)
+      } else if (stage === 'oracle' || stage === 'detecting') {
+        onStage('\uD83E\uDDE0', `${firstName} is reading your expressions...`, 55)
+      } else if (stage === 'lucid' || stage === 'interpreting') {
+        onStage('\uD83E\uDDE0', `${firstName} is reading your expressions...`, 70)
+      } else if (stage === 'trace' || stage === 'finalizing') {
+        onStage('\uD83D\uDCAC', `${firstName} is composing a response...`, 85)
+      } else {
+        const elapsed = Date.now() - startTime
+        const progress = Math.min(25 + Math.floor((elapsed / OPM_CLIENT_TIMEOUT_MS) * 60), 85)
+        onStage('\uD83D\uDD2C', watchingLabel, progress)
+      }
     }
-    if (!opmJson.data) {
-      console.warn('[callOpmApi] opm-process returned null data — OPM error:', opmJson._debug?.opm_error || 'unknown', '| fallback:', opmJson._debug?.fallback || 'unknown')
+
+    if (!jobComplete) {
+      throw new Error('processing_timeout')
     }
-    onStage('\uD83E\uDDE0', `${firstName} is reading your expressions...`, 70)
+
     onStage('\uD83D\uDCAC', `${firstName} is composing a response...`, 95)
-    return normalizeOpmResponse(opmJson.data || {})
-  }
-
-  // Real OPM: upload directly or via proxy
-  const useProxy = mediaType === 'video' && Boolean(opts?.orientation)
-  const uploadUrl = useProxy ? '/api/ingest-video' : `${opmUrl}/analyze`
-  onStage('\uD83D\uDCE1', uploadLabel, 10)
-  const formData = new FormData()
-  formData.append('video', mediaBlob, fileName)
-  formData.append('session_id', conversation.id || '')
-  formData.append('preset', preset)
-  if (opts?.orientation) formData.append('orientation', String(opts.orientation))
-
-  const submitRes = await fetch(uploadUrl, {
-    method: 'POST',
-    body: formData,
-  })
-
-  if (!submitRes.ok) {
-    const errData = await submitRes.json().catch(() => ({}))
-    throw new Error(errData.error || 'processing_error')
-  }
-
-  const submitData = await submitRes.json()
-  const jobId = submitData.job_id
-  const startTime = Date.now()
-  let jobComplete = false
-
-  onStage('\uD83D\uDD2C', watchingLabel, 25)
-
-  while (Date.now() - startTime < OPM_CLIENT_TIMEOUT_MS) {
-    await delay(OPM_CLIENT_POLL_INTERVAL_MS)
-    const statusRes = await fetch(`${opmUrl}/status/${jobId}`)
-    if (!statusRes.ok) continue
-    const statusData = await statusRes.json()
-    const jobStatus = String(statusData.status || '').toLowerCase()
-    const stage = String(statusData.stage || '').toLowerCase()
-
-    if (jobStatus === 'complete' || jobStatus === 'completed' || jobStatus === 'done') {
-      jobComplete = true
-      break
-    }
-    if (jobStatus === 'failed' || jobStatus === 'error') {
-      throw new Error(statusData.error || 'processing_error')
+    const resultsRes = await fetch(`${opmUrl}/results/${jobId}`)
+    if (!resultsRes.ok) {
+      throw new Error('processing_error')
     }
 
-    // Map OPM stages to user-facing text
-    if (stage === 'cygnus' || stage === 'extracting' || jobStatus === 'processing') {
-      onStage('\uD83D\uDD2C', watchingLabel, 35)
-    } else if (stage === 'oracle' || stage === 'detecting') {
-      onStage('\uD83E\uDDE0', `${firstName} is reading your expressions...`, 55)
-    } else if (stage === 'lucid' || stage === 'interpreting') {
-      onStage('\uD83E\uDDE0', `${firstName} is reading your expressions...`, 70)
-    } else if (stage === 'trace' || stage === 'finalizing') {
-      onStage('\uD83D\uDCAC', `${firstName} is composing a response...`, 85)
-    } else {
-      const elapsed = Date.now() - startTime
-      const progress = Math.min(25 + Math.floor((elapsed / OPM_CLIENT_TIMEOUT_MS) * 60), 85)
-      onStage('\uD83D\uDD2C', watchingLabel, progress)
+    const rawResults = await resultsRes.json()
+    const normalized = normalizeOpmResponse(rawResults)
+    if (mediaType === 'audio' && !hasMeaningfulOpmData(normalized)) {
+      console.warn('[callOpmApi] direct audio OPM returned empty payload — falling back to proxy')
+      return callOpmViaProxy(mediaBlob, fileName, conversation, onStage, uploadLabel, watchingLabel, firstName)
     }
+    return normalized
+  } catch (error) {
+    if (mediaType === 'audio') {
+      console.warn('[callOpmApi] direct audio OPM failed — falling back to proxy', error)
+      return callOpmViaProxy(mediaBlob, fileName, conversation, onStage, uploadLabel, watchingLabel, firstName)
+    }
+    throw error
   }
-
-  if (!jobComplete) {
-    throw new Error('processing_timeout')
-  }
-
-  onStage('\uD83D\uDCAC', `${firstName} is composing a response...`, 95)
-  const resultsRes = await fetch(`${opmUrl}/results/${jobId}`)
-  if (!resultsRes.ok) {
-    throw new Error('processing_error')
-  }
-
-  const rawResults = await resultsRes.json()
-  return normalizeOpmResponse(rawResults)
 }
 
 /**

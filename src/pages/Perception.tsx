@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { resolveAvatarUrl } from '../lib/avatars'
@@ -66,7 +66,7 @@ interface PerceptionEntry {
   recommendedTone: string
   behavioralSummary: string
   conversationHooks: string[]
-  firedRules: Array<{ rawName: string; name: string; confidence: number | null; category: string | null }>
+  firedRules: Array<{ rawName: string; name: string; confidence: number | null; category: string | null; interpretation: string | null }>
   prosodicSummary: Record<string, unknown>
   messageAudioUrl: string | null
   messageDurationSec: number | null
@@ -134,6 +134,18 @@ const RULE_LABELS: Record<string, string> = {
   low_authenticity_composite: 'Low Authenticity',
   over_controlled_smoothness: 'Over-Controlled',
   bimodal_emotional_arc: 'Emotional Arc',
+}
+
+const RULE_DEFINITIONS: Record<string, string> = {
+  high_authenticity_composite: 'Natural vocal variation with low performance pressure - spontaneous, unrehearsed delivery',
+  hesitation_cluster: 'Pauses and reformulations cluster in specific moments - localized uncertainty',
+  emotional_escalation: 'Voice tremor, pace and volume trend upward together - increasing emotional arousal',
+  topic_avoidance_signal: 'Speaking rate drops sharply in one section - possible avoidance around a specific topic',
+  rehearsed_delivery_pattern: 'Unusually consistent pitch, rate and volume - delivery sounds practiced rather than spontaneous',
+  vocal_incongruence: 'Pitch and speaking rate suggest different emotions - mixed or competing vocal signals',
+  low_authenticity_composite: 'High performance layer with constrained spontaneity - guarded delivery',
+  over_controlled_smoothness: 'Speech patterns are too even - possible over-regulation of emotional expression',
+  bimodal_emotional_arc: 'Stress pattern with temporary mid-segment relief - tension that briefly resolves then returns',
 }
 
 function titleCase(value: string | null | undefined, fallback = 'Unknown') {
@@ -204,13 +216,13 @@ function ruleLabel(value: string, fallback?: string | null) {
   return RULE_LABELS[key] ?? fallback ?? titleCase(value)
 }
 
-function normalizeRules(value: unknown): Array<{ rawName: string; name: string; confidence: number | null; category: string | null }> {
+function normalizeRules(value: unknown): Array<{ rawName: string; name: string; confidence: number | null; category: string | null; interpretation: string | null }> {
   if (!Array.isArray(value)) return []
   return value
     .map((item) => {
       if (typeof item === 'string') {
         const rawName = normalizeKey(item)
-        return { rawName, name: ruleLabel(rawName), confidence: null, category: null }
+        return { rawName, name: ruleLabel(rawName), confidence: null, category: null, interpretation: null }
       }
       if (!item || typeof item !== 'object') return null
       const obj = item as Record<string, unknown>
@@ -233,10 +245,11 @@ function normalizeRules(value: unknown): Array<{ rawName: string; name: string; 
         rawName: normalizedRawName,
         name: ruleLabel(normalizedRawName, name),
         confidence: toNumber(obj.confidence),
-        category: typeof obj.category === 'string' ? titleCase(obj.category) : null,
+        category: typeof obj.category === 'string' ? obj.category : null,
+        interpretation: typeof obj.behavioral_interpretation === 'string' ? obj.behavioral_interpretation.trim() || null : null,
       }
     })
-    .filter((item): item is { rawName: string; name: string; confidence: number | null; category: string | null } => Boolean(item))
+    .filter((item): item is { rawName: string; name: string; confidence: number | null; category: string | null; interpretation: string | null } => Boolean(item))
 }
 
 function transcriptParagraphs(transcript: string) {
@@ -261,6 +274,13 @@ function formatMetric(value: unknown, unit: string) {
   const numeric = toNumber(value)
   if (numeric == null) return '—'
   return `${numeric.toFixed(Math.abs(numeric) >= 10 ? 1 : 3).replace(/\.?0+$/, '')}${unit ? ` ${unit}` : ''}`
+}
+
+function formatClock(totalSeconds: number) {
+  if (!Number.isFinite(totalSeconds) || totalSeconds < 0) return '0:00'
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = Math.floor(totalSeconds % 60)
+  return `${minutes}:${String(seconds).padStart(2, '0')}`
 }
 
 function metricValue(entry: PerceptionEntry, metric: typeof METRIC_CONFIG[number]) {
@@ -292,6 +312,95 @@ function filterDate(entryDate: string, from: string, to: string) {
     if (timestamp > toTimestamp) return false
   }
   return true
+}
+
+function PerceptionAudioPlayer({ src }: { src: string }) {
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [duration, setDuration] = useState(0)
+  const [currentTime, setCurrentTime] = useState(0)
+
+  useEffect(() => {
+    const audio = audioRef.current
+    if (!audio) return
+
+    const handleLoadedMetadata = () => {
+      setDuration(Number.isFinite(audio.duration) ? audio.duration : 0)
+    }
+    const handleTimeUpdate = () => setCurrentTime(audio.currentTime)
+    const handleEnded = () => {
+      setIsPlaying(false)
+      setCurrentTime(audio.duration || 0)
+    }
+    const handlePause = () => setIsPlaying(false)
+    const handlePlay = () => setIsPlaying(true)
+
+    audio.addEventListener('loadedmetadata', handleLoadedMetadata)
+    audio.addEventListener('durationchange', handleLoadedMetadata)
+    audio.addEventListener('timeupdate', handleTimeUpdate)
+    audio.addEventListener('ended', handleEnded)
+    audio.addEventListener('pause', handlePause)
+    audio.addEventListener('play', handlePlay)
+    audio.load()
+
+    return () => {
+      audio.pause()
+      audio.removeEventListener('loadedmetadata', handleLoadedMetadata)
+      audio.removeEventListener('durationchange', handleLoadedMetadata)
+      audio.removeEventListener('timeupdate', handleTimeUpdate)
+      audio.removeEventListener('ended', handleEnded)
+      audio.removeEventListener('pause', handlePause)
+      audio.removeEventListener('play', handlePlay)
+    }
+  }, [src])
+
+  const togglePlayback = async () => {
+    const audio = audioRef.current
+    if (!audio) return
+    if (audio.paused) {
+      await audio.play()
+      return
+    }
+    audio.pause()
+  }
+
+  const handleSeek = (event: ChangeEvent<HTMLInputElement>) => {
+    const audio = audioRef.current
+    if (!audio) return
+    const nextTime = Number(event.target.value)
+    audio.currentTime = nextTime
+    setCurrentTime(nextTime)
+  }
+
+  return (
+    <div className="space-y-3">
+      <audio ref={audioRef} src={src} preload="metadata" />
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={() => void togglePlayback()}
+          className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-[#75f0df]/25 bg-[#0c8a6d]/18 text-lg text-[#9af8ea] transition hover:border-[#75f0df]/45 hover:text-white"
+        >
+          {isPlaying ? '❚❚' : '▶'}
+        </button>
+        <div className="min-w-0 flex-1">
+          <input
+            type="range"
+            min={0}
+            max={duration > 0 ? duration : 0}
+            step={0.01}
+            value={Math.min(currentTime, duration || currentTime)}
+            onChange={handleSeek}
+            className="h-2 w-full cursor-pointer appearance-none rounded-full bg-white/10 accent-[#74f0df]"
+          />
+          <div className="mt-2 flex items-center justify-between text-xs text-white/48">
+            <span>{formatClock(currentTime)}</span>
+            <span>{formatClock(duration)}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 export default function Perception() {
@@ -556,8 +665,8 @@ export default function Perception() {
             {error}
           </div>
         ) : (
-          <div className="mt-6 grid gap-5 xl:min-h-0 xl:flex-1 xl:grid-cols-[360px_minmax(0,1fr)]">
-            <aside className="rounded-[28px] border border-white/8 bg-[linear-gradient(180deg,rgba(8,18,28,0.92),rgba(5,11,18,0.96))] p-3 shadow-[0_30px_90px_rgba(0,0,0,0.3)] xl:flex xl:min-h-0 xl:flex-col">
+          <div className="mt-6 grid gap-5 xl:h-0 xl:min-h-0 xl:flex-1 xl:grid-cols-[360px_minmax(0,1fr)]">
+            <aside className="rounded-[28px] border border-white/8 bg-[linear-gradient(180deg,rgba(8,18,28,0.92),rgba(5,11,18,0.96))] p-3 shadow-[0_30px_90px_rgba(0,0,0,0.3)] xl:flex xl:h-full xl:min-h-0 xl:flex-col">
               <div className="flex items-center justify-between px-2 pb-3 pt-1">
                 <div>
                   <p className="text-[11px] uppercase tracking-[0.25em] text-white/35">Timeline</p>
@@ -628,7 +737,7 @@ export default function Perception() {
               </div>
             </aside>
 
-            <main className="min-w-0 pr-1 xl:min-h-0 xl:overflow-y-auto">
+            <main className="min-w-0 pr-1 xl:h-full xl:min-h-0 xl:overflow-y-auto xl:overscroll-y-contain">
               {selectedEntry ? (
                 <div className="space-y-5">
                   <section className="rounded-[30px] border border-white/8 bg-[linear-gradient(180deg,rgba(8,18,28,0.94),rgba(4,10,18,0.98))] p-5 shadow-[0_30px_100px_rgba(0,0,0,0.32)] sm:p-6">
@@ -663,7 +772,7 @@ export default function Perception() {
                           <p className="text-sm font-medium text-white">Audio playback</p>
                           <p className="text-xs text-white/45">{selectedEntry.messageDurationSec ? formatDuration(selectedEntry.messageDurationSec) : 'Duration unavailable'}</p>
                         </div>
-                        <audio src={selectedEntry.messageAudioUrl} controls className="w-full" />
+                        <PerceptionAudioPlayer src={selectedEntry.messageAudioUrl} />
                       </div>
                     ) : null}
                   </section>
@@ -703,14 +812,26 @@ export default function Perception() {
                     <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                       {selectedEntry.firedRules.length > 0 ? (
                         selectedEntry.firedRules.map((rule) => (
-                          <div key={`${rule.rawName}-${rule.category}`} className={`rounded-[20px] border px-4 py-4 ${ruleStyle(rule.rawName).border} ${ruleStyle(rule.rawName).bg}`}>
+                          <div key={`${rule.rawName}-${rule.category}`} className={`group relative rounded-[20px] border px-4 py-4 ${ruleStyle(rule.rawName).border} ${ruleStyle(rule.rawName).bg}`}>
                             <div className="flex items-start justify-between gap-4">
                               <div>
                                 <p className={`text-sm font-semibold ${ruleStyle(rule.rawName).color}`}>{rule.name}</p>
-                                <p className="mt-1 text-xs uppercase tracking-[0.18em] text-white/38">{rule.category || 'Uncategorized'}</p>
+                                <p className="mt-1 text-xs uppercase tracking-[0.18em] text-white/38">{rule.category || 'uncategorized'}</p>
                               </div>
                               <div className={`flex h-9 w-9 items-center justify-center rounded-full border text-xs font-semibold ${ruleStyle(rule.rawName).border} ${ruleStyle(rule.rawName).bg} ${ruleStyle(rule.rawName).color}`}>
                                 {rule.confidence != null ? `${Math.round(rule.confidence * 100)}` : '—'}
+                              </div>
+                            </div>
+                            <div className="pointer-events-none absolute left-4 top-full z-20 mt-3 hidden w-[min(26rem,calc(100vw-4rem))] rounded-[18px] border border-white/12 bg-[#07111b]/96 p-4 text-left shadow-[0_24px_80px_rgba(0,0,0,0.45)] group-hover:block">
+                              <p className={`text-sm font-semibold ${ruleStyle(rule.rawName).color}`}>{rule.name}</p>
+                              <p className="mt-2 text-sm leading-6 text-white/78">
+                                {RULE_DEFINITIONS[rule.rawName] || 'No static definition available for this rule yet.'}
+                              </p>
+                              <div className="mt-3 border-t border-white/8 pt-3">
+                                <div className="text-[10px] uppercase tracking-[0.22em] text-white/35">Behavioral Interpretation</div>
+                                <p className="mt-2 text-sm leading-6 text-white/68">
+                                  {rule.interpretation || 'No log-specific behavioral interpretation recorded for this rule.'}
+                                </p>
                               </div>
                             </div>
                             <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/8">
