@@ -81,7 +81,15 @@ export function VideoRecorder({ open, onClose, onSend }: VideoRecorderProps) {
               />
             )}
             <div className="pointer-events-none absolute inset-0">
-              <div className="absolute left-1/2 top-1/2 h-[220px] w-[160px] -translate-x-1/2 -translate-y-1/2 rounded-[999px] border border-white/35 shadow-[0_0_0_9999px_rgba(0,0,0,0.16)]" />
+              <div
+                className="absolute left-1/2 rounded-[999px] border border-white/35 shadow-[0_0_0_9999px_rgba(0,0,0,0.16)]"
+                style={{
+                  top: '38%',
+                  width: 'min(60vw, 260px)',
+                  height: 'min(78vw, 340px)',
+                  transform: 'translate(-50%, -50%)',
+                }}
+              />
             </div>
             {recorder.permissionPending ? (
               <div className="absolute inset-0 flex items-center justify-center bg-black/35">
@@ -138,7 +146,7 @@ export function VideoRecorder({ open, onClose, onSend }: VideoRecorderProps) {
             <button
               type="button"
               onClick={recorder.startRecording}
-              disabled={!recorder.cameraReady}
+              disabled={!recorder.stream || recorder.permissionPending}
               className="flex h-[78px] w-[78px] items-center justify-center rounded-full border-4 border-white/85 bg-transparent disabled:opacity-40"
             >
               <span className="h-14 w-14 rounded-full bg-[#ff3b30]" />

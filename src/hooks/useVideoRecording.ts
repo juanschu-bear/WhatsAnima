@@ -71,8 +71,6 @@ export function useVideoRecording({ maxDurationSec = 300, onConfirmSend }: UseVi
   const startedAtRef = useRef(0)
   const analysisCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const guidanceIntervalRef = useRef<number | null>(null)
-  const faceDetectorRef = useRef<any>(null)
-  const faceDetectorSupportRef = useRef<boolean | null>(null)
 
   useEffect(() => {
     return () => {
@@ -102,20 +100,6 @@ export function useVideoRecording({ maxDurationSec = 300, onConfirmSend }: UseVi
     })
   }
 
-  function ensureFaceDetector() {
-    if (faceDetectorSupportRef.current !== null) return
-    try {
-      if (typeof (window as any).FaceDetector === 'function') {
-        faceDetectorRef.current = new (window as any).FaceDetector({ fastMode: true, maxDetectedFaces: 1 })
-        faceDetectorSupportRef.current = true
-      } else {
-        faceDetectorSupportRef.current = false
-      }
-    } catch {
-      faceDetectorSupportRef.current = false
-    }
-  }
-
   async function runGuidanceCheck() {
     const video = liveVideoRef.current
     if (!video || !stream || isPreviewing) return
@@ -141,37 +125,11 @@ export function useVideoRecording({ maxDurationSec = 300, onConfirmSend }: UseVi
     if (averageBrightness < 42) {
       setGuidanceText('More light needed')
       setGuidanceTone('warning')
-      setCameraReady(false)
       return
     }
 
-    ensureFaceDetector()
-    if (faceDetectorSupportRef.current && faceDetectorRef.current) {
-      try {
-        const faces = await faceDetectorRef.current.detect(video)
-        if (!faces?.length) {
-          setGuidanceText('Center your face')
-          setGuidanceTone('warning')
-          setCameraReady(false)
-          return
-        }
-        const box = faces[0].boundingBox
-        const centerX = (box.x + box.width / 2) / video.videoWidth
-        const centerY = (box.y + box.height / 2) / video.videoHeight
-        if (Math.abs(centerX - 0.5) > 0.22 || Math.abs(centerY - 0.5) > 0.24) {
-          setGuidanceText('Center your face')
-          setGuidanceTone('warning')
-          setCameraReady(false)
-          return
-        }
-      } catch {
-        // Ignore detector failures and keep static guidance.
-      }
-    }
-
-    setGuidanceText(isRecording ? 'Hold steady' : 'Hold steady')
+    setGuidanceText('Hold steady')
     setGuidanceTone('success')
-    setCameraReady(true)
   }
 
   async function startCamera() {
@@ -212,9 +170,11 @@ export function useVideoRecording({ maxDurationSec = 300, onConfirmSend }: UseVi
           liveVideoRef.current.play().catch(() => undefined)
         }
       })
+      setCameraReady(true)
+      void runGuidanceCheck()
       guidanceIntervalRef.current = window.setInterval(() => {
         void runGuidanceCheck()
-      }, 700)
+      }, 1000)
     } catch (cameraError) {
       console.error('[useVideoRecording] startCamera', cameraError)
       setError('Camera access is required to record video messages.')
@@ -224,7 +184,7 @@ export function useVideoRecording({ maxDurationSec = 300, onConfirmSend }: UseVi
   }
 
   function startRecording() {
-    if (!stream || isRecording) return
+    if (!stream || permissionPending || isRecording) return
     try {
       const mimeType = pickMimeType()
       mimeTypeRef.current = mimeType
@@ -322,6 +282,8 @@ export function useVideoRecording({ maxDurationSec = 300, onConfirmSend }: UseVi
     setVideoDimensions({ width: 0, height: 0 })
     setError(null)
     setCameraReady(false)
+    setGuidanceText('Hold steady')
+    setGuidanceTone('neutral')
   }
 
   return {
