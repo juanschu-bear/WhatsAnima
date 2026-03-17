@@ -101,13 +101,29 @@ function emotionLabel(val: any): string {
   return ''
 }
 
+function toDisplayList(value: any): string[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((item: any) => {
+      if (typeof item === 'string') return item.trim()
+      if (item && typeof item === 'object') {
+        if (typeof item.pattern === 'string') return item.pattern.trim()
+        if (typeof item.description === 'string') return item.description.trim()
+        if (typeof item.name === 'string') return item.name.trim()
+        if (typeof item.rule === 'string') return item.rule.trim()
+      }
+      return ''
+    })
+    .filter(Boolean)
+}
+
 export function buildPerceptionPrompt(perception: any) {
   if (!perception) return ''
 
   const emotionSource = perception.perception || perception
   const interpretation = perception.interpretation || {}
-  const hooks = interpretation.conversation_hooks || emotionSource.session_patterns || []
-  const firedRules = perception.fired_rules || []
+  const hooks = toDisplayList(interpretation.conversation_hooks || emotionSource.session_patterns || [])
+  const firedRules = toDisplayList(perception.fired_rules || [])
   const canon = perception.canon || null
 
   const lines = ['[PERCEPTION CONTEXT]']
@@ -187,7 +203,7 @@ export function buildPerceptionPrompt(perception: any) {
     lines.push(`Conversation hooks: ${hooks.join('; ')}`)
   }
   if (firedRules.length) {
-    lines.push(`Detected signals: ${firedRules.map((rule: any) => typeof rule === 'string' ? rule : rule.name || rule.rule || '').filter(Boolean).join(', ')}`)
+    lines.push(`Detected signals: ${firedRules.join(', ')}`)
   }
 
   lines.push('Respond to both what the user said and what was detected emotionally/behaviorally. Do not mention analysis or calibration unless asked.')
