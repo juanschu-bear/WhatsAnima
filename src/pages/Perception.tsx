@@ -665,8 +665,8 @@ export default function Perception() {
             {error}
           </div>
         ) : (
-          <div className="mt-6 grid gap-5 xl:h-0 xl:min-h-0 xl:flex-1 xl:grid-cols-[360px_minmax(0,1fr)]">
-            <aside className="rounded-[28px] border border-white/8 bg-[linear-gradient(180deg,rgba(8,18,28,0.92),rgba(5,11,18,0.96))] p-3 shadow-[0_30px_90px_rgba(0,0,0,0.3)] xl:flex xl:h-full xl:min-h-0 xl:flex-col">
+          <div className="mt-6 grid gap-5 xl:h-[calc(100dvh-23rem)] xl:min-h-[calc(100dvh-23rem)] xl:grid-cols-[360px_minmax(0,1fr)]">
+            <aside className="rounded-[28px] border border-white/8 bg-[linear-gradient(180deg,rgba(8,18,28,0.92),rgba(5,11,18,0.96))] p-3 shadow-[0_30px_90px_rgba(0,0,0,0.3)] xl:flex xl:h-[calc(100dvh-23rem)] xl:min-h-[calc(100dvh-23rem)] xl:flex-col">
               <div className="flex items-center justify-between px-2 pb-3 pt-1">
                 <div>
                   <p className="text-[11px] uppercase tracking-[0.25em] text-white/35">Timeline</p>
@@ -691,6 +691,12 @@ export default function Perception() {
                       }`}
                     >
                       <div className="flex items-start gap-3">
+                        <div className="flex w-12 shrink-0 flex-col items-center text-center">
+                          <div className="text-[20px] leading-none">{primaryEmotionStyle.emoji}</div>
+                          {durationLabel ? (
+                            <div className="mt-2 text-sm font-semibold tracking-[-0.02em] text-white">{durationLabel}</div>
+                          ) : null}
+                        </div>
                         <img src={entry.avatarImage} alt={entry.avatarName} className="h-12 w-12 rounded-2xl object-cover ring-1 ring-white/10" />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center justify-between gap-3">
@@ -698,16 +704,7 @@ export default function Perception() {
                             <span className="shrink-0 text-[11px] text-white/42">{new Date(entry.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                           </div>
                           <p className="mt-1 text-xs text-[#86f5e5]">{entry.contactName} · {entry.language}</p>
-                          <div className="mt-2 flex items-center justify-between gap-3">
-                            <span className={`rounded-full border px-2.5 py-1 text-[11px] ${primaryEmotionStyle.border} ${primaryEmotionStyle.bg} ${primaryEmotionStyle.color}`}>
-                              {primaryEmotionStyle.emoji} {entry.primaryEmotion}
-                            </span>
-                            {durationLabel ? (
-                              <span className="shrink-0 rounded-full border border-white/12 bg-white/[0.06] px-2.5 py-1 text-sm font-semibold tracking-[-0.02em] text-white">
-                                {durationLabel}
-                              </span>
-                            ) : null}
-                          </div>
+                          <p className={`mt-2 text-sm font-medium ${primaryEmotionStyle.color}`}>{entry.primaryEmotion}</p>
                           <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
                             {entry.firedRules.map((rule) => {
                               const style = ruleStyle(rule.rawName)
@@ -737,7 +734,7 @@ export default function Perception() {
               </div>
             </aside>
 
-            <main className="min-w-0 pr-1 xl:h-full xl:min-h-0 xl:overflow-y-auto xl:overscroll-y-contain">
+            <main className="min-w-0 pr-1 xl:h-[calc(100dvh-23rem)] xl:min-h-[calc(100dvh-23rem)] xl:overflow-y-auto xl:overscroll-y-contain">
               {selectedEntry ? (
                 <div className="space-y-5">
                   <section className="rounded-[30px] border border-white/8 bg-[linear-gradient(180deg,rgba(8,18,28,0.94),rgba(4,10,18,0.98))] p-5 shadow-[0_30px_100px_rgba(0,0,0,0.32)] sm:p-6">
