@@ -66,7 +66,7 @@ interface PerceptionEntry {
   recommendedTone: string
   behavioralSummary: string
   conversationHooks: string[]
-  firedRules: Array<{ name: string; confidence: number | null; category: string | null }>
+  firedRules: Array<{ rawName: string; name: string; confidence: number | null; category: string | null }>
   prosodicSummary: Record<string, unknown>
   messageAudioUrl: string | null
   messageDurationSec: number | null
@@ -84,16 +84,45 @@ interface PerceptionDashboardPayload {
 const LANGUAGE_OPTIONS: LanguageFilter[] = ['All', 'English', 'German', 'Spanish']
 
 const METRIC_CONFIG = [
-  { key: 'mean_pitch', label: 'Mean Pitch', unit: 'Hz', reference: '85-255 Hz' },
-  { key: 'pitch_range', label: 'Pitch Range', unit: 'Hz', reference: '50-180 Hz' },
-  { key: 'pitch_variability', label: 'Pitch Variability', unit: '', reference: '0.10-0.45' },
-  { key: 'speaking_rate', label: 'Speaking Rate', unit: 'wps', reference: '2.0-3.8 wps' },
-  { key: 'articulation_rate', label: 'Articulation', unit: 'wps', reference: '2.5-4.8 wps' },
-  { key: 'mean_pause_duration', label: 'Pause Length', unit: 's', reference: '0.20-1.20 s' },
-  { key: 'volume_mean', label: 'Volume Mean', unit: 'dB', reference: '-32 to -14 dB' },
-  { key: 'jitter', label: 'Jitter', unit: '', reference: '0.002-0.020' },
-  { key: 'shimmer', label: 'Shimmer', unit: '', reference: '0.010-0.060' },
+  { key: 'speaking_rate_wps', label: 'Speaking Rate', unit: 'wps', reference: 'Normal: 1.5–2.5', accent: 'text-cyan-300', transform: (value: number) => value },
+  { key: 'voice_stability', label: 'Voice Stability', unit: '%', reference: 'High >85%, Low <70%', accent: 'text-emerald-300', transform: (value: number) => value * 100 },
+  { key: 'voice_tremor', label: 'Voice Tremor', unit: '%', reference: 'Low <10%, High >20%', accent: 'text-amber-300', transform: (value: number) => value * 100 },
+  { key: 'pitch_range_hz', label: 'Pitch Range', unit: 'Hz', reference: 'Narrow <50, Wide >100', accent: 'text-fuchsia-300', transform: (value: number) => value },
+  { key: 'estimated_fundamental_hz', label: 'Fund. Frequency', unit: 'Hz', reference: 'Male: 85–155', accent: 'text-sky-300', transform: (value: number) => value },
+  { key: 'mean_volume_db', label: 'Volume', unit: 'dB', reference: 'Quiet <-50, Loud >-35', accent: 'text-rose-300', transform: (value: number) => value },
+  { key: 'speech_ratio', label: 'Speech Ratio', unit: '%', reference: '>95% = continuous', accent: 'text-teal-300', transform: (value: number) => value * 100 },
+  { key: 'longest_pause_ms', label: 'Longest Pause', unit: 's', reference: '>3s = deliberate', accent: 'text-violet-300', transform: (value: number) => value / 1000 },
+  { key: 'average_pause_ms', label: 'Avg Pause', unit: 'ms', reference: 'Normal: 500–1500', accent: 'text-orange-300', transform: (value: number) => value },
 ] as const
+
+const EMOTION_STYLES: Record<string, { color: string; bg: string; border: string; emoji: string }> = {
+  frustrated: { color: 'text-red-300', bg: 'bg-red-500/12', border: 'border-red-400/20', emoji: '😤' },
+  anxious: { color: 'text-amber-300', bg: 'bg-amber-500/12', border: 'border-amber-400/20', emoji: '😰' },
+  annoyance: { color: 'text-orange-300', bg: 'bg-orange-500/12', border: 'border-orange-400/20', emoji: '😒' },
+  admiration: { color: 'text-emerald-300', bg: 'bg-emerald-500/12', border: 'border-emerald-400/20', emoji: '🤩' },
+  approval: { color: 'text-blue-300', bg: 'bg-blue-500/12', border: 'border-blue-400/20', emoji: '👍' },
+  disapproval: { color: 'text-violet-300', bg: 'bg-violet-500/12', border: 'border-violet-400/20', emoji: '👎' },
+  neutral: { color: 'text-slate-300', bg: 'bg-slate-500/12', border: 'border-slate-400/20', emoji: '😐' },
+  curiosity: { color: 'text-cyan-300', bg: 'bg-cyan-500/12', border: 'border-cyan-400/20', emoji: '🧐' },
+  love: { color: 'text-pink-300', bg: 'bg-pink-500/12', border: 'border-pink-400/20', emoji: '❤️' },
+  confusion: { color: 'text-purple-300', bg: 'bg-purple-500/12', border: 'border-purple-400/20', emoji: '😵' },
+  disappointment: { color: 'text-gray-300', bg: 'bg-gray-500/12', border: 'border-gray-400/20', emoji: '😞' },
+  reflective: { color: 'text-indigo-300', bg: 'bg-indigo-500/12', border: 'border-indigo-400/20', emoji: '🤔' },
+  surprise: { color: 'text-fuchsia-300', bg: 'bg-fuchsia-500/12', border: 'border-fuchsia-400/20', emoji: '😲' },
+  unknown: { color: 'text-slate-300', bg: 'bg-slate-500/12', border: 'border-slate-400/20', emoji: '😐' },
+}
+
+const RULE_STYLES: Record<string, { color: string; bg: string; border: string }> = {
+  high_authenticity_composite: { color: 'text-emerald-300', bg: 'bg-emerald-500/12', border: 'border-emerald-400/20' },
+  hesitation_cluster: { color: 'text-amber-300', bg: 'bg-amber-500/12', border: 'border-amber-400/20' },
+  emotional_escalation: { color: 'text-red-300', bg: 'bg-red-500/12', border: 'border-red-400/20' },
+  topic_avoidance_signal: { color: 'text-violet-300', bg: 'bg-violet-500/12', border: 'border-violet-400/20' },
+  rehearsed_delivery_pattern: { color: 'text-orange-300', bg: 'bg-orange-500/12', border: 'border-orange-400/20' },
+  vocal_incongruence: { color: 'text-pink-300', bg: 'bg-pink-500/12', border: 'border-pink-400/20' },
+  low_authenticity_composite: { color: 'text-red-300', bg: 'bg-red-500/12', border: 'border-red-400/20' },
+  over_controlled_smoothness: { color: 'text-amber-300', bg: 'bg-amber-500/12', border: 'border-amber-400/20' },
+  bimodal_emotional_arc: { color: 'text-cyan-300', bg: 'bg-cyan-500/12', border: 'border-cyan-400/20' },
+}
 
 function titleCase(value: string | null | undefined, fallback = 'Unknown') {
   const text = (value || '').trim()
@@ -146,33 +175,49 @@ function normalizeHooks(value: unknown): string[] {
   return []
 }
 
-function normalizeRules(value: unknown): Array<{ name: string; confidence: number | null; category: string | null }> {
+function normalizeKey(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, '_')
+}
+
+function emotionStyle(value: string) {
+  return EMOTION_STYLES[normalizeKey(value)] ?? EMOTION_STYLES.unknown
+}
+
+function ruleStyle(value: string) {
+  return RULE_STYLES[normalizeKey(value)] ?? { color: 'text-cyan-200', bg: 'bg-cyan-500/10', border: 'border-cyan-400/20' }
+}
+
+function normalizeRules(value: unknown): Array<{ rawName: string; name: string; confidence: number | null; category: string | null }> {
   if (!Array.isArray(value)) return []
   return value
     .map((item) => {
       if (typeof item === 'string') {
-        return { name: titleCase(item), confidence: null, category: null }
+        return { rawName: normalizeKey(item), name: titleCase(item), confidence: null, category: null }
       }
       if (!item || typeof item !== 'object') return null
       const obj = item as Record<string, unknown>
-      const name = titleCase(
+      const rawName = (
         typeof obj.name === 'string'
           ? obj.name
           : typeof obj.rule === 'string'
             ? obj.rule
             : typeof obj.label === 'string'
               ? obj.label
-              : '',
+              : ''
+      ).trim()
+      const name = titleCase(
+        rawName,
         '',
       )
       if (!name) return null
       return {
+        rawName: normalizeKey(rawName),
         name,
         confidence: toNumber(obj.confidence),
         category: typeof obj.category === 'string' ? titleCase(obj.category) : null,
       }
     })
-    .filter((item): item is { name: string; confidence: number | null; category: string | null } => Boolean(item))
+    .filter((item): item is { rawName: string; name: string; confidence: number | null; category: string | null } => Boolean(item))
 }
 
 function transcriptParagraphs(transcript: string) {
@@ -197,6 +242,18 @@ function formatMetric(value: unknown, unit: string) {
   const numeric = toNumber(value)
   if (numeric == null) return '—'
   return `${numeric.toFixed(Math.abs(numeric) >= 10 ? 1 : 3).replace(/\.?0+$/, '')}${unit ? ` ${unit}` : ''}`
+}
+
+function metricValue(entry: PerceptionEntry, metric: typeof METRIC_CONFIG[number]) {
+  const raw = toNumber(entry.prosodicSummary[metric.key])
+  if (raw == null) return null
+  return metric.transform(raw)
+}
+
+function isEmotionCard(
+  card: { label: string; value: string; style?: { color: string; bg: string; border: string; emoji: string }; tone?: string },
+): card is { label: string; value: string; style: { color: string; bg: string; border: string; emoji: string } } {
+  return Boolean(card.style)
 }
 
 function average(values: Array<number | null>) {
@@ -382,8 +439,8 @@ export default function Perception() {
   }, [filteredEntries])
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(0,195,170,0.12),transparent_30%),radial-gradient(circle_at_82%_18%,rgba(72,137,255,0.12),transparent_24%),linear-gradient(180deg,#04101a_0%,#07111b_55%,#02060b_100%)] text-white">
-      <div className="mx-auto max-w-[1560px] px-4 py-6 sm:px-6 lg:px-8">
+    <div className="h-[100dvh] overflow-hidden bg-[radial-gradient(circle_at_top,rgba(0,195,170,0.12),transparent_30%),radial-gradient(circle_at_82%_18%,rgba(72,137,255,0.12),transparent_24%),linear-gradient(180deg,#04101a_0%,#07111b_55%,#02060b_100%)] text-white">
+      <div className="mx-auto flex h-full max-w-[1560px] min-h-0 flex-col px-4 py-6 sm:px-6 lg:px-8">
         <header className="flex flex-col gap-4 rounded-[28px] border border-white/10 bg-[linear-gradient(180deg,rgba(9,20,31,0.94),rgba(4,10,18,0.98))] p-5 shadow-[0_30px_120px_rgba(0,0,0,0.35)] sm:p-6">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
@@ -466,7 +523,7 @@ export default function Perception() {
         </section>
 
         {loading ? (
-          <div className="flex min-h-[420px] items-center justify-center">
+          <div className="flex min-h-0 flex-1 items-center justify-center">
             <div className="h-10 w-10 animate-spin rounded-full border-4 border-white/10 border-t-[#7cf0e1]" />
           </div>
         ) : error ? (
@@ -474,8 +531,8 @@ export default function Perception() {
             {error}
           </div>
         ) : (
-          <div className="mt-6 grid gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
-            <aside className="rounded-[28px] border border-white/8 bg-[linear-gradient(180deg,rgba(8,18,28,0.92),rgba(5,11,18,0.96))] p-3 shadow-[0_30px_90px_rgba(0,0,0,0.3)]">
+          <div className="mt-6 grid min-h-0 flex-1 gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
+            <aside className="flex min-h-0 flex-col rounded-[28px] border border-white/8 bg-[linear-gradient(180deg,rgba(8,18,28,0.92),rgba(5,11,18,0.96))] p-3 shadow-[0_30px_90px_rgba(0,0,0,0.3)]">
               <div className="flex items-center justify-between px-2 pb-3 pt-1">
                 <div>
                   <p className="text-[11px] uppercase tracking-[0.25em] text-white/35">Timeline</p>
@@ -483,9 +540,12 @@ export default function Perception() {
                 </div>
               </div>
 
-              <div className="space-y-2">
+              <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
                 {filteredEntries.map((entry) => {
                   const active = entry.id === selectedEntry?.id
+                  const primaryEmotionStyle = emotionStyle(entry.primaryEmotion)
+                  const firstRule = entry.firedRules[0]
+                  const firstRuleStyle = firstRule ? ruleStyle(firstRule.rawName) : null
                   return (
                     <button
                       key={entry.id}
@@ -506,9 +566,11 @@ export default function Perception() {
                           </div>
                           <p className="mt-1 text-xs text-[#86f5e5]">{entry.contactName} · {entry.language}</p>
                           <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
-                            <span className="rounded-full border border-white/8 bg-white/6 px-2.5 py-1 text-white/70">{entry.primaryEmotion}</span>
-                            {entry.firedRules[0] ? (
-                              <span className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-2.5 py-1 text-cyan-100">{entry.firedRules[0].name}</span>
+                            <span className={`rounded-full border px-2.5 py-1 ${primaryEmotionStyle.border} ${primaryEmotionStyle.bg} ${primaryEmotionStyle.color}`}>
+                              {primaryEmotionStyle.emoji} {entry.primaryEmotion}
+                            </span>
+                            {firstRule && firstRuleStyle ? (
+                              <span className={`rounded-full border px-2.5 py-1 ${firstRuleStyle.border} ${firstRuleStyle.bg} ${firstRuleStyle.color}`}>{firstRule.name}</span>
                             ) : null}
                           </div>
                           <p className="mt-2 line-clamp-3 text-[13px] leading-6 text-white/62">{entry.transcript || 'No transcript available.'}</p>
@@ -525,9 +587,9 @@ export default function Perception() {
               </div>
             </aside>
 
-            <main className="min-w-0 space-y-5">
+            <main className="min-w-0 min-h-0 overflow-y-auto pr-1">
               {selectedEntry ? (
-                <>
+                <div className="space-y-5">
                   <section className="rounded-[30px] border border-white/8 bg-[linear-gradient(180deg,rgba(8,18,28,0.94),rgba(4,10,18,0.98))] p-5 shadow-[0_30px_100px_rgba(0,0,0,0.32)] sm:p-6">
                     <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
                       <div className="flex items-center gap-4">
@@ -540,13 +602,15 @@ export default function Perception() {
                       </div>
                       <div className="grid gap-3 sm:grid-cols-3">
                         {[
-                          { label: 'Primary Emotion', value: selectedEntry.primaryEmotion, tone: 'from-[#1b2d47] to-[#0e1826]' },
-                          { label: 'Secondary Emotion', value: selectedEntry.secondaryEmotion, tone: 'from-[#2e2242] to-[#14101c]' },
+                          { label: 'Primary Emotion', value: selectedEntry.primaryEmotion, style: emotionStyle(selectedEntry.primaryEmotion) },
+                          { label: 'Secondary Emotion', value: selectedEntry.secondaryEmotion, style: emotionStyle(selectedEntry.secondaryEmotion) },
                           { label: 'Recommended Tone', value: selectedEntry.recommendedTone, tone: 'from-[#153428] to-[#0b1712]' },
                         ].map((card) => (
-                          <div key={card.label} className={`min-w-[160px] rounded-[22px] border border-white/8 bg-[linear-gradient(180deg,${card.tone})] px-4 py-4`}>
+                          <div key={card.label} className={`min-w-[160px] rounded-[22px] border px-4 py-4 ${isEmotionCard(card) ? `${card.style.border} ${card.style.bg}` : 'border-white/8 bg-[linear-gradient(180deg,#153428,#0b1712)]'}`}>
                             <div className="text-[11px] uppercase tracking-[0.22em] text-white/42">{card.label}</div>
-                            <div className="mt-3 text-lg font-semibold text-white">{card.value}</div>
+                            <div className={`mt-3 text-lg font-semibold ${isEmotionCard(card) ? card.style.color : 'text-white'}`}>
+                              {isEmotionCard(card) ? `${card.style.emoji} ` : ''}{card.value}
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -598,14 +662,14 @@ export default function Perception() {
                     <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                       {selectedEntry.firedRules.length > 0 ? (
                         selectedEntry.firedRules.map((rule) => (
-                          <div key={`${rule.name}-${rule.category}`} className="rounded-[20px] border border-white/8 bg-white/[0.03] px-4 py-4">
+                          <div key={`${rule.rawName}-${rule.category}`} className={`rounded-[20px] border px-4 py-4 ${ruleStyle(rule.rawName).border} ${ruleStyle(rule.rawName).bg}`}>
                             <div className="flex items-start justify-between gap-4">
                               <div>
-                                <p className="text-sm font-semibold text-white">{rule.name}</p>
+                                <p className={`text-sm font-semibold ${ruleStyle(rule.rawName).color}`}>{rule.name}</p>
                                 <p className="mt-1 text-xs uppercase tracking-[0.18em] text-white/38">{rule.category || 'Uncategorized'}</p>
                               </div>
-                              <div className="rounded-full border border-white/8 bg-white/6 px-2.5 py-1 text-xs text-white/72">
-                                {rule.confidence != null ? `${Math.round(rule.confidence * 100)}%` : '—'}
+                              <div className={`flex h-9 w-9 items-center justify-center rounded-full border text-xs font-semibold ${ruleStyle(rule.rawName).border} ${ruleStyle(rule.rawName).bg} ${ruleStyle(rule.rawName).color}`}>
+                                {rule.confidence != null ? `${Math.round(rule.confidence * 100)}` : '—'}
                               </div>
                             </div>
                             <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/8">
@@ -623,7 +687,6 @@ export default function Perception() {
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
                         <div className="text-[11px] uppercase tracking-[0.24em] text-white/35">ECHO Prosodic Analysis</div>
-                        <h3 className="mt-2 text-xl font-semibold tracking-[-0.03em] text-white">3 × 3 metric grid</h3>
                       </div>
                       <div className="text-sm text-white/45">Reference bands shown below each metric</div>
                     </div>
@@ -632,8 +695,8 @@ export default function Perception() {
                       {METRIC_CONFIG.map((metric) => (
                         <div key={metric.key} className="rounded-[20px] border border-white/8 bg-white/[0.03] px-4 py-4">
                           <div className="text-[11px] uppercase tracking-[0.18em] text-white/35">{metric.label}</div>
-                          <div className="mt-3 text-2xl font-semibold tracking-[-0.03em] text-white">
-                            {formatMetric(selectedEntry.prosodicSummary[metric.key], metric.unit)}
+                          <div className={`mt-3 text-2xl font-semibold tracking-[-0.03em] ${metric.accent}`}>
+                            {formatMetric(metricValue(selectedEntry, metric), metric.unit)}
                           </div>
                           <div className="mt-2 text-xs text-white/42">Reference: {metric.reference}</div>
                         </div>
@@ -645,7 +708,7 @@ export default function Perception() {
                         <div>
                           <div className="text-[11px] uppercase tracking-[0.18em] text-white/35">Pause Distribution</div>
                           <div className="mt-2 text-lg font-semibold text-white">
-                            {formatMetric(selectedEntry.prosodicSummary.pause_ratio ?? selectedEntry.prosodicSummary.speech_ratio, '')}
+                            {formatMetric(metricValue(selectedEntry, METRIC_CONFIG[6]), '%')}
                           </div>
                         </div>
                         <div className="text-xs text-white/45">Target speech ratio 0.55-0.85</div>
@@ -657,9 +720,9 @@ export default function Perception() {
                             width: `${Math.max(
                               4,
                               Math.min(
-                                100,
+                              100,
                                 Math.round(
-                                  ((toNumber(selectedEntry.prosodicSummary.pause_ratio ?? selectedEntry.prosodicSummary.speech_ratio) ?? 0) * 100),
+                                  (metricValue(selectedEntry, METRIC_CONFIG[6]) ?? 0),
                                 ),
                               ),
                             )}%`,
@@ -681,7 +744,7 @@ export default function Perception() {
                       )}
                     </div>
                   </section>
-                </>
+                </div>
               ) : (
                 <div className="rounded-[28px] border border-white/8 bg-[linear-gradient(180deg,rgba(8,18,28,0.94),rgba(4,10,18,0.98))] p-8 text-center text-white/58">
                   No perception entries available yet.
