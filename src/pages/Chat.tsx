@@ -1148,10 +1148,9 @@ export default function Chat() {
   const sendAvatarReplyRef = useRef<(text: string, options?: { useVoice?: boolean; isVoice?: boolean; perception?: any }) => Promise<boolean>>(async () => false)
 
   const {
-    recordingMode, setRecordingMode, captureKind, setCaptureKind,
-    recordingSeconds, setRecordingSeconds, recordTimerRef,
-    speechRecognitionRef, browserTranscriptRef, audioStartRef, audioStreamRef,
-    stopRecordingTimer, startSpeechRecognition,
+    recordingMode, captureKind,
+    recordingSeconds, recordTimerRef,
+    speechRecognitionRef, audioStreamRef,
     voiceOverlayOpen, voiceDraftUrl, voiceDraftReady,
     voiceDraftSeconds, voiceDraftTranscript,
     openVoiceOverlay, closeVoiceOverlay, stopVoiceIntoDraft, sendVoiceDraft,
@@ -1681,7 +1680,7 @@ export default function Chat() {
     if (!conversation) return
     const avatarName = getAvatarFirstName(conversation?.wa_owners?.display_name)
     const metadata = await readVideoBlobMetadata(options.videoBlob)
-    const opmResponse = await callOpmApi(conversation, options.videoBlob, 'video', {
+    const opmResponse: any = await callOpmApi(conversation, options.videoBlob, 'video', {
       orientation: metadata.height > metadata.width ? 'portrait' : 'landscape',
       avatarFirstName: avatarName,
       onStage: (emoji, text, _progress) => setInlineProcessing(emoji || text ? { emoji, text } : null),
