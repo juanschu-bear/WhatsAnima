@@ -42,7 +42,7 @@ export async function logLiveSessionEvent(
   payload: LiveSessionAuditPayload,
 ) {
   const now = new Date().toISOString()
-  const row: Record<string, unknown> = {
+  const row = {
     session_id: payload.sessionId,
     conversation_id: payload.conversationId ?? null,
     owner_id: payload.ownerId ?? null,
@@ -67,7 +67,7 @@ export async function logLiveSessionEvent(
 
   const { error } = await supabase
     .from('wa_tavus_sessions')
-    .upsert(row, { onConflict: 'session_id' })
+    .upsert(row as any, { onConflict: 'session_id' })
 
   if (error) {
     throw error
