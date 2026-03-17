@@ -1915,6 +1915,10 @@ export default function Chat() {
                       <svg className="h-4 w-4 text-[#9af8ea]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.573-1.066z" /><circle cx="12" cy="12" r="3" /></svg>
                       {t(locale, 'settings')}
                     </button>
+                    <button type="button" onClick={() => { setHeaderMenuOpen(false); navigate('/perception') }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-white/88 transition hover:bg-white/6">
+                      <svg className="h-4 w-4 text-[#9af8ea]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 13h8V3H3v10zm10 8h8V3h-8v18zm-10 0h8v-6H3v6z" /></svg>
+                      Perception
+                    </button>
                     <div className="my-1 border-t border-white/6" />
                     <button type="button" onClick={() => { setHeaderMenuOpen(false); void handleExportToClipboard() }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-white/88 transition hover:bg-white/6">
                       <svg className="h-4 w-4 text-[#9af8ea]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" /></svg>
