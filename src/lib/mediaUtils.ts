@@ -54,7 +54,7 @@ interface ConversationRef {
  */
 export async function uploadAudioToStorage(conversation: ConversationRef, audioBlob: Blob, mimeType: string) {
   const cleanType = (mimeType || 'audio/webm').split(';')[0]
-  const ext = cleanType === 'audio/mpeg' ? 'mp3' : cleanType === 'audio/mp4' ? 'm4a' : 'webm'
+  const ext = getFileExtension(audioBlob as Blob & { name?: string; type: string }, cleanType === 'audio/mpeg' ? 'mp3' : cleanType === 'audio/mp4' ? 'm4a' : 'webm')
   const filename = `voice-${Date.now()}.${ext}`
   const storagePath = `${conversation.id}/${filename}`
   const bucket = 'voice-messages'
@@ -62,12 +62,13 @@ export async function uploadAudioToStorage(conversation: ConversationRef, audioB
   // Try direct Supabase upload first (fastest, no serverless function)
   try {
     const { supabase } = await import('./supabase')
-    const { error } = await supabase.storage
+    const { data, error } = await supabase.storage
       .from(bucket)
       .upload(storagePath, audioBlob, { contentType: cleanType, upsert: true })
 
     if (!error) {
-      const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(storagePath)
+      const storedPath = data?.path || storagePath
+      const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(storedPath)
       return urlData.publicUrl
     }
     console.warn('[uploadAudio] Direct upload failed:', error.message, '— falling back to API route')
@@ -80,6 +81,8 @@ export async function uploadAudioToStorage(conversation: ConversationRef, audioB
   formData.append('file', audioBlob, filename)
   formData.append('conversationId', conversation.id)
   formData.append('filename', storagePath)
+  formData.append('mimeType', cleanType)
+  formData.append('ownerId', conversation.owner_id)
 
   const res = await fetch('/api/upload-audio', {
     method: 'POST',
