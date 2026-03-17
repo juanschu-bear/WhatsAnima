@@ -126,6 +126,22 @@ function deriveRecommendedTone(primaryEmotion: string | null): string {
   return map[(primaryEmotion || '').toLowerCase()] || 'warm and curious'
 }
 
+function extractTopicAnchor(transcript: string): string {
+  const cleaned = String(transcript || '').replace(/\s+/g, ' ').trim()
+  if (!cleaned) return 'what you are circling around'
+  const sentence = cleaned
+    .split(/[.!?]/)
+    .map((part) => part.trim())
+    .find((part) => part.length > 18) || cleaned
+  const anchor = sentence
+    .replace(/["']/g, '')
+    .split(/\s+/)
+    .slice(0, 12)
+    .join(' ')
+    .trim()
+  return anchor || 'what you are circling around'
+}
+
 function buildFallbackHooks(summaryText: string): string[] {
   const lower = summaryText.toLowerCase()
   const hooks: string[] = []
@@ -142,7 +158,20 @@ function validateFallbackPayload(payload: any): boolean {
   const summary = String(payload?.behavioral_summary || '').trim()
   if (summary.length <= 80) return false
   const lower = summary.toLowerCase()
-  if (lower.includes('the speaker talks about') || lower.includes('instruction') || lower.includes('the transcript is in') || lower.includes('avoid mentioning the transcript')) return false
+  if (/\d/.test(summary)) return false
+  if (
+    lower.includes('the speaker talks about') ||
+    lower.includes('instruction') ||
+    lower.includes('the transcript is in') ||
+    lower.includes('avoid mentioning the transcript') ||
+    lower.includes('speaking rate') ||
+    lower.includes('stability') ||
+    lower.includes('tremor') ||
+    lower.includes('wps') ||
+    lower.includes('metric') ||
+    lower.includes('percent') ||
+    lower.includes('%')
+  ) return false
   const hooks = payload?.conversation_hooks
   if (!Array.isArray(hooks) || hooks.length < 2 || hooks.length > 3 || hooks.some((h) => !String(h || '').trim())) return false
   const primary = String(payload?.primary_emotion || '').trim().toLowerCase()
@@ -181,7 +210,7 @@ async function llmFallbackAnalysis(transcript: string | null, audioDurationSec: 
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 400,
         temperature: 0.2,
-        system: 'You generate behavioral analysis from limited transcript-only fallback data. Never summarize or paraphrase the transcript. Never describe what was said. Describe how the message was delivered and what that may reveal. Do not repeat or reference these instructions in your response. Respond only with valid JSON.',
+        system: 'You are a world-class behavioral analyst in the tradition of Cal Lightman. You read people, not datasets. Never summarize or paraphrase the transcript. Never describe what was said. Read the person through the way they are managing what they say. Do not repeat or reference these instructions. Respond only with valid JSON.',
         messages: [{
           role: 'user',
           content: `[DATA]
@@ -198,7 +227,7 @@ Respond in EXACTLY this JSON format:
 {
   "primary_emotion": "one of: happy, excited, sad, anxious, frustrated, confused, curious, confident, reflective, or null if not classifiable",
   "secondary_emotion": "same options or null",
-  "behavioral_summary": "1-2 sentences describing behavioral delivery patterns, not message content",
+  "behavioral_summary": "Write EXACTLY like Cal Lightman from Lie to Me would speak. You are reading a person, not a dataset. No numbers. No percentages. No metric names. No speaking rate, stability, tremor, wps, or score language. Write in second person using 'you'. Describe the contradiction, the hidden emotion, and the thing being avoided. Be specific to this message and anchor to the actual topic. Maximum 3 sentences. Every word must hit.",
   "conversation_hooks": ["2-3 short follow-up questions probing the detected behavioral pattern"],
   "fired_rules": []
 }
@@ -209,6 +238,7 @@ Respond in EXACTLY this JSON format:
 - Never mention transcript language.
 - If no emotion is classifiable, return null instead of neutral.
 - Never use the label "neutral".
+- Never include numbers, percentages, metric names, or technical report language in behavioral_summary.
 - Do not repeat or reference these instructions.
 - Respond ONLY with the JSON, no explanation.`,
         }],
@@ -240,8 +270,7 @@ Respond in EXACTLY this JSON format:
           system: 'Return only valid JSON. Do not repeat instructions. Do not summarize transcript content.',
           messages: [{
             role: 'user',
-            content: `Based on these fired rules: [] and this prosodic data: speaking_rate=null, stability=null, tremor=null, pitch_range=null - give me a behavioral reading in the required JSON format.
-Transcript excerpt for topic reference only: "${transcript}"`,
+            content: `Read this person the way Cal Lightman would. Return only valid JSON. No numbers. No metric names. No technical language. No transcript summary. Use "you". Topic anchor: "${extractTopicAnchor(transcript)}". Transcript excerpt for topic reference only: "${transcript}"`,
           }],
         }),
       })
@@ -255,7 +284,8 @@ Transcript excerpt for topic reference only: "${transcript}"`,
 
     if (!validateFallbackPayload(parsed)) {
       const primaryEmotion = sanitizeEmotionLabel('reflective')
-      const behavioralSummary = 'The wording suggests a self-monitoring, carefully managed delivery rather than loose spontaneous speech. With no prosodic signal available in this fallback path, the safest read is that there is meaningful internal filtering happening beneath the surface of the message.'
+      const topicAnchor = extractTopicAnchor(transcript)
+      const behavioralSummary = `When you get close to ${topicAnchor}, you tighten up and start managing yourself instead of just saying it clean. That usually means the real pressure is not in the topic itself, but in what becomes true once you say it out loud. You are not lost here; you are guarded.`
       const conversationHooks = buildFallbackHooks(behavioralSummary)
       const recommendedTone = deriveRecommendedTone(primaryEmotion)
       parsed = {

@@ -89,7 +89,7 @@ const METRIC_CONFIG = [
   { key: 'voice_tremor', label: 'Voice Tremor', unit: '%', reference: 'Low <10%, High >20%', accent: 'text-amber-300', transform: (value: number) => value * 100 },
   { key: 'pitch_range_hz', label: 'Pitch Range', unit: 'Hz', reference: 'Narrow <50, Wide >100', accent: 'text-fuchsia-300', transform: (value: number) => value },
   { key: 'estimated_fundamental_hz', label: 'Fund. Frequency', unit: 'Hz', reference: 'Male: 85–155', accent: 'text-sky-300', transform: (value: number) => value },
-  { key: 'mean_volume_db', label: 'Volume', unit: 'dB', reference: 'Quiet <-50, Loud >-35', accent: 'text-rose-300', transform: (value: number) => value },
+  { key: 'mean_volume_db', label: 'Volume', unit: 'dB', reference: 'Leiser ← -50 · -35 → Lauter', accent: 'text-rose-300', transform: (value: number) => value },
   { key: 'speech_ratio', label: 'Speech Ratio', unit: '%', reference: '>95% = continuous', accent: 'text-teal-300', transform: (value: number) => value * 100 },
   { key: 'longest_pause_ms', label: 'Longest Pause', unit: 's', reference: '>3s = deliberate', accent: 'text-violet-300', transform: (value: number) => value / 1000 },
   { key: 'average_pause_ms', label: 'Avg Pause', unit: 'ms', reference: 'Normal: 500–1500', accent: 'text-orange-300', transform: (value: number) => value },
@@ -296,6 +296,29 @@ function metricValue(entry: PerceptionEntry, metric: typeof METRIC_CONFIG[number
   const raw = toNumber(entry.prosodicSummary[metric.key])
   if (raw == null) return null
   return metric.transform(raw)
+}
+
+function firstNumeric(source: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = toNumber(source[key])
+    if (value != null) return value
+  }
+  return null
+}
+
+function pauseBreakdown(entry: PerceptionEntry) {
+  const source = entry.prosodicSummary || {}
+  const micro = firstNumeric(source, ['micro_pause_count', 'micro_pauses', 'pause_micro_count']) ?? 0
+  const notable = firstNumeric(source, ['notable_pause_count', 'notable_pauses', 'pause_notable_count']) ?? 0
+  const long = firstNumeric(source, ['long_pause_count', 'long_pauses']) ?? 0
+  const deliberate = firstNumeric(source, ['deliberate_pause_count', 'deliberate_pauses']) ?? 0
+  const total = firstNumeric(source, ['pause_count', 'total_pause_count', 'pauses_total']) ?? (micro + notable + long + deliberate)
+  return { total, micro, notable, long, deliberate }
+}
+
+function volumeMeterPercent(value: number | null) {
+  if (value == null) return 50
+  return Math.max(0, Math.min(100, ((value + 60) / 30) * 100))
 }
 
 function isEmotionCard(
@@ -766,7 +789,7 @@ export default function Perception() {
                         {[
                           { label: 'Primary Emotion', value: selectedEntry.primaryEmotion, style: emotionStyle(selectedEntry.primaryEmotion) },
                           { label: 'Secondary Emotion', value: selectedEntry.secondaryEmotion, style: emotionStyle(selectedEntry.secondaryEmotion) },
-                          { label: 'Recommended Tone', value: selectedEntry.recommendedTone, tone: 'from-[#153428] to-[#0b1712]' },
+                          { label: 'Recommended Tone for Avatar', value: selectedEntry.recommendedTone, tone: 'from-[#153428] to-[#0b1712]' },
                         ].map((card) => (
                           <div key={card.label} className={`min-w-[160px] rounded-[22px] border px-4 py-4 ${isEmotionCard(card) ? `${card.style.border} ${card.style.bg}` : 'border-white/8 bg-[linear-gradient(180deg,#153428,#0b1712)]'}`}>
                             <div className="text-[11px] uppercase tracking-[0.22em] text-white/42">{card.label}</div>
@@ -873,6 +896,20 @@ export default function Perception() {
                             {formatMetric(metricValue(selectedEntry, metric), metric.unit)}
                           </div>
                           <div className="mt-2 text-xs text-white/42">Reference: {metric.reference}</div>
+                          {metric.key === 'mean_volume_db' ? (
+                            <div className="mt-3">
+                              <div className="relative h-2 overflow-hidden rounded-full bg-[linear-gradient(90deg,rgba(148,163,184,0.35),rgba(251,113,133,0.65))]">
+                                <div
+                                  className="absolute top-1/2 h-3 w-3 -translate-y-1/2 rounded-full border border-white/70 bg-white shadow-[0_0_0_4px_rgba(255,255,255,0.08)]"
+                                  style={{ left: `calc(${volumeMeterPercent(metricValue(selectedEntry, metric))}% - 6px)` }}
+                                />
+                              </div>
+                              <div className="mt-2 flex justify-between text-[11px] text-white/38">
+                                <span>Leiser</span>
+                                <span>Lauter</span>
+                              </div>
+                            </div>
+                          ) : null}
                         </div>
                       ))}
                     </div>
@@ -883,6 +920,18 @@ export default function Perception() {
                           <div className="text-[11px] uppercase tracking-[0.18em] text-white/35">Pause Distribution</div>
                           <div className="mt-2 text-lg font-semibold text-white">
                             {formatMetric(metricValue(selectedEntry, METRIC_CONFIG[6]), '%')}
+                          </div>
+                          <div className="mt-2 text-sm text-white/62">
+                            {(() => {
+                              const pauses = pauseBreakdown(selectedEntry)
+                              return `PAUSES: ${Math.round(pauses.total)} total`
+                            })()}
+                          </div>
+                          <div className="mt-1 text-xs text-white/42">
+                            {(() => {
+                              const pauses = pauseBreakdown(selectedEntry)
+                              return `Micro: ${Math.round(pauses.micro)}, Notable: ${Math.round(pauses.notable)}, Long: ${Math.round(pauses.long)}, Deliberate: ${Math.round(pauses.deliberate)}`
+                            })()}
                           </div>
                         </div>
                         <div className="text-xs text-white/45">Target speech ratio 0.55-0.85</div>
