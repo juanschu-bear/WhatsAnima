@@ -89,8 +89,8 @@ async function parseOpmRequest(req: any): Promise<{ blob: Blob; conversationId: 
 
 // OPM v4.0 — async job-based API (was /api/v1/process, now POST /analyze)
 const OPM_BASE = 'https://boardroom-api.onioko.com';
-const OPM_POLL_INTERVAL_MS = 3000;
-const OPM_TIMEOUT_MS = 90000; // 90s — must fit inside Vercel's 120s function timeout with buffer for fallback
+const OPM_POLL_INTERVAL_MS = 1500;
+const OPM_TIMEOUT_MS = 15000;
 
 function delay(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
 
@@ -242,7 +242,7 @@ async function callOpmV4(blob: Blob, filename: string, sessionId: string, preset
   }
 
   if (!jobComplete) {
-    throw new Error('OPM job timed out after 180s');
+    throw new Error('OPM job timed out after 15s');
   }
 
   // 3. Get results — GET /results/{job_id}
