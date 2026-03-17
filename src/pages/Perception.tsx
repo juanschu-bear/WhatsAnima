@@ -232,7 +232,6 @@ export default function Perception() {
       setLoading(false)
       return
     }
-    const userId = user.id
 
     let cancelled = false
 
@@ -240,29 +239,20 @@ export default function Perception() {
       setLoading(true)
       setError(null)
       try {
-        const { data: owners, error: ownersError } = await supabase
-          .from('wa_owners')
-          .select('id, display_name')
-          .eq('user_id', userId)
-          .is('deleted_at', null)
+        const [{ data: owners, error: ownersError }, { data: conversations, error: conversationsError }] = await Promise.all([
+          supabase
+            .from('wa_owners')
+            .select('id, display_name')
+            .is('deleted_at', null),
+          supabase
+            .from('wa_conversations')
+            .select('id, owner_id, contact_id, created_at, updated_at'),
+        ])
 
         if (ownersError) throw ownersError
-        const ownerRows = (owners ?? []) as OwnerRow[]
-        const ownerIds = ownerRows.map((owner) => owner.id)
-        if (ownerIds.length === 0) {
-          if (!cancelled) {
-            setEntries([])
-            setLoading(false)
-          }
-          return
-        }
-
-        const { data: conversations, error: conversationsError } = await supabase
-          .from('wa_conversations')
-          .select('id, owner_id, contact_id, created_at, updated_at')
-          .in('owner_id', ownerIds)
-
         if (conversationsError) throw conversationsError
+
+        const ownerRows = (owners ?? []) as OwnerRow[]
         const conversationRows = (conversations ?? []) as ConversationRow[]
         const conversationIds = conversationRows.map((conversation) => conversation.id)
         if (conversationIds.length === 0) {
@@ -298,7 +288,6 @@ export default function Perception() {
               audio_duration_sec,
               created_at
             `)
-            .in('conversation_id', conversationIds)
             .order('created_at', { ascending: false }),
         ])
 
