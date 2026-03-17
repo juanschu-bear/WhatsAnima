@@ -567,9 +567,9 @@ export default function Perception() {
   }, [filteredEntries])
 
   return (
-    <div className="min-h-[100dvh] overflow-x-hidden bg-[radial-gradient(circle_at_top,rgba(0,195,170,0.12),transparent_30%),radial-gradient(circle_at_82%_18%,rgba(72,137,255,0.12),transparent_24%),linear-gradient(180deg,#04101a_0%,#07111b_55%,#02060b_100%)] text-white xl:h-[100dvh] xl:overflow-hidden">
+    <div className="min-h-[100dvh] overflow-x-hidden bg-[radial-gradient(circle_at_top,rgba(0,195,170,0.12),transparent_30%),radial-gradient(circle_at_82%_18%,rgba(72,137,255,0.12),transparent_24%),linear-gradient(180deg,#04101a_0%,#07111b_55%,#02060b_100%)] text-white">
       <div
-        className="mx-auto flex min-h-[100dvh] max-w-[1560px] flex-col px-4 sm:px-6 lg:px-8 xl:h-full xl:min-h-0"
+        className="mx-auto flex min-h-[100dvh] max-w-[1560px] flex-col px-4 sm:px-6 lg:px-8"
         style={{
           paddingTop: 'max(1.5rem, env(safe-area-inset-top))',
           paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))',
@@ -657,7 +657,7 @@ export default function Perception() {
         </section>
 
         {loading ? (
-          <div className="flex min-h-0 flex-1 items-center justify-center">
+          <div className="flex min-h-[30vh] items-center justify-center">
             <div className="h-10 w-10 animate-spin rounded-full border-4 border-white/10 border-t-[#7cf0e1]" />
           </div>
         ) : error ? (
@@ -665,8 +665,8 @@ export default function Perception() {
             {error}
           </div>
         ) : (
-          <div className="mt-6 grid gap-5 xl:h-[calc(100dvh-23rem)] xl:min-h-[calc(100dvh-23rem)] xl:grid-cols-[360px_minmax(0,1fr)]">
-            <aside className="rounded-[28px] border border-white/8 bg-[linear-gradient(180deg,rgba(8,18,28,0.92),rgba(5,11,18,0.96))] p-3 shadow-[0_30px_90px_rgba(0,0,0,0.3)] xl:flex xl:h-[calc(100dvh-23rem)] xl:min-h-[calc(100dvh-23rem)] xl:flex-col">
+          <div className="mt-6 grid gap-5 xl:grid-cols-[360px_minmax(0,1fr)] xl:items-start">
+            <aside className="rounded-[28px] border border-white/8 bg-[linear-gradient(180deg,rgba(8,18,28,0.92),rgba(5,11,18,0.96))] p-3 shadow-[0_30px_90px_rgba(0,0,0,0.3)] xl:sticky xl:top-5 xl:max-h-[calc(100vh-300px)] xl:self-start">
               <div className="flex items-center justify-between px-2 pb-3 pt-1">
                 <div>
                   <p className="text-[11px] uppercase tracking-[0.25em] text-white/35">Timeline</p>
@@ -674,7 +674,7 @@ export default function Perception() {
                 </div>
               </div>
 
-              <div className="space-y-2 pr-1 max-xl:max-h-[42dvh] max-xl:overflow-y-auto xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
+              <div className="space-y-2 pr-1 max-xl:max-h-[42dvh] max-xl:overflow-y-auto xl:max-h-[calc(100vh-380px)] xl:overflow-y-auto">
                 {filteredEntries.map((entry) => {
                   const active = entry.id === selectedEntry?.id
                   const primaryEmotionStyle = emotionStyle(entry.primaryEmotion)
@@ -735,7 +735,7 @@ export default function Perception() {
               </div>
             </aside>
 
-            <main className="min-w-0 pr-1 xl:h-[calc(100dvh-23rem)] xl:min-h-[calc(100dvh-23rem)] xl:overflow-y-auto xl:overscroll-y-contain">
+            <main className="min-w-0 pr-1">
               {selectedEntry ? (
                 <div className="space-y-5">
                   <section className="rounded-[30px] border border-white/8 bg-[linear-gradient(180deg,rgba(8,18,28,0.94),rgba(4,10,18,0.98))] p-5 shadow-[0_30px_100px_rgba(0,0,0,0.32)] sm:p-6">
