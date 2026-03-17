@@ -13,6 +13,7 @@ import Settings from './pages/Settings'
 import Status from './pages/Status'
 import AuthCallback from './pages/AuthCallback'
 import VideoCall from './pages/VideoCall'
+import Perception from './pages/Perception'
 
 export default function App() {
   return (
@@ -47,6 +48,14 @@ export default function App() {
             element={
               <OwnerRoute>
                 <Dashboard />
+              </OwnerRoute>
+            }
+          />
+          <Route
+            path="/perception"
+            element={
+              <OwnerRoute>
+                <Perception />
               </OwnerRoute>
             }
           />
