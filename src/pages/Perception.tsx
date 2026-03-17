@@ -544,8 +544,7 @@ export default function Perception() {
                 {filteredEntries.map((entry) => {
                   const active = entry.id === selectedEntry?.id
                   const primaryEmotionStyle = emotionStyle(entry.primaryEmotion)
-                  const firstRule = entry.firedRules[0]
-                  const firstRuleStyle = firstRule ? ruleStyle(firstRule.rawName) : null
+                  const durationLabel = entry.messageDurationSec != null ? `${Math.round(entry.messageDurationSec)}s` : null
                   return (
                     <button
                       key={entry.id}
@@ -565,13 +564,28 @@ export default function Perception() {
                             <span className="shrink-0 text-[11px] text-white/42">{new Date(entry.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                           </div>
                           <p className="mt-1 text-xs text-[#86f5e5]">{entry.contactName} · {entry.language}</p>
-                          <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
-                            <span className={`rounded-full border px-2.5 py-1 ${primaryEmotionStyle.border} ${primaryEmotionStyle.bg} ${primaryEmotionStyle.color}`}>
+                          <div className="mt-2 flex items-center justify-between gap-3">
+                            <span className={`rounded-full border px-2.5 py-1 text-[11px] ${primaryEmotionStyle.border} ${primaryEmotionStyle.bg} ${primaryEmotionStyle.color}`}>
                               {primaryEmotionStyle.emoji} {entry.primaryEmotion}
                             </span>
-                            {firstRule && firstRuleStyle ? (
-                              <span className={`rounded-full border px-2.5 py-1 ${firstRuleStyle.border} ${firstRuleStyle.bg} ${firstRuleStyle.color}`}>{firstRule.name}</span>
+                            {durationLabel ? (
+                              <span className="shrink-0 text-sm font-semibold tracking-[-0.02em] text-white/88">{durationLabel}</span>
                             ) : null}
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+                            {entry.firedRules.map((rule) => {
+                              const style = ruleStyle(rule.rawName)
+                              return (
+                                <span key={`${entry.id}-${rule.rawName}`} className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 ${style.border} ${style.bg} ${style.color}`}>
+                                  <span>{rule.name}</span>
+                                  {rule.confidence != null ? (
+                                    <span className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full border px-1 text-[10px] font-semibold ${style.border}`}>
+                                      {Math.round(rule.confidence * 100)}%
+                                    </span>
+                                  ) : null}
+                                </span>
+                              )
+                            })}
                           </div>
                           <p className="mt-2 line-clamp-3 text-[13px] leading-6 text-white/62">{entry.transcript || 'No transcript available.'}</p>
                         </div>
