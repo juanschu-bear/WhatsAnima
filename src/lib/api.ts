@@ -553,7 +553,10 @@ export async function createPerceptionLog(payload: {
   conversationHooks?: any[] | null
   recommendedTone?: string | null
   prosodicSummary?: Record<string, any> | null
+  facialAnalysis?: Record<string, any> | null
+  bodyLanguage?: Record<string, any> | null
   mediaType?: 'audio' | 'video' | null
+  videoDurationSec?: number | null
 }) {
   const response = await fetch('/api/create-perception-log', {
     method: 'POST',
@@ -572,7 +575,10 @@ export async function createPerceptionLog(payload: {
       conversationHooks: payload.conversationHooks ?? null,
       recommendedTone: payload.recommendedTone ?? null,
       prosodicSummary: payload.prosodicSummary ?? null,
+      facialAnalysis: payload.facialAnalysis ?? null,
+      bodyLanguage: payload.bodyLanguage ?? null,
       mediaType: payload.mediaType ?? null,
+      videoDurationSec: payload.videoDurationSec ?? null,
     }),
   })
 

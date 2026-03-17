@@ -213,7 +213,10 @@ export default async function handler(req: any, res: any) {
     conversationHooks,
     recommendedTone,
     prosodicSummary,
+    facialAnalysis,
+    bodyLanguage,
     mediaType,
+    videoDurationSec,
   } = req.body ?? {}
 
   if (!conversationId || !contactId || !ownerId) {
@@ -229,7 +232,20 @@ export default async function handler(req: any, res: any) {
       behavioralSummary: behavioralSummary ?? null,
       firedRulesCount: Array.isArray(firedRules) ? firedRules.length : 0,
       hasProsodicSummary: prosodicSummary != null,
+      mediaType: mediaType ?? 'audio',
     })
+
+    const normalizedPrimaryEmotion = emotionLabel(primaryEmotion) || null
+    const normalizedSecondaryEmotion = emotionLabel(secondaryEmotion) || null
+    const normalizedBehavioralSummary = typeof behavioralSummary === 'string' && behavioralSummary.trim().length > 24
+      ? behavioralSummary.trim()
+      : null
+    const normalizedHooks = Array.isArray(conversationHooks)
+      ? conversationHooks.filter((hook: unknown) => typeof hook === 'string' && hook.trim()).slice(0, 3)
+      : []
+    const normalizedTone = typeof recommendedTone === 'string' && recommendedTone.trim()
+      ? recommendedTone.trim()
+      : null
 
     // 1. Insert perception log with ALL data
     const { data: log, error: insertError } = await supabase
@@ -241,13 +257,17 @@ export default async function handler(req: any, res: any) {
         owner_id: ownerId,
         transcript: transcript ?? null,
         audio_duration_sec: audioDurationSec ?? null,
-        primary_emotion: emotionLabel(primaryEmotion) || null,
-        secondary_emotion: emotionLabel(secondaryEmotion) || null,
+        primary_emotion: normalizedPrimaryEmotion,
+        secondary_emotion: normalizedSecondaryEmotion,
         fired_rules: firedRules ?? [],
-        behavioral_summary: behavioralSummary ?? null,
-        conversation_hooks: conversationHooks ?? [],
-        recommended_tone: recommendedTone ?? null,
+        behavioral_summary: normalizedBehavioralSummary,
+        conversation_hooks: normalizedHooks,
+        recommended_tone: normalizedTone,
         prosodic_summary: prosodicSummary ?? null,
+        facial_analysis: facialAnalysis ?? null,
+        body_language: bodyLanguage ?? null,
+        media_type: mediaType ?? 'audio',
+        video_duration_sec: videoDurationSec ?? null,
       })
       .select()
       .single()

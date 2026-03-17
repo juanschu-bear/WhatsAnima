@@ -48,6 +48,10 @@ interface PerceptionLogRow {
   conversation_hooks: unknown
   prosodic_summary: Record<string, unknown> | null
   audio_duration_sec: number | null
+  facial_analysis: Record<string, unknown> | null
+  body_language: Record<string, unknown> | null
+  media_type: string | null
+  video_duration_sec: number | null
   created_at: string
 }
 
@@ -68,9 +72,12 @@ interface PerceptionEntry {
   conversationHooks: string[]
   firedRules: Array<{ rawName: string; name: string; confidence: number | null; category: string | null; interpretation: string | null }>
   prosodicSummary: Record<string, unknown>
-  messageAudioUrl: string | null
+  messageMediaUrl: string | null
   messageDurationSec: number | null
   messageType: string | null
+  mediaType: string | null
+  facialAnalysis: Record<string, unknown>
+  bodyLanguage: Record<string, unknown>
 }
 
 interface PerceptionDashboardPayload {
@@ -479,6 +486,16 @@ function PerceptionAudioPlayer({ src }: { src: string }) {
   )
 }
 
+function topActionUnits(source: Record<string, unknown>) {
+  const actionUnits = (source.action_units || source.au_scores || source.top_action_units) as Record<string, unknown> | undefined
+  if (!actionUnits || typeof actionUnits !== 'object') return []
+  return Object.entries(actionUnits)
+    .map(([name, value]) => ({ name, value: toNumber(value) ?? 0 }))
+    .filter((entry) => entry.value > 0)
+    .sort((left, right) => right.value - left.value)
+    .slice(0, 5)
+}
+
 export default function Perception() {
   const navigate = useNavigate()
   const { user } = useAuth()
@@ -558,9 +575,12 @@ export default function Perception() {
             conversationHooks: normalizeHooks(log.conversation_hooks),
             firedRules,
             prosodicSummary: log.prosodic_summary ?? {},
-            messageAudioUrl: message?.media_url ?? null,
-            messageDurationSec: log.audio_duration_sec ?? message?.duration_sec ?? null,
+            messageMediaUrl: message?.media_url ?? null,
+            messageDurationSec: log.video_duration_sec ?? log.audio_duration_sec ?? message?.duration_sec ?? null,
             messageType: message?.type ?? null,
+            mediaType: log.media_type ?? message?.type ?? null,
+            facialAnalysis: log.facial_analysis ?? {},
+            bodyLanguage: log.body_language ?? {},
           } satisfies PerceptionEntry
         })
 
@@ -846,16 +866,69 @@ export default function Perception() {
                       </div>
                     </div>
 
-                    {selectedEntry.messageAudioUrl ? (
+                    {selectedEntry.messageMediaUrl ? (
                       <div className="mt-5 rounded-[24px] border border-white/8 bg-black/20 p-4">
                         <div className="mb-3 flex items-center justify-between gap-3">
-                          <p className="text-sm font-medium text-white">Audio playback</p>
+                          <p className="text-sm font-medium text-white">{selectedEntry.mediaType === 'video' ? 'Video playback' : 'Audio playback'}</p>
                           <p className="text-xs text-white/45">{selectedEntry.messageDurationSec ? formatDuration(selectedEntry.messageDurationSec) : 'Duration unavailable'}</p>
                         </div>
-                        <PerceptionAudioPlayer src={selectedEntry.messageAudioUrl} />
+                        {selectedEntry.mediaType === 'video' ? (
+                          <video
+                            src={selectedEntry.messageMediaUrl}
+                            controls
+                            playsInline
+                            className="max-h-[420px] w-full rounded-[20px] bg-black object-contain"
+                          />
+                        ) : (
+                          <PerceptionAudioPlayer src={selectedEntry.messageMediaUrl} />
+                        )}
                       </div>
                     ) : null}
                   </section>
+
+                  {selectedEntry.mediaType === 'video' ? (
+                    <section className="grid gap-5 lg:grid-cols-2">
+                      <div className="rounded-[28px] border border-fuchsia-400/16 bg-[linear-gradient(180deg,rgba(54,14,41,0.82),rgba(17,7,16,0.96))] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.25)]">
+                        <div className="text-[11px] uppercase tracking-[0.24em] text-fuchsia-100/50">CYGNUS Facial Analysis</div>
+                        <div className="mt-4 space-y-3">
+                          {topActionUnits(selectedEntry.facialAnalysis).length > 0 ? (
+                            topActionUnits(selectedEntry.facialAnalysis).map((unit) => (
+                              <div key={unit.name} className="flex items-center justify-between rounded-[18px] border border-white/8 bg-white/[0.04] px-4 py-3 text-sm text-white/86">
+                                <span>{titleCase(unit.name)}</span>
+                                <span className="text-fuchsia-200">{Math.round(unit.value * 100)}%</span>
+                              </div>
+                            ))
+                          ) : (
+                            <p className="text-sm text-white/60">No facial action-unit detail recorded for this log.</p>
+                          )}
+                          <div className="rounded-[18px] border border-white/8 bg-white/[0.04] px-4 py-3 text-sm text-white/78">
+                            Gaze: {String(selectedEntry.facialAnalysis.gaze_direction || selectedEntry.facialAnalysis.gaze || 'Unavailable')}
+                          </div>
+                          <div className="rounded-[18px] border border-white/8 bg-white/[0.04] px-4 py-3 text-sm text-white/78">
+                            Head pose: {String(selectedEntry.facialAnalysis.head_pose || selectedEntry.facialAnalysis.pose_summary || 'Unavailable')}
+                          </div>
+                          <div className="rounded-[18px] border border-white/8 bg-white/[0.04] px-4 py-3 text-sm text-white/78">
+                            Micro-expressions: {Array.isArray(selectedEntry.facialAnalysis.micro_expressions) ? `${selectedEntry.facialAnalysis.micro_expressions.length} events` : 'Unavailable'}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="rounded-[28px] border border-amber-400/16 bg-[linear-gradient(180deg,rgba(64,37,8,0.86),rgba(19,11,5,0.96))] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.25)]">
+                        <div className="text-[11px] uppercase tracking-[0.24em] text-amber-100/50">Body Language</div>
+                        <div className="mt-4 space-y-3">
+                          <div className="rounded-[18px] border border-white/8 bg-white/[0.04] px-4 py-3 text-sm text-white/78">
+                            Posture: {String(selectedEntry.bodyLanguage.posture_score || selectedEntry.bodyLanguage.posture || 'Unavailable')}
+                          </div>
+                          <div className="rounded-[18px] border border-white/8 bg-white/[0.04] px-4 py-3 text-sm text-white/78">
+                            Gesture frequency: {String(selectedEntry.bodyLanguage.gesture_frequency || selectedEntry.bodyLanguage.hand_gestures || 'Unavailable')}
+                          </div>
+                          <div className="rounded-[18px] border border-white/8 bg-white/[0.04] px-4 py-3 text-sm text-white/78">
+                            Movement patterns: {String(selectedEntry.bodyLanguage.movement_patterns || selectedEntry.bodyLanguage.movement_summary || 'Unavailable')}
+                          </div>
+                        </div>
+                      </div>
+                    </section>
+                  ) : null}
 
                   <section className="grid gap-5 lg:grid-cols-2">
                     <div className="rounded-[28px] border border-emerald-400/18 bg-[linear-gradient(180deg,rgba(10,54,39,0.88),rgba(6,23,18,0.96))] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.25)]">

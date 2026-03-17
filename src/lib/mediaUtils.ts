@@ -40,6 +40,27 @@ export function delay(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
+export async function readVideoBlobMetadata(blob: Blob) {
+  return new Promise<{ width: number; height: number; duration: number }>((resolve) => {
+    const video = document.createElement('video')
+    const objectUrl = URL.createObjectURL(blob)
+    video.preload = 'metadata'
+    video.onloadedmetadata = () => {
+      resolve({
+        width: video.videoWidth || 0,
+        height: video.videoHeight || 0,
+        duration: Number.isFinite(video.duration) ? video.duration : 0,
+      })
+      URL.revokeObjectURL(objectUrl)
+    }
+    video.onerror = () => {
+      resolve({ width: 0, height: 0, duration: 0 })
+      URL.revokeObjectURL(objectUrl)
+    }
+    video.src = objectUrl
+  })
+}
+
 interface ConversationRef {
   id: string
   owner_id: string
@@ -126,6 +147,49 @@ export async function uploadMediaToStorage(
 
   const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(storagePath)
   return urlData.publicUrl
+}
+
+export async function uploadVideoMessage(blob: Blob, conversationId: string, ownerId: string): Promise<{ mediaUrl: string; durationSec: number }> {
+  const cleanType = (blob.type || 'video/webm').split(';')[0]
+  const ext = getFileExtension(blob as Blob & { name?: string; type: string }, cleanType.includes('mp4') ? 'mp4' : cleanType.includes('quicktime') ? 'mov' : 'webm')
+  const filename = `video-${Date.now()}.${ext}`
+  const storagePath = `${conversationId}/${filename}`
+  const bucket = 'video-messages'
+  const metadata = await readVideoBlobMetadata(blob)
+  const durationSec = Math.max(1, Math.round(metadata.duration || 0))
+
+  try {
+    const { supabase } = await import('./supabase')
+    const { data, error } = await supabase.storage
+      .from(bucket)
+      .upload(storagePath, blob, { contentType: cleanType, upsert: true })
+
+    if (!error) {
+      const storedPath = data?.path || storagePath
+      const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(storedPath)
+      return { mediaUrl: urlData.publicUrl, durationSec }
+    }
+    console.warn('[uploadVideoMessage] Direct upload failed:', error.message, '— falling back to API route')
+  } catch (directErr: any) {
+    console.warn('[uploadVideoMessage] Direct upload error:', directErr.message, '— falling back to API route')
+  }
+
+  const formData = new FormData()
+  formData.append('file', blob, filename)
+  formData.append('conversationId', conversationId)
+  formData.append('filename', storagePath)
+  formData.append('mimeType', cleanType)
+  formData.append('ownerId', ownerId)
+
+  const res = await fetch('/api/upload-video', {
+    method: 'POST',
+    body: formData,
+  })
+  const data = await res.json().catch(() => ({}))
+  if (res.ok && data.url) {
+    return { mediaUrl: data.url, durationSec: Number.isFinite(data.durationSec) ? data.durationSec : durationSec }
+  }
+  throw new Error('Upload failed: ' + (data.error || `HTTP ${res.status}`))
 }
 
 export async function getOpmConfig() {
@@ -239,6 +303,7 @@ async function callOpmViaProxy(
   mediaBlob: Blob,
   fileName: string,
   conversation: ConversationRef,
+  mediaType: 'audio' | 'video',
   onStage: OpmStageCallback,
   uploadLabel: string,
   watchingLabel: string,
@@ -250,6 +315,7 @@ async function callOpmViaProxy(
   proxyForm.append('conversationId', conversation.id)
   proxyForm.append('contactId', conversation.contact_id || '')
   proxyForm.append('ownerId', conversation.owner_id || '')
+  proxyForm.append('mediaType', mediaType)
   const opmRes = await fetch('/api/opm-process', {
     method: 'POST',
     body: proxyForm,
@@ -275,7 +341,7 @@ export async function callOpmApi(
   conversation: ConversationRef,
   mediaBlob: Blob,
   mediaType: 'audio' | 'video',
-  opts?: { orientation?: number; onStage?: OpmStageCallback; avatarFirstName?: string }
+  opts?: { orientation?: number | 'portrait' | 'landscape'; onStage?: OpmStageCallback; avatarFirstName?: string }
 ) {
   const config = await getOpmConfig()
   const opmUrl = config.opm_api_url
@@ -297,12 +363,12 @@ export async function callOpmApi(
     : `${firstName} is watching your message...`
 
   if (!opmUrl) {
-    return callOpmViaProxy(mediaBlob, fileName, conversation, onStage, uploadLabel, watchingLabel, firstName)
+    return callOpmViaProxy(mediaBlob, fileName, conversation, mediaType, onStage, uploadLabel, watchingLabel, firstName)
   }
 
   try {
     // Real OPM: upload directly or via proxy
-    const useProxy = mediaType === 'video' && Boolean(opts?.orientation)
+    const useProxy = mediaType === 'video' && typeof opts?.orientation === 'number'
     const uploadUrl = useProxy ? '/api/ingest-video' : `${opmUrl}/analyze`
     onStage('\uD83D\uDCE1', uploadLabel, 10)
     const formData = new FormData()
@@ -374,13 +440,13 @@ export async function callOpmApi(
     const normalized = normalizeOpmResponse(rawResults)
     if (mediaType === 'audio' && !hasMeaningfulOpmData(normalized)) {
       console.warn('[callOpmApi] direct audio OPM returned empty payload — falling back to proxy')
-      return callOpmViaProxy(mediaBlob, fileName, conversation, onStage, uploadLabel, watchingLabel, firstName)
+      return callOpmViaProxy(mediaBlob, fileName, conversation, mediaType, onStage, uploadLabel, watchingLabel, firstName)
     }
     return normalized
   } catch (error) {
     if (mediaType === 'audio') {
       console.warn('[callOpmApi] direct audio OPM failed — falling back to proxy', error)
-      return callOpmViaProxy(mediaBlob, fileName, conversation, onStage, uploadLabel, watchingLabel, firstName)
+      return callOpmViaProxy(mediaBlob, fileName, conversation, mediaType, onStage, uploadLabel, watchingLabel, firstName)
     }
     throw error
   }

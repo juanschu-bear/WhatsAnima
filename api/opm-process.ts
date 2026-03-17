@@ -7,7 +7,7 @@ export const config = {
 /**
  * Parse incoming request — supports both FormData and JSON.
  */
-async function parseOpmRequest(req: any): Promise<{ blob: Blob; conversationId: string; contactId: string; filename: string }> {
+async function parseOpmRequest(req: any): Promise<{ blob: Blob; conversationId: string; contactId: string; filename: string; mediaType: 'audio' | 'video' }> {
   const rawCt = req.headers['content-type'] || '';
   const ct = rawCt.toLowerCase();
 
@@ -73,6 +73,7 @@ async function parseOpmRequest(req: any): Promise<{ blob: Blob; conversationId: 
       conversationId: fields.conversationId || '',
       contactId: fields.contactId || '',
       filename: fileName,
+      mediaType: fields.mediaType === 'video' ? 'video' : 'audio',
     };
   }
 
@@ -84,13 +85,14 @@ async function parseOpmRequest(req: any): Promise<{ blob: Blob; conversationId: 
     conversationId: json.conversationId || '',
     contactId: json.contactId || '',
     filename: json.filename || 'audio.webm',
+    mediaType: json.mediaType === 'video' ? 'video' : 'audio',
   };
 }
 
 // OPM v4.0 — async job-based API (was /api/v1/process, now POST /analyze)
 const OPM_BASE = 'https://boardroom-api.onioko.com';
 const OPM_POLL_INTERVAL_MS = 3000;
-const OPM_TIMEOUT_MS = 90000; // must leave room inside Vercel's function timeout
+const OPM_TIMEOUT_MS = 180000;
 
 function delay(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
 
@@ -409,7 +411,7 @@ export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const { blob, conversationId, contactId, filename } = await parseOpmRequest(req);
+    const { blob, conversationId, contactId, filename, mediaType } = await parseOpmRequest(req);
     if (!conversationId || !contactId) {
       return res.status(400).json({ error: 'conversationId and contactId are required' });
     }
@@ -421,7 +423,7 @@ export default async function handler(req: any, res: any) {
     let fallbackUsed: string | null = null;
     try {
       console.log('[opm-process] Calling OPM v4.0 /analyze — blob size:', blob.size, 'bytes, type:', blob.type);
-      opmData = await callOpmV4(blob, finalFilename, conversationId, 'echo');
+      opmData = await callOpmV4(blob, finalFilename, conversationId, mediaType === 'video' ? 'celebrity_ceo' : 'echo');
       console.log('[opm-process] OPM v4.0 returned results');
     } catch (opmErr: any) {
       opmError = opmErr.message || String(opmErr);

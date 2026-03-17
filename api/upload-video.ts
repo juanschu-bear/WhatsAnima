@@ -1,0 +1,142 @@
+import crypto from 'node:crypto'
+import { createClient } from '@supabase/supabase-js'
+
+export const config = {
+  api: { bodyParser: false },
+}
+
+const BUCKET = 'video-messages'
+
+function getSupabaseAdminClient(): { client: ReturnType<typeof createClient> | null; missing: string | null } {
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+  const supabaseKey =
+    process.env.SUPABASE_SERVICE_KEY ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_KEY
+
+  if (!supabaseUrl) return { client: null, missing: 'SUPABASE_URL' }
+  if (!supabaseKey) return { client: null, missing: 'SUPABASE_SERVICE_KEY' }
+  return { client: createClient(supabaseUrl, supabaseKey), missing: null }
+}
+
+async function parseRequestBody(req: any): Promise<{
+  videoBuffer: Buffer
+  conversationId: string
+  mimeType: string
+  filename?: string
+  originalFilename?: string
+  ownerId: string
+}> {
+  const rawCt = req.headers['content-type'] || ''
+  const ct = rawCt.toLowerCase()
+  const chunks: Buffer[] = []
+  for await (const chunk of req) {
+    chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk)
+  }
+  const rawBody = Buffer.concat(chunks)
+
+  if (!ct.includes('multipart/form-data')) {
+    throw new Error('Expected multipart/form-data')
+  }
+
+  const boundaryMatch = rawCt.match(/boundary=(?:"([^"]+)"|([^\s;]+))/i)
+  if (!boundaryMatch) throw new Error('No boundary in multipart request')
+  const boundary = boundaryMatch[1] || boundaryMatch[2]
+  const delimiter = Buffer.from(`--${boundary}`)
+  const headerSep = Buffer.from('\r\n\r\n')
+
+  let fileBuffer: Buffer | null = null
+  let fileContentType = 'video/webm'
+  let originalFilename: string | undefined
+  const fields: Record<string, string> = {}
+
+  let pos = 0
+  while (pos < rawBody.length) {
+    const delimIdx = rawBody.indexOf(delimiter, pos)
+    if (delimIdx === -1) break
+    let partStart = delimIdx + delimiter.length
+    if (partStart < rawBody.length && rawBody[partStart] === 0x0d && rawBody[partStart + 1] === 0x0a) partStart += 2
+    else if (partStart < rawBody.length && rawBody[partStart] === 0x0a) partStart += 1
+    if (partStart >= rawBody.length) break
+    const headerEndIdx = rawBody.indexOf(headerSep, partStart)
+    if (headerEndIdx === -1) {
+      pos = partStart
+      continue
+    }
+    const headers = rawBody.subarray(partStart, headerEndIdx).toString('utf-8')
+    const dataStart = headerEndIdx + headerSep.length
+    const nextDelim = rawBody.indexOf(delimiter, dataStart)
+    let dataEnd = nextDelim !== -1 ? nextDelim : rawBody.length
+    if (dataEnd >= 2 && rawBody[dataEnd - 2] === 0x0d && rawBody[dataEnd - 1] === 0x0a) dataEnd -= 2
+    else if (dataEnd >= 1 && rawBody[dataEnd - 1] === 0x0a) dataEnd -= 1
+
+    const nameMatch = headers.match(/name="([^"]+)"/)
+    if (!nameMatch) {
+      pos = partStart
+      continue
+    }
+    const fieldName = nameMatch[1]
+    if (fieldName === 'file') {
+      fileBuffer = rawBody.subarray(dataStart, dataEnd)
+      const partCt = headers.match(/Content-Type:\s*(.+?)(?:\r\n|$)/i)?.[1]?.trim()
+      if (partCt) fileContentType = partCt
+      const uploadName = headers.match(/filename="([^"]+)"/i)?.[1]?.trim()
+      if (uploadName) originalFilename = uploadName.split('/').pop()?.split('\\').pop()
+    } else {
+      fields[fieldName] = rawBody.subarray(dataStart, dataEnd).toString('utf-8').trim()
+    }
+    pos = dataStart
+  }
+
+  if (!fileBuffer) throw new Error('No file field in FormData')
+
+  return {
+    videoBuffer: fileBuffer,
+    conversationId: fields.conversationId || fields.conversation_id || 'general',
+    mimeType: fields.mimeType || fields.mime_type || fileContentType,
+    filename: fields.filename || undefined,
+    originalFilename,
+    ownerId: fields.ownerId || fields.owner_id || 'shared',
+  }
+}
+
+export default async function handler(req: any, res: any) {
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST')
+    return res.status(405).json({ error: 'Method not allowed' })
+  }
+
+  const { client: supabase, missing } = getSupabaseAdminClient()
+  if (!supabase) {
+    return res.status(503).json({ error: `Storage not configured – missing env var ${missing}` })
+  }
+
+  try {
+    const { videoBuffer, conversationId, mimeType, filename, originalFilename, ownerId } = await parseRequestBody(req)
+    const cleanMimeType = (mimeType || 'video/webm').split(';')[0]
+    const explicitExt = filename?.split('.').pop()?.toLowerCase() || originalFilename?.split('.').pop()?.toLowerCase()
+    const ext = explicitExt || (cleanMimeType.includes('mp4') ? 'mp4' : cleanMimeType.includes('quicktime') ? 'mov' : 'webm')
+    const storagePath = filename
+      ? (filename.includes('/') ? filename : `${conversationId}/${filename}`)
+      : `${ownerId}/${conversationId}/${Date.now()}-${crypto.randomBytes(4).toString('hex')}.${ext}`
+
+    await supabase.storage.createBucket(BUCKET, { public: true }).catch(() => undefined)
+    const { data, error } = await supabase.storage
+      .from(BUCKET)
+      .upload(storagePath, videoBuffer, { contentType: cleanMimeType, upsert: true })
+
+    if (error) {
+      console.error('[upload-video] Storage error:', error.message)
+      return res.status(500).json({ error: 'Upload failed: ' + error.message })
+    }
+
+    const storedPath = data?.path || storagePath
+    const { data: urlData } = supabase.storage.from(BUCKET).getPublicUrl(storedPath)
+    return res.status(200).json({ url: urlData.publicUrl, path: storedPath })
+  } catch (error) {
+    console.error('[upload-video] Error:', error instanceof Error ? error.message : error)
+    return res.status(500).json({
+      error: 'Upload failed: ' + (error instanceof Error ? error.message : 'Unknown error'),
+    })
+  }
+}

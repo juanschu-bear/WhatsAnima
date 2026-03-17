@@ -49,6 +49,10 @@ export default async function handler(req: any, res: any) {
           conversation_hooks,
           prosodic_summary,
           audio_duration_sec,
+          facial_analysis,
+          body_language,
+          media_type,
+          video_duration_sec,
           created_at
         `)
         .order('created_at', { ascending: false }),
