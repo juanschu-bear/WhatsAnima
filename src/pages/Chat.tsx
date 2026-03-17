@@ -981,8 +981,10 @@ const MediaMessageBubble = memo(function MediaMessageBubble({
   const [isVideoPlaying, setIsVideoPlaying] = useState(false)
   const [isTranscriptOpen, setIsTranscriptOpen] = useState(false)
   const [videoAspectRatio, setVideoAspectRatio] = useState<'9 / 16' | '16 / 9'>('9 / 16')
+  const [videoTransform, setVideoTransform] = useState<'none' | 'rotate(90deg)'>('none')
   const videoRef = useRef<HTMLVideoElement>(null)
   const posterUrl = message.thumbnail_url || message.poster_url || message.preview_url || undefined
+  const isRecordedVideoMessage = (message.content || '') === '[Video message]' || (message.content || '') === '[Recorded video]'
 
   if (!message.media_url) return null
 
@@ -1050,12 +1052,15 @@ const MediaMessageBubble = memo(function MediaMessageBubble({
             onLoadedMetadata={() => {
               const video = videoRef.current
               if (!video) return
-              setVideoAspectRatio(video.videoWidth > video.videoHeight ? '16 / 9' : '9 / 16')
+              const shouldRotate = isRecordedVideoMessage && video.videoWidth > video.videoHeight
+              setVideoTransform(shouldRotate ? 'rotate(90deg)' : 'none')
+              setVideoAspectRatio(shouldRotate || video.videoHeight >= video.videoWidth ? '9 / 16' : '16 / 9')
             }}
             onLoadedData={() => {
               if (posterUrl) return
               if (videoRef.current) videoRef.current.currentTime = 0.1
             }}
+            style={{ transform: videoTransform }}
             onPlay={() => setIsVideoPlaying(true)}
             onPause={() => setIsVideoPlaying(false)}
             onEnded={() => setIsVideoPlaying(false)}

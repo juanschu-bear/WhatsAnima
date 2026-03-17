@@ -40,8 +40,8 @@ export function VideoRecorder({ open, onClose, onSend }: VideoRecorderProps) {
   const remaining = Math.max(0, recorder.maxDurationSec - recorder.duration)
 
   return (
-    <div className="absolute inset-0 z-30 bg-black">
-      <div className="flex h-full flex-col px-4 pb-[calc(env(safe-area-inset-bottom)+24px)] pt-[calc(env(safe-area-inset-top)+16px)]">
+    <div className="absolute inset-0 z-30 h-screen overflow-hidden bg-black">
+      <div className="flex min-h-screen flex-col overflow-hidden px-4 pb-[calc(env(safe-area-inset-bottom)+24px)] pt-[calc(env(safe-area-inset-top)+16px)]">
         <div className="flex items-center justify-between">
           <button
             type="button"
@@ -59,15 +59,15 @@ export function VideoRecorder({ open, onClose, onSend }: VideoRecorderProps) {
           <div className="text-xs text-white/55">{formatClock(remaining)} left</div>
         </div>
 
-        <div className="flex flex-1 flex-col items-center justify-center gap-5">
-          <div className="relative h-[320px] w-[min(88vw,420px)] overflow-hidden rounded-[32px] border border-white/12 bg-[#0e1722] shadow-[0_30px_90px_rgba(0,0,0,0.45)]">
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 overflow-hidden py-4">
+          <div className="relative h-[min(46vh,360px)] w-[min(88vw,420px)] max-w-full overflow-hidden rounded-[32px] border border-white/12 bg-[#0e1722] shadow-[0_30px_90px_rgba(0,0,0,0.45)]">
             {recorder.isPreviewing && recorder.previewUrl ? (
               <video
                 ref={recorder.previewVideoRef}
                 src={recorder.previewUrl}
                 controls
                 autoPlay
-                loop
+                muted
                 playsInline
                 className="h-full w-full object-cover"
               />
@@ -84,9 +84,9 @@ export function VideoRecorder({ open, onClose, onSend }: VideoRecorderProps) {
               <div
                 className="absolute left-1/2 rounded-[999px] border border-white/35 shadow-[0_0_0_9999px_rgba(0,0,0,0.16)]"
                 style={{
-                  top: '38%',
-                  width: 'min(60vw, 260px)',
-                  height: 'min(78vw, 340px)',
+                  top: '42%',
+                  width: 'min(60vw, 250px)',
+                  height: 'min(72vw, 300px)',
                   transform: 'translate(-50%, -50%)',
                 }}
               />
@@ -98,7 +98,7 @@ export function VideoRecorder({ open, onClose, onSend }: VideoRecorderProps) {
             ) : null}
           </div>
 
-          <div className={`rounded-full px-4 py-2 text-sm font-medium ${
+          <div className={`max-w-[min(88vw,420px)] rounded-full px-4 py-2 text-center text-sm font-medium ${
             recorder.guidanceTone === 'warning'
               ? 'bg-[#4f3600] text-[#ffd25a]'
               : recorder.guidanceTone === 'success'

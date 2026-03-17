@@ -205,8 +205,8 @@ export function useVideoRecording({ maxDurationSec = 300, onConfirmSend }: UseVi
           : null
         setIsRecording(false)
         if (!blob) return
-        const nextPreviewUrl = URL.createObjectURL(blob)
         const metadata = await getVideoMetadata(blob)
+        const nextPreviewUrl = URL.createObjectURL(blob)
         setVideoDimensions({ width: metadata.width, height: metadata.height })
         setDuration(Math.max(1, Math.round(metadata.duration || (Date.now() - startedAtRef.current) / 1000)))
         setRecordedBlob(blob)

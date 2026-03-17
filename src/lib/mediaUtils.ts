@@ -149,7 +149,7 @@ export async function uploadMediaToStorage(
   return urlData.publicUrl
 }
 
-export async function uploadVideoMessage(blob: Blob, conversationId: string, ownerId: string): Promise<{ mediaUrl: string; durationSec: number }> {
+export async function uploadVideoMessage(blob: Blob, conversationId: string, _ownerId: string): Promise<{ mediaUrl: string; durationSec: number }> {
   const cleanType = (blob.type || 'video/webm').split(';')[0]
   const ext = getFileExtension(blob as Blob & { name?: string; type: string }, cleanType.includes('mp4') ? 'mp4' : cleanType.includes('quicktime') ? 'mov' : 'webm')
   const filename = `video-${Date.now()}.${ext}`
@@ -157,39 +157,19 @@ export async function uploadVideoMessage(blob: Blob, conversationId: string, own
   const bucket = 'video-messages'
   const metadata = await readVideoBlobMetadata(blob)
   const durationSec = Math.max(1, Math.round(metadata.duration || 0))
+  const { supabase } = await import('./supabase')
+  const { data, error } = await supabase.storage
+    .from(bucket)
+    .upload(storagePath, blob, { contentType: cleanType, upsert: true })
 
-  try {
-    const { supabase } = await import('./supabase')
-    const { data, error } = await supabase.storage
-      .from(bucket)
-      .upload(storagePath, blob, { contentType: cleanType, upsert: true })
-
-    if (!error) {
-      const storedPath = data?.path || storagePath
-      const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(storedPath)
-      return { mediaUrl: urlData.publicUrl, durationSec }
-    }
-    console.warn('[uploadVideoMessage] Direct upload failed:', error.message, '— falling back to API route')
-  } catch (directErr: any) {
-    console.warn('[uploadVideoMessage] Direct upload error:', directErr.message, '— falling back to API route')
+  if (error) {
+    console.error('[uploadVideoMessage] Supabase storage error:', error.message)
+    throw new Error('Upload failed: ' + error.message)
   }
 
-  const formData = new FormData()
-  formData.append('file', blob, filename)
-  formData.append('conversationId', conversationId)
-  formData.append('filename', storagePath)
-  formData.append('mimeType', cleanType)
-  formData.append('ownerId', ownerId)
-
-  const res = await fetch('/api/upload-video', {
-    method: 'POST',
-    body: formData,
-  })
-  const data = await res.json().catch(() => ({}))
-  if (res.ok && data.url) {
-    return { mediaUrl: data.url, durationSec: Number.isFinite(data.durationSec) ? data.durationSec : durationSec }
-  }
-  throw new Error('Upload failed: ' + (data.error || `HTTP ${res.status}`))
+  const storedPath = data?.path || storagePath
+  const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(storedPath)
+  return { mediaUrl: urlData.publicUrl, durationSec }
 }
 
 export async function getOpmConfig() {
