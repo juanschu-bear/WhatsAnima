@@ -1761,6 +1761,7 @@ export default function Chat() {
         firedRules: opmResponse?.fired_rules ?? null,
         behavioralSummary: opmResponse?.behavioral_summary ?? opmResponse?.perception?.behavioral_summary ?? opmResponse?.interpretation?.behavioral_summary ?? null,
         conversationHooks: opmResponse?.conversation_hooks ?? opmResponse?.interpretation?.conversation_hooks ?? null,
+        recommendedTone: opmResponse?.recommended_tone ?? opmResponse?.perception?.recommended_tone ?? opmResponse?.interpretation?.recommended_tone ?? null,
         prosodicSummary: opmResponse?.prosodic_summary ?? null,
         mediaType: 'video',
       }).catch((logErr) => console.warn('[perception-log]', logErr.message))

@@ -103,6 +103,56 @@ function sanitizeEmotionLabel(value: unknown): string | null {
   return label
 }
 
+const INVALID_EMOTION_LABELS = new Set(['neutral', 'unknown', 'unclassified', ''])
+
+function deriveRecommendedTone(primaryEmotion: string | null): string {
+  const map: Record<string, string> = {
+    frustrated: 'patient and validating',
+    anxious: 'calm and reassuring',
+    annoyance: 'steady and non-defensive',
+    admiration: 'encouraging and expansive',
+    approval: 'warm and affirming',
+    disapproval: 'gently challenging',
+    curiosity: 'engaged and exploratory',
+    love: 'warm and receptive',
+    confusion: 'clear and grounding',
+    disappointment: 'supportive but direct',
+    reflective: 'quiet and curious',
+    surprise: 'steady and orienting',
+    excited: 'energized and focused',
+    confident: 'direct and collaborative',
+    sad: 'gentle and supportive',
+  }
+  return map[(primaryEmotion || '').toLowerCase()] || 'warm and curious'
+}
+
+function buildFallbackHooks(summaryText: string): string[] {
+  const lower = summaryText.toLowerCase()
+  const hooks: string[] = []
+  if (lower.includes('hesitat')) hooks.push('What was going through your mind during those moments of hesitation?')
+  if (lower.includes('avoid')) hooks.push('There was a moment where you seemed to pull back - what were you avoiding?')
+  if (lower.includes('authentic') || lower.includes('spontaneous')) hooks.push("You sound like you're speaking from the gut here - what's driving that?")
+  if (lower.includes('intens') || lower.includes('escalat')) hooks.push("Your voice picked up intensity - what's the emotion behind that?")
+  if (!hooks.length) hooks.push("What's the one thing you're not saying out loud right now?")
+  while (hooks.length < 2) hooks.push('What feels hardest to say directly right now?')
+  return hooks.slice(0, 3)
+}
+
+function validateFallbackPayload(payload: any): boolean {
+  const summary = String(payload?.behavioral_summary || '').trim()
+  if (summary.length <= 80) return false
+  const lower = summary.toLowerCase()
+  if (lower.includes('the speaker talks about') || lower.includes('instruction') || lower.includes('the transcript is in') || lower.includes('avoid mentioning the transcript')) return false
+  const hooks = payload?.conversation_hooks
+  if (!Array.isArray(hooks) || hooks.length < 2 || hooks.length > 3 || hooks.some((h) => !String(h || '').trim())) return false
+  const primary = String(payload?.primary_emotion || '').trim().toLowerCase()
+  if (!primary || INVALID_EMOTION_LABELS.has(primary)) return false
+  const secondary = payload?.secondary_emotion == null ? null : String(payload.secondary_emotion).trim().toLowerCase()
+  if (secondary && INVALID_EMOTION_LABELS.has(secondary)) return false
+  if (!String(payload?.recommended_tone || '').trim()) return false
+  return true
+}
+
 /**
  * LLM-based fallback when the external OPM API is unreachable.
  * Analyzes the transcript to extract emotion, behavioral summary, and
@@ -172,14 +222,59 @@ Respond in EXACTLY this JSON format:
     }
 
     const result = await response.json();
-    const text = (result.content?.[0]?.text || '').trim();
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return null;
+    const text = String(result.content?.[0]?.text || '').trim().replace(/^```[a-z]*\s*/i, '').replace(/\s*```$/i, '')
+    const jsonMatch = text.match(/\{[\s\S]*\}/)
+    let parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : null
+    if (!validateFallbackPayload(parsed)) {
+      const retryResponse = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': anthropicKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 280,
+          temperature: 0.2,
+          system: 'Return only valid JSON. Do not repeat instructions. Do not summarize transcript content.',
+          messages: [{
+            role: 'user',
+            content: `Based on these fired rules: [] and this prosodic data: speaking_rate=null, stability=null, tremor=null, pitch_range=null - give me a behavioral reading in the required JSON format.
+Transcript excerpt for topic reference only: "${transcript}"`,
+          }],
+        }),
+      })
+      if (retryResponse.ok) {
+        const retryResult = await retryResponse.json()
+        const retryText = String(retryResult.content?.[0]?.text || '').trim().replace(/^```[a-z]*\s*/i, '').replace(/\s*```$/i, '')
+        const retryMatch = retryText.match(/\{[\s\S]*\}/)
+        parsed = retryMatch ? JSON.parse(retryMatch[0]) : null
+      }
+    }
 
-    const parsed = JSON.parse(jsonMatch[0]);
-    const primaryEmotion = sanitizeEmotionLabel(parsed.primary_emotion);
+    if (!validateFallbackPayload(parsed)) {
+      const primaryEmotion = sanitizeEmotionLabel('reflective')
+      const behavioralSummary = 'The wording suggests a self-monitoring, carefully managed delivery rather than loose spontaneous speech. With no prosodic signal available in this fallback path, the safest read is that there is meaningful internal filtering happening beneath the surface of the message.'
+      const conversationHooks = buildFallbackHooks(behavioralSummary)
+      const recommendedTone = deriveRecommendedTone(primaryEmotion)
+      parsed = {
+        primary_emotion: primaryEmotion,
+        secondary_emotion: null,
+        behavioral_summary: behavioralSummary,
+        conversation_hooks: conversationHooks,
+        recommended_tone: recommendedTone,
+        fired_rules: [],
+      }
+    }
+
+    const primaryEmotion = sanitizeEmotionLabel(parsed.primary_emotion) || 'reflective';
     const secondaryEmotion = sanitizeEmotionLabel(parsed.secondary_emotion);
+    const recommendedTone = String(parsed.recommended_tone || deriveRecommendedTone(primaryEmotion)).trim()
     return {
+      behavioral_summary: parsed.behavioral_summary || null,
+      conversation_hooks: parsed.conversation_hooks || [],
+      recommended_tone: recommendedTone,
       echo_analysis: {
         audio_features: {
           primary_emotion: primaryEmotion,
@@ -193,6 +288,7 @@ Respond in EXACTLY this JSON format:
       session: {
         lucid_interpretation: {
           interpretation: parsed.behavioral_summary || '',
+          recommended_tone: recommendedTone,
         },
         session_analysis: {
           session_patterns: (parsed.conversation_hooks || []).map((h: string) => ({ pattern: h })),

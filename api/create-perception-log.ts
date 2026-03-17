@@ -211,6 +211,7 @@ export default async function handler(req: any, res: any) {
     firedRules,
     behavioralSummary,
     conversationHooks,
+    recommendedTone,
     prosodicSummary,
     mediaType,
   } = req.body ?? {}
@@ -245,6 +246,7 @@ export default async function handler(req: any, res: any) {
         fired_rules: firedRules ?? [],
         behavioral_summary: behavioralSummary ?? null,
         conversation_hooks: conversationHooks ?? [],
+        recommended_tone: recommendedTone ?? null,
         prosodic_summary: prosodicSummary ?? null,
       })
       .select()

@@ -44,6 +44,7 @@ interface ConversationRef {
   id: string
   owner_id: string
   contact_id: string
+  wa_contacts?: { display_name?: string | null } | null
 }
 
 /**
@@ -177,6 +178,7 @@ export function normalizeOpmResponse(raw: any) {
       conversation_hooks: sessionPatterns.map((pattern: any) =>
         typeof pattern === 'string' ? pattern : pattern?.pattern || pattern?.description || JSON.stringify(pattern)
       ),
+      recommended_tone: analysis.recommended_tone || sessionObj?.lucid_interpretation?.recommended_tone || null,
       perception: {
         primary_emotion: audioFeatures.primary_emotion || null,
         secondary_emotion: audioFeatures.secondary_emotion || null,
@@ -184,6 +186,7 @@ export function normalizeOpmResponse(raw: any) {
         arousal: audioFeatures.arousal ?? null,
         confidence: audioFeatures.confidence ?? null,
         behavioral_summary: lucidText || null,
+        recommended_tone: analysis.recommended_tone || sessionObj?.lucid_interpretation?.recommended_tone || null,
         session_patterns: sessionPatterns,
         transcript,
       },
@@ -192,6 +195,7 @@ export function normalizeOpmResponse(raw: any) {
         conversation_hooks: sessionPatterns.map((pattern: any) =>
           typeof pattern === 'string' ? pattern : pattern?.pattern || pattern?.description || JSON.stringify(pattern)
         ),
+        recommended_tone: analysis.recommended_tone || sessionObj?.lucid_interpretation?.recommended_tone || null,
         lucid_raw: Boolean(lucidText),
       },
       session: sessionObj,
@@ -302,6 +306,7 @@ export async function callOpmApi(
     formData.append('video', mediaBlob, fileName)
     formData.append('session_id', conversation.id || '')
     formData.append('preset', preset)
+    if (conversation.wa_contacts?.display_name) formData.append('contact_name', conversation.wa_contacts.display_name)
     if (opts?.orientation) formData.append('orientation', String(opts.orientation))
 
     const submitRes = await fetch(uploadUrl, {

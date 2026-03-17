@@ -551,6 +551,7 @@ export async function createPerceptionLog(payload: {
   firedRules?: any[] | null
   behavioralSummary?: string | null
   conversationHooks?: any[] | null
+  recommendedTone?: string | null
   prosodicSummary?: Record<string, any> | null
   mediaType?: 'audio' | 'video' | null
 }) {
@@ -569,6 +570,7 @@ export async function createPerceptionLog(payload: {
       firedRules: payload.firedRules ?? null,
       behavioralSummary: payload.behavioralSummary ?? null,
       conversationHooks: payload.conversationHooks ?? null,
+      recommendedTone: payload.recommendedTone ?? null,
       prosodicSummary: payload.prosodicSummary ?? null,
       mediaType: payload.mediaType ?? null,
     }),
