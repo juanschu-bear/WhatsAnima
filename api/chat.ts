@@ -646,7 +646,11 @@ export default async function handler(req: any, res: any) {
 
     return res.status(200).json({ content })
   } catch (error) {
-    console.error('Chat API error:', error instanceof Error ? error.message : error)
-    return res.status(500).json({ error: 'Chat processing failed' })
+    const err = error instanceof Error ? error : new Error(String(error))
+    console.error('Chat API error:', err.message, err.stack)
+    return res.status(500).json({
+      error: err.message || 'Chat processing failed',
+      stack: err.stack || null,
+    })
   }
 }

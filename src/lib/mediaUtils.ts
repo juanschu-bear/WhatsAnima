@@ -215,6 +215,8 @@ export function normalizeOpmResponse(raw: any) {
 }
 
 export type OpmStageCallback = (emoji: string, text: string, progress: number) => void
+const OPM_CLIENT_TIMEOUT_MS = 15000
+const OPM_CLIENT_POLL_INTERVAL_MS = 1500
 
 export async function callOpmApi(
   conversation: ConversationRef,
@@ -298,8 +300,8 @@ export async function callOpmApi(
 
   onStage('\uD83D\uDD2C', watchingLabel, 25)
 
-  while (Date.now() - startTime < 180000) {
-    await delay(3000)
+  while (Date.now() - startTime < OPM_CLIENT_TIMEOUT_MS) {
+    await delay(OPM_CLIENT_POLL_INTERVAL_MS)
     const statusRes = await fetch(`${opmUrl}/status/${jobId}`)
     if (!statusRes.ok) continue
     const statusData = await statusRes.json()
@@ -325,7 +327,7 @@ export async function callOpmApi(
       onStage('\uD83D\uDCAC', `${firstName} is composing a response...`, 85)
     } else {
       const elapsed = Date.now() - startTime
-      const progress = Math.min(25 + Math.floor((elapsed / 180000) * 60), 85)
+      const progress = Math.min(25 + Math.floor((elapsed / OPM_CLIENT_TIMEOUT_MS) * 60), 85)
       onStage('\uD83D\uDD2C', watchingLabel, progress)
     }
   }
