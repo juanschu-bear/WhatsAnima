@@ -261,6 +261,50 @@ function normalizeRules(value: unknown): Array<{ rawName: string; name: string; 
     .filter((item): item is { rawName: string; name: string; confidence: number | null; category: string | null; interpretation: string | null } => Boolean(item))
 }
 
+function categoryLabel(value: string | null | undefined) {
+  const raw = (value || '').trim()
+  if (!raw) return 'Uncategorized'
+  return titleCase(raw.replace(/_/g, ' '), 'Uncategorized')
+}
+
+function topicAnchor(transcript: string) {
+  const cleaned = transcript.replace(/\s+/g, ' ').trim()
+  if (!cleaned) return 'what you are circling around'
+  const sentence = cleaned.split(/(?<=[.!?])\s+/).find((part) => part.trim().length > 24) || cleaned
+  return sentence.replace(/[“”"']/g, '').split(/\s+/).slice(0, 10).join(' ')
+}
+
+function looksTechnicalBehavioralSummary(value: string) {
+  const lower = value.toLowerCase()
+  return (
+    /\d/.test(value) ||
+    lower.includes('speaking rate') ||
+    lower.includes('stability') ||
+    lower.includes('tremor') ||
+    lower.includes('wps') ||
+    lower.includes('points to a clear behavioral pattern') ||
+    lower.includes('vocal evidence shows') ||
+    lower.includes('grounds the read')
+  )
+}
+
+function behavioralSummaryDisplay(summary: string, transcript: string, rules: PerceptionEntry['firedRules']) {
+  const cleaned = summary.trim()
+  if (cleaned && !looksTechnicalBehavioralSummary(cleaned)) return cleaned
+  const anchor = topicAnchor(transcript)
+  const ruleNames = new Set(rules.map((rule) => rule.rawName))
+  if (ruleNames.has('hesitation_cluster')) {
+    return `You start tightening up the moment you get close to ${anchor}. That kind of hesitation usually means the real weight is not in the words themselves, but in what becomes true once you say them cleanly.`
+  }
+  if (ruleNames.has('high_authenticity_composite')) {
+    return `There is very little performance in the way you talk about ${anchor}. You sound like someone trying to tell the truth before you have fully decided what that truth is going to cost you.`
+  }
+  if (ruleNames.has('topic_avoidance_signal')) {
+    return `You brush past ${anchor} instead of landing on it. That kind of pullback usually means the pressure sits underneath the topic, not on the surface of it.`
+  }
+  return `There is a layer of self-management around the way you talk about ${anchor}. You are not empty here; you are controlling how much of yourself actually makes it into the room.`
+}
+
 function transcriptParagraphs(transcript: string) {
   return transcript
     .replace(/\s+/g, ' ')
@@ -496,6 +540,7 @@ export default function Perception() {
           const message = log.message_id ? messageById.get(log.message_id) : null
           const transcript = (log.transcript || message?.content || '').trim()
           const avatarName = owner?.display_name?.trim() || 'Avatar'
+          const firedRules = normalizeRules(log.fired_rules)
           return {
             id: log.id,
             createdAt: log.created_at,
@@ -509,9 +554,9 @@ export default function Perception() {
             primaryEmotion: normalizeEmotionValue(log.primary_emotion),
             secondaryEmotion: normalizeEmotionValue(log.secondary_emotion),
             recommendedTone: titleCase(log.recommended_tone, 'Calm, direct'),
-            behavioralSummary: (log.behavioral_summary || '').trim(),
+            behavioralSummary: behavioralSummaryDisplay((log.behavioral_summary || '').trim(), transcript, firedRules),
             conversationHooks: normalizeHooks(log.conversation_hooks),
-            firedRules: normalizeRules(log.fired_rules),
+            firedRules,
             prosodicSummary: log.prosodic_summary ?? {},
             messageAudioUrl: message?.media_url ?? null,
             messageDurationSec: log.audio_duration_sec ?? message?.duration_sec ?? null,
@@ -851,7 +896,7 @@ export default function Perception() {
                             <div className="flex items-start justify-between gap-4">
                               <div>
                                 <p className={`text-sm font-semibold ${ruleStyle(rule.rawName).color}`}>{rule.name}</p>
-                                <p className="mt-1 text-xs uppercase tracking-[0.18em] text-white/38">{rule.category || 'uncategorized'}</p>
+                                <p className="mt-1 text-xs uppercase tracking-[0.18em] text-white/38">{categoryLabel(rule.category)}</p>
                               </div>
                               <div className={`flex h-9 w-9 items-center justify-center rounded-full border text-xs font-semibold ${ruleStyle(rule.rawName).border} ${ruleStyle(rule.rawName).bg} ${ruleStyle(rule.rawName).color}`}>
                                 {rule.confidence != null ? `${Math.round(rule.confidence * 100)}` : '—'}
