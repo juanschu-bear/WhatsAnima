@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { resolveAvatarUrl } from '../lib/avatars'
-import { supabase } from '../lib/supabase'
 
 type LanguageFilter = 'All' | 'English' | 'German' | 'Spanish'
 
@@ -72,6 +71,14 @@ interface PerceptionEntry {
   messageAudioUrl: string | null
   messageDurationSec: number | null
   messageType: string | null
+}
+
+interface PerceptionDashboardPayload {
+  owners: OwnerRow[]
+  contacts: ContactRow[]
+  conversations: ConversationRow[]
+  messages: MessageRow[]
+  logs: PerceptionLogRow[]
 }
 
 const LANGUAGE_OPTIONS: LanguageFilter[] = ['All', 'English', 'German', 'Spanish']
@@ -239,21 +246,14 @@ export default function Perception() {
       setLoading(true)
       setError(null)
       try {
-        const [{ data: owners, error: ownersError }, { data: conversations, error: conversationsError }] = await Promise.all([
-          supabase
-            .from('wa_owners')
-            .select('id, display_name')
-            .is('deleted_at', null),
-          supabase
-            .from('wa_conversations')
-            .select('id, owner_id, contact_id, created_at, updated_at'),
-        ])
+        const response = await fetch('/api/perception-dashboard')
+        const payload = await response.json() as PerceptionDashboardPayload & { error?: string }
+        if (!response.ok) {
+          throw new Error(payload.error || `Failed to load perception dashboard (${response.status})`)
+        }
 
-        if (ownersError) throw ownersError
-        if (conversationsError) throw conversationsError
-
-        const ownerRows = (owners ?? []) as OwnerRow[]
-        const conversationRows = (conversations ?? []) as ConversationRow[]
+        const ownerRows = payload.owners ?? []
+        const conversationRows = payload.conversations ?? []
         const conversationIds = conversationRows.map((conversation) => conversation.id)
         if (conversationIds.length === 0) {
           if (!cancelled) {
@@ -263,52 +263,14 @@ export default function Perception() {
           return
         }
 
-        const contactIds = Array.from(new Set(conversationRows.map((conversation) => conversation.contact_id)))
-        const [{ data: contacts, error: contactsError }, { data: logs, error: logsError }] = await Promise.all([
-          supabase
-            .from('wa_contacts')
-            .select('id, display_name, email')
-            .in('id', contactIds),
-          supabase
-            .from('wa_perception_logs')
-            .select(`
-              id,
-              message_id,
-              conversation_id,
-              contact_id,
-              owner_id,
-              transcript,
-              primary_emotion,
-              secondary_emotion,
-              recommended_tone,
-              fired_rules,
-              behavioral_summary,
-              conversation_hooks,
-              prosodic_summary,
-              audio_duration_sec,
-              created_at
-            `)
-            .order('created_at', { ascending: false }),
-        ])
-
-        if (contactsError) throw contactsError
-        if (logsError) throw logsError
-
-        const logRows = (logs ?? []) as PerceptionLogRow[]
-        const messageIds = Array.from(new Set(logRows.map((log) => log.message_id).filter(Boolean))) as string[]
-        const { data: messages, error: messagesError } = messageIds.length === 0
-          ? { data: [], error: null }
-          : await supabase
-              .from('wa_messages')
-              .select('id, media_url, duration_sec, type, content, created_at')
-              .in('id', messageIds)
-
-        if (messagesError) throw messagesError
+        const logRows = payload.logs ?? []
+        const contacts = payload.contacts ?? []
+        const messages = payload.messages ?? []
 
         const ownerById = new Map(ownerRows.map((owner) => [owner.id, owner]))
-        const contactById = new Map(((contacts ?? []) as ContactRow[]).map((contact) => [contact.id, contact]))
+        const contactById = new Map(contacts.map((contact) => [contact.id, contact]))
         const conversationById = new Map(conversationRows.map((conversation) => [conversation.id, conversation]))
-        const messageById = new Map(((messages ?? []) as MessageRow[]).map((message) => [message.id, message]))
+        const messageById = new Map(messages.map((message) => [message.id, message]))
 
         const nextEntries = logRows.map((log) => {
           const conversation = conversationById.get(log.conversation_id)
