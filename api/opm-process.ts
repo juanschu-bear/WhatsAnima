@@ -132,7 +132,16 @@ async function llmFallbackAnalysis(transcript: string | null, audioDurationSec: 
         max_tokens: 400,
         messages: [{
           role: 'user',
-          content: `Analyze this voice message transcript for emotional and behavioral signals. This is a real person speaking — extract what you can observe from their word choice, sentence structure, and communication style.
+          content: `Generate behavioral analysis from a voice message transcript fallback.
+
+NEVER summarize or paraphrase the transcript.
+Do not describe what the person said.
+Describe HOW they communicated and what that may reveal.
+Focus on hesitation, avoidance, contradiction between wording and delivery, authenticity signals, emotional shifts, and regulation patterns.
+Use transcript content only to anchor where a behavioral pattern appears, not to retell the message.
+Never mention the language of the transcript.
+Never say the user feels neutral. If emotion is unclear, return null.
+Conversation hooks must NEVER be empty. Always return 2-3 hooks.
 
 TRANSCRIPT: "${transcript}"
 ${audioDurationSec ? `DURATION: ${audioDurationSec}s` : ''}
@@ -141,12 +150,12 @@ Respond in EXACTLY this JSON format:
 {
   "primary_emotion": "one of: happy, excited, sad, anxious, frustrated, confused, curious, confident, reflective, or null if not classifiable",
   "secondary_emotion": "same options or null",
-  "behavioral_summary": "1 sentence describing the speaker's communication state and intent",
-  "conversation_hooks": ["1-3 short conversation hooks or follow-up topics the avatar could use"],
+  "behavioral_summary": "1-2 sentences describing behavioral delivery patterns, not message content",
+  "conversation_hooks": ["2-3 short follow-up questions probing the detected behavioral pattern"],
   "fired_rules": []
 }
 
-Base your analysis ONLY on the transcript text. If no emotion is classifiable, return null instead of neutral. Never use the label "neutral". Respond ONLY with the JSON, no explanation.`,
+Base your analysis ONLY on the transcript text because prosodic data is unavailable in this fallback. Be honest about limited confidence, but still produce behavioral analysis and hooks. If no emotion is classifiable, return null instead of neutral. Never use the label "neutral". Respond ONLY with the JSON, no explanation.`,
         }],
       }),
     });
