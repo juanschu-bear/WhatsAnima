@@ -54,9 +54,9 @@ export default function App() {
           <Route
             path="/perception"
             element={
-              <OwnerRoute>
+              <ProtectedRoute>
                 <Perception />
-              </OwnerRoute>
+              </ProtectedRoute>
             }
           />
           <Route
