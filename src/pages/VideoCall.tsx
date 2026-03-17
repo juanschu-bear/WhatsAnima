@@ -127,6 +127,86 @@ export default function VideoCall() {
   const callObjectRef = useRef<ReturnType<typeof DailyIframe.createCallObject> | null>(null)
   const localVideoRef = useRef<HTMLVideoElement | null>(null)
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null)
+  const sessionIdRef = useRef<string | null>(null)
+  const endingSessionRef = useRef(false)
+  const hiddenTimeoutRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    sessionIdRef.current = sessionId
+  }, [sessionId])
+
+  async function notifySessionStart(nextSessionId: string, joinUrl: string, personaName: string, replicaId: string) {
+    try {
+      await fetch('/api/live-session-start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: nextSessionId,
+          conversationId,
+          ownerId: conversation?.owner_id ?? conversation?.wa_owners?.id ?? null,
+          personaName,
+          replicaId,
+          language,
+          joinUrl,
+          backendBaseUrl: LIVE_CALL_API_BASE,
+        }),
+      })
+    } catch (error) {
+      console.error('[VideoCall] failed to audit session start', error)
+    }
+  }
+
+  function beaconSessionEnd(reason: string) {
+    const currentSessionId = sessionIdRef.current
+    if (!currentSessionId || endingSessionRef.current) return
+    endingSessionRef.current = true
+    const payload = JSON.stringify({
+      sessionId: currentSessionId,
+      conversationId,
+      ownerId: conversation?.owner_id ?? conversation?.wa_owners?.id ?? null,
+      personaName: selectedPersona,
+      replicaId: conversation?.wa_owners?.tavus_replica_id?.trim() || FALLBACK_REPLICA_ID,
+      language,
+      reason,
+    })
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon('/api/live-session-end', new Blob([payload], { type: 'application/json' }))
+      return
+    }
+    void fetch('/api/live-session-end', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: payload,
+      keepalive: true,
+    }).catch(() => undefined)
+  }
+
+  async function endBackendSession(reason: string) {
+    const currentSessionId = sessionIdRef.current
+    if (!currentSessionId || endingSessionRef.current) return
+    endingSessionRef.current = true
+    try {
+      await fetch('/api/live-session-end', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: currentSessionId,
+          conversationId,
+          ownerId: conversation?.owner_id ?? conversation?.wa_owners?.id ?? null,
+          personaName: selectedPersona,
+          replicaId: conversation?.wa_owners?.tavus_replica_id?.trim() || FALLBACK_REPLICA_ID,
+          language,
+          reason,
+        }),
+        keepalive: true,
+      })
+    } catch (error) {
+      console.error('[VideoCall] failed to end backend session', error)
+    } finally {
+      sessionIdRef.current = null
+      setSessionId(null)
+    }
+  }
 
   useEffect(() => {
     if (!conversationId) {
@@ -186,6 +266,11 @@ export default function VideoCall() {
 
   useEffect(() => {
     return () => {
+      if (hiddenTimeoutRef.current) {
+        window.clearTimeout(hiddenTimeoutRef.current)
+        hiddenTimeoutRef.current = null
+      }
+      void endBackendSession('component_unmount')
       const callObject = callObjectRef.current
       callObjectRef.current = null
       if (!callObject) return
@@ -204,6 +289,40 @@ export default function VideoCall() {
     const remoteStream = buildParticipantStream(remoteParticipant, true)
     attachStream(remoteVideoRef.current, remoteStream, false)
   }, [remoteParticipant])
+
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      beaconSessionEnd('beforeunload')
+    }
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        hiddenTimeoutRef.current = window.setTimeout(() => {
+          beaconSessionEnd('hidden_timeout')
+          const callObject = callObjectRef.current
+          if (!callObject) return
+          void callObject.leave().catch(() => undefined).finally(() => {
+            callObject.destroy()
+            callObjectRef.current = null
+          })
+        }, 60_000)
+        return
+      }
+      if (hiddenTimeoutRef.current) {
+        window.clearTimeout(hiddenTimeoutRef.current)
+        hiddenTimeoutRef.current = null
+      }
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    window.addEventListener('pagehide', handleBeforeUnload)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+      window.removeEventListener('pagehide', handleBeforeUnload)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [conversation, conversationId, language, selectedPersona])
 
   function syncParticipants(callObject: ReturnType<typeof DailyIframe.createCallObject>, eventName?: string) {
     const participants = Object.values(callObject.participants() || {}) as any[]
@@ -240,6 +359,8 @@ export default function VideoCall() {
       await callObject.leave().catch(() => undefined)
       callObject.destroy()
     }
+
+    await endBackendSession('leave_button')
 
     if (conversationId) {
       navigate(`/chat/${conversationId}`, { replace: true })
@@ -302,8 +423,11 @@ export default function VideoCall() {
       }
 
       setSessionId(payload.session_id)
+      sessionIdRef.current = payload.session_id
+      endingSessionRef.current = false
       setStatusText('Avatar joining...')
       setPhase('joining')
+      await notifySessionStart(payload.session_id, payload.join_url, personaName, replicaId)
 
       const callObject = DailyIframe.createCallObject()
       callObjectRef.current = callObject
@@ -332,9 +456,18 @@ export default function VideoCall() {
       }
 
       callObject.on('joined-meeting', (event: any) => handleParticipantChange('joined-meeting', event))
+      callObject.on('left-meeting', (event: any) => {
+        logEvent('left-meeting', event)
+        void endBackendSession('left_meeting')
+      })
       callObject.on('participant-joined', (event: any) => handleParticipantChange('participant-joined', event))
       callObject.on('participant-updated', (event: any) => handleParticipantChange('participant-updated', event))
-      callObject.on('participant-left', (event: any) => handleParticipantChange('participant-left', event))
+      callObject.on('participant-left', (event: any) => {
+        handleParticipantChange('participant-left', event)
+        if (event?.participant && !event.participant?.local && !isPipecatParticipant(event.participant)) {
+          void endBackendSession('participant_left')
+        }
+      })
       callObject.on('track-started', (event: any) => handleParticipantChange('track-started', event))
       callObject.on('track-stopped', (event: any) => handleParticipantChange('track-stopped', event))
       callObject.on('active-speaker-change', (event: any) => logEvent('active-speaker-change', event))
