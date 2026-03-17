@@ -28,6 +28,7 @@ interface ConversationRef {
   id: string
   owner_id: string
   contact_id: string
+  wa_contacts?: { display_name?: string | null } | null
 }
 
 interface UseVoiceRecordingOptions {
@@ -181,8 +182,9 @@ export function useVoiceRecording({
           primaryEmotion: opmResponse?.perception?.primary_emotion ?? null,
           secondaryEmotion: opmResponse?.perception?.secondary_emotion ?? null,
           firedRules: opmResponse?.fired_rules ?? null,
-          behavioralSummary: opmResponse?.interpretation?.behavioral_summary ?? null,
-          conversationHooks: opmResponse?.interpretation?.conversation_hooks ?? null,
+          behavioralSummary: opmResponse?.behavioral_summary ?? opmResponse?.perception?.behavioral_summary ?? opmResponse?.interpretation?.behavioral_summary ?? null,
+          conversationHooks: opmResponse?.conversation_hooks ?? opmResponse?.interpretation?.conversation_hooks ?? null,
+          recommendedTone: opmResponse?.recommended_tone ?? opmResponse?.perception?.recommended_tone ?? opmResponse?.interpretation?.recommended_tone ?? null,
           prosodicSummary: opmResponse?.prosodic_summary ?? null,
           mediaType: 'audio',
         }).catch((logErr) => console.warn('[perception-log]', logErr.message))

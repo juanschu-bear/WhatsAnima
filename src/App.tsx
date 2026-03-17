@@ -12,6 +12,8 @@ import AvatarSelect from './pages/AvatarSelect'
 import Settings from './pages/Settings'
 import Status from './pages/Status'
 import AuthCallback from './pages/AuthCallback'
+import VideoCall from './pages/VideoCall'
+import Perception from './pages/Perception'
 
 export default function App() {
   return (
@@ -24,6 +26,7 @@ export default function App() {
           <Route path="/invite/:token" element={<Invite />} />
           <Route path="/status" element={<Status />} />
           <Route path="/chat/:conversationId" element={<Chat />} />
+          <Route path="/video-call/:conversationId" element={<VideoCall />} />
           <Route
             path="/avatars"
             element={
@@ -46,6 +49,14 @@ export default function App() {
               <OwnerRoute>
                 <Dashboard />
               </OwnerRoute>
+            }
+          />
+          <Route
+            path="/perception"
+            element={
+              <ProtectedRoute>
+                <Perception />
+              </ProtectedRoute>
             }
           />
           <Route

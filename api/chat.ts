@@ -91,14 +91,37 @@ export type ChatMessage = {
 
 /** Extract string label from an emotion value that may be a plain string, a JSON-encoded string, or an OPM v4 object like {label, score}. */
 function emotionLabel(val: any): string {
+  const normalize = (raw: string) => {
+    const label = raw.trim()
+    if (!label) return ''
+    const lowered = label.toLowerCase()
+    if (lowered === 'neutral' || lowered === 'unknown' || lowered === 'unclassified') return ''
+    return label
+  }
   if (typeof val === 'string') {
     if (val.startsWith('{')) {
-      try { return JSON.parse(val).label || val } catch { return val }
+      try { return normalize(JSON.parse(val).label || val) } catch { return normalize(val) }
     }
-    return val
+    return normalize(val)
   }
-  if (val && typeof val === 'object' && typeof val.label === 'string') return val.label
+  if (val && typeof val === 'object' && typeof val.label === 'string') return normalize(val.label)
   return ''
+}
+
+function toDisplayList(value: any): string[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((item: any) => {
+      if (typeof item === 'string') return item.trim()
+      if (item && typeof item === 'object') {
+        if (typeof item.pattern === 'string') return item.pattern.trim()
+        if (typeof item.description === 'string') return item.description.trim()
+        if (typeof item.name === 'string') return item.name.trim()
+        if (typeof item.rule === 'string') return item.rule.trim()
+      }
+      return ''
+    })
+    .filter(Boolean)
 }
 
 export function buildPerceptionPrompt(perception: any) {
@@ -106,23 +129,15 @@ export function buildPerceptionPrompt(perception: any) {
 
   const emotionSource = perception.perception || perception
   const interpretation = perception.interpretation || {}
-  const hooks = interpretation.conversation_hooks || emotionSource.session_patterns || []
-  const firedRules = perception.fired_rules || []
+  const hooks = toDisplayList(interpretation.conversation_hooks || emotionSource.session_patterns || [])
+  const firedRules = toDisplayList(perception.fired_rules || [])
   const canon = perception.canon || null
 
   const lines = ['[PERCEPTION CONTEXT]']
 
-  // Emotion: replace "neutral" with personal center context
   const primary = emotionLabel(emotionSource.primary_emotion)
   if (primary) {
-    const lowerPrimary = primary.toLowerCase()
-    if (lowerPrimary === 'neutral' && canon?.tier >= 1) {
-      lines.push('Primary emotion: at personal center (baseline state)')
-    } else if (lowerPrimary === 'neutral' && canon?.phase === 'building') {
-      lines.push('Primary emotion: baseline still calibrating — treat as personal resting state')
-    } else {
-      lines.push(`Primary emotion: ${primary}`)
-    }
+    lines.push(`Primary emotion: ${primary}`)
   }
   const secondary = emotionLabel(emotionSource.secondary_emotion)
   if (secondary) {
@@ -187,7 +202,7 @@ export function buildPerceptionPrompt(perception: any) {
     lines.push(`Conversation hooks: ${hooks.join('; ')}`)
   }
   if (firedRules.length) {
-    lines.push(`Detected signals: ${firedRules.map((rule: any) => typeof rule === 'string' ? rule : rule.name || rule.rule || '').filter(Boolean).join(', ')}`)
+    lines.push(`Detected signals: ${firedRules.join(', ')}`)
   }
 
   lines.push('Respond to both what the user said and what was detected emotionally/behaviorally. Do not mention analysis or calibration unless asked.')
@@ -376,6 +391,47 @@ export async function callAnthropic(apiKey: string, systemPrompt: string, messag
   return text
 }
 
+export async function callOpenAI(apiKey: string, systemPrompt: string, messages: ChatMessage[]) {
+  const payload = {
+    model: process.env.OPENAI_CHAT_MODEL || 'gpt-4o-mini',
+    messages: [
+      { role: 'system', content: systemPrompt },
+      ...messages.map((message) => {
+        const tag = message.role === 'user' ? getMessageTypeTag(message) : ''
+        if (message.image_url && message.role === 'user') {
+          return {
+            role: message.role,
+            content: [
+              { type: 'text', text: `${tag}${message.content || 'The user shared this image.'}` },
+              { type: 'image_url', image_url: { url: message.image_url } },
+            ],
+          }
+        }
+        return { role: message.role, content: tag ? `${tag}${message.content}` : message.content }
+      }),
+    ],
+    max_tokens: 2048,
+  }
+
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(payload),
+  })
+
+  const result = await response.json()
+  if (!response.ok) {
+    throw new Error(result.error?.message || `OpenAI error ${response.status}`)
+  }
+
+  let text = result.choices?.[0]?.message?.content?.trim() || ''
+  text = text.replace(/^\[(?:Voice\s*(?:Response|message)|Text|Audio)\]\s*/i, '')
+  return text
+}
+
 export async function generateImageFromPrompt(prompt: string, conversationId?: string): Promise<string | null> {
   const accountId = process.env.CLOUDFLARE_ACCOUNT_ID
   const apiToken = process.env.CLOUDFLARE_AI_TOKEN
@@ -498,9 +554,10 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY
-  if (!apiKey) {
-    return res.status(500).json({ error: 'Missing ANTHROPIC_API_KEY' })
+  const anthropicApiKey = process.env.ANTHROPIC_API_KEY
+  const openaiApiKey = process.env.OPENAI_API_KEY
+  if (!anthropicApiKey && !openaiApiKey) {
+    return res.status(500).json({ error: 'Missing ANTHROPIC_API_KEY and OPENAI_API_KEY' })
   }
 
   let {
@@ -607,7 +664,22 @@ export default async function handler(req: any, res: any) {
     const systemPrompt = buildSystemPrompt(ownerPrompt, memory, stylePrompt, behavioralMemory, perception)
     const messages = prepareMessages(priorMessages, message, { image_url, isImage, isVideo, isVoice })
 
-    let content = await callAnthropic(apiKey, systemPrompt, messages)
+    let content = ''
+    let lastError: Error | null = null
+    if (anthropicApiKey) {
+      try {
+        content = await callAnthropic(anthropicApiKey, systemPrompt, messages)
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error))
+        console.error('[chat] Anthropic failed, falling back if available:', lastError.message)
+      }
+    }
+    if (!content && openaiApiKey) {
+      content = await callOpenAI(openaiApiKey, systemPrompt, messages)
+    }
+    if (!content && lastError) {
+      throw lastError
+    }
     if (!content) {
       return res.status(502).json({ error: 'Empty response from AI' })
     }
@@ -630,7 +702,8 @@ export default async function handler(req: any, res: any) {
 
     return res.status(200).json({ content })
   } catch (error) {
-    console.error('Chat API error:', error instanceof Error ? error.message : error)
+    const err = error instanceof Error ? error : new Error(String(error))
+    console.error('Chat API error:', err.message, err.stack)
     return res.status(500).json({ error: 'Chat processing failed' })
   }
 }

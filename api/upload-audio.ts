@@ -29,6 +29,7 @@ async function parseRequestBody(req: any): Promise<{
   conversationId: string
   mimeType: string
   filename?: string
+  originalFilename?: string
   ownerId: string
 }> {
   const rawCt = req.headers['content-type'] || ''
@@ -50,6 +51,7 @@ async function parseRequestBody(req: any): Promise<{
 
     let fileBuffer: Buffer | null = null
     let fileContentType = 'audio/webm'
+    let originalFilename: string | undefined
     const fields: Record<string, string> = {}
 
     let pos = 0
@@ -79,6 +81,8 @@ async function parseRequestBody(req: any): Promise<{
         fileBuffer = rawBody.subarray(dataStart, dataEnd)
         const partCt = headers.match(/Content-Type:\s*(.+?)(?:\r\n|$)/i)?.[1]?.trim()
         if (partCt) fileContentType = partCt
+        const uploadName = headers.match(/filename="([^"]+)"/i)?.[1]?.trim()
+        if (uploadName) originalFilename = uploadName.split('/').pop()?.split('\\').pop()
       } else {
         fields[fieldName] = rawBody.subarray(dataStart, dataEnd).toString('utf-8').trim()
       }
@@ -93,9 +97,10 @@ async function parseRequestBody(req: any): Promise<{
     return {
       audioBuffer: fileBuffer,
       conversationId: fields.conversationId || fields.conversation_id || 'general',
-      mimeType: fileContentType,
+      mimeType: fields.mimeType || fields.mime_type || fileContentType,
       filename: fields.filename || undefined,
-      ownerId: fields.owner_id || 'shared',
+      originalFilename,
+      ownerId: fields.ownerId || fields.owner_id || 'shared',
     }
   }
 
@@ -109,7 +114,8 @@ async function parseRequestBody(req: any): Promise<{
     conversationId: body.conversationId || body.conversation_id || 'general',
     mimeType: body.mime_type || 'audio/webm',
     filename: body.filename || undefined,
-    ownerId: body.owner_id || 'shared',
+    originalFilename: body.originalFilename || undefined,
+    ownerId: body.ownerId || body.owner_id || 'shared',
   }
 }
 
@@ -125,12 +131,14 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const { audioBuffer, conversationId, mimeType, filename, ownerId } = await parseRequestBody(req)
+    const { audioBuffer, conversationId, mimeType, filename, originalFilename, ownerId } = await parseRequestBody(req)
 
-    const ext = String(mimeType).includes('mpeg') ? 'mp3' : 'webm'
+    const cleanMimeType = (mimeType || 'audio/webm').split(';')[0]
+    const explicitExt = filename?.split('.').pop()?.toLowerCase() || originalFilename?.split('.').pop()?.toLowerCase()
+    const ext = explicitExt || (String(cleanMimeType).includes('mpeg') ? 'mp3' : String(cleanMimeType).includes('mp4') ? 'm4a' : 'webm')
     const contentType = (mimeType || 'audio/webm').split(';')[0]
     const storagePath = filename
-      ? `${conversationId}/${filename}`
+      ? (filename.includes('/') ? filename : `${conversationId}/${filename}`)
       : `${ownerId}/${conversationId}/${Date.now()}-${crypto.randomBytes(4).toString('hex')}.${ext}`
 
     await supabase.storage.createBucket(BUCKET, { public: true }).catch(() => undefined)
@@ -144,10 +152,11 @@ export default async function handler(req: any, res: any) {
       return res.status(500).json({ error: 'Upload failed: ' + error.message })
     }
 
-    const { data: urlData } = supabase.storage.from(BUCKET).getPublicUrl(storagePath)
+    const storedPath = data?.path || storagePath
+    const { data: urlData } = supabase.storage.from(BUCKET).getPublicUrl(storedPath)
     const publicUrl = urlData.publicUrl
 
-    return res.status(200).json({ url: publicUrl, audio_url: publicUrl, path: data?.path })
+    return res.status(200).json({ url: publicUrl, audio_url: publicUrl, path: storedPath })
   } catch (error) {
     console.error('[upload-audio] Error:', error instanceof Error ? error.message : error)
     return res.status(500).json({

@@ -36,13 +36,20 @@ type TierName = typeof CANON_TIERS[number]['name']
 
 /** Extract string label from an emotion value that may be a plain string, a JSON-encoded string, or an OPM v4 object like {label, score}. */
 function emotionLabel(val: any): string {
+  const normalize = (raw: string) => {
+    const label = raw.trim()
+    if (!label) return ''
+    const lowered = label.toLowerCase()
+    if (lowered === 'neutral' || lowered === 'unknown' || lowered === 'unclassified') return ''
+    return label
+  }
   if (typeof val === 'string') {
     if (val.startsWith('{')) {
-      try { return JSON.parse(val).label || val } catch { return val }
+      try { return normalize(JSON.parse(val).label || val) } catch { return normalize(val) }
     }
-    return val
+    return normalize(val)
   }
-  if (val && typeof val === 'object' && typeof val.label === 'string') return val.label
+  if (val && typeof val === 'object' && typeof val.label === 'string') return normalize(val.label)
   return ''
 }
 
@@ -204,8 +211,12 @@ export default async function handler(req: any, res: any) {
     firedRules,
     behavioralSummary,
     conversationHooks,
+    recommendedTone,
     prosodicSummary,
+    facialAnalysis,
+    bodyLanguage,
     mediaType,
+    videoDurationSec,
   } = req.body ?? {}
 
   if (!conversationId || !contactId || !ownerId) {
@@ -213,6 +224,29 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
+    console.log('[create-perception-log] behavioral_summary payload', {
+      conversationId,
+      contactId,
+      ownerId,
+      messageId: messageId ?? null,
+      behavioralSummary: behavioralSummary ?? null,
+      firedRulesCount: Array.isArray(firedRules) ? firedRules.length : 0,
+      hasProsodicSummary: prosodicSummary != null,
+      mediaType: mediaType ?? 'audio',
+    })
+
+    const normalizedPrimaryEmotion = emotionLabel(primaryEmotion) || null
+    const normalizedSecondaryEmotion = emotionLabel(secondaryEmotion) || null
+    const normalizedBehavioralSummary = typeof behavioralSummary === 'string' && behavioralSummary.trim().length > 24
+      ? behavioralSummary.trim()
+      : null
+    const normalizedHooks = Array.isArray(conversationHooks)
+      ? conversationHooks.filter((hook: unknown) => typeof hook === 'string' && hook.trim()).slice(0, 3)
+      : []
+    const normalizedTone = typeof recommendedTone === 'string' && recommendedTone.trim()
+      ? recommendedTone.trim()
+      : null
+
     // 1. Insert perception log with ALL data
     const { data: log, error: insertError } = await supabase
       .from('wa_perception_logs')
@@ -223,12 +257,17 @@ export default async function handler(req: any, res: any) {
         owner_id: ownerId,
         transcript: transcript ?? null,
         audio_duration_sec: audioDurationSec ?? null,
-        primary_emotion: emotionLabel(primaryEmotion) || null,
-        secondary_emotion: emotionLabel(secondaryEmotion) || null,
+        primary_emotion: normalizedPrimaryEmotion,
+        secondary_emotion: normalizedSecondaryEmotion,
         fired_rules: firedRules ?? [],
-        behavioral_summary: behavioralSummary ?? null,
-        conversation_hooks: conversationHooks ?? [],
+        behavioral_summary: normalizedBehavioralSummary,
+        conversation_hooks: normalizedHooks,
+        recommended_tone: normalizedTone,
         prosodic_summary: prosodicSummary ?? null,
+        facial_analysis: facialAnalysis ?? null,
+        body_language: bodyLanguage ?? null,
+        media_type: mediaType ?? 'audio',
+        video_duration_sec: videoDurationSec ?? null,
       })
       .select()
       .single()
@@ -238,13 +277,12 @@ export default async function handler(req: any, res: any) {
       return res.status(500).json({ error: insertError.message })
     }
 
-    // 2. Canon: get cumulative audio for this contact+owner
+    // 2. Canon: get cumulative audio for this contact (across ALL owners)
     //    ONLY count logs with real OPM prosodic data — fallback (prosodic_summary=null) must not inflate Canon.
     const { data: durationData } = await supabase
       .from('wa_perception_logs')
       .select('audio_duration_sec')
       .eq('contact_id', contactId)
-      .eq('owner_id', ownerId)
       .not('audio_duration_sec', 'is', null)
       .not('prosodic_summary', 'is', null)
 
@@ -282,33 +320,35 @@ export default async function handler(req: any, res: any) {
       })
     }
 
-    // 4. Canon: check existing baseline and its tier
+    // 4. Canon: check existing baseline (per contact, NOT per owner)
     const { data: existingBaseline } = await supabase
       .from('wa_voice_baseline')
-      .select('id, current_tier, baseline_data, cumulative_audio_sec')
+      .select('id, current_tier, baseline_data, cumulative_audio_sec, sample_count')
       .eq('contact_id', contactId)
-      .eq('owner_id', ownerId)
       .maybeSingle()
 
     const existingTier = existingBaseline?.current_tier ?? 0
-    const needsRecalibration = currentTier.tier > existingTier
+    const tierJustAdvanced = currentTier.tier > existingTier
     let baselineData = existingBaseline?.baseline_data ?? null
-    let tierJustAdvanced = false
 
-    if (needsRecalibration) {
-      // New tier reached — full recalculation from ALL logs with real OPM data
+    // Update baseline after EVERY perception log with real OPM data, not just on tier advancement.
+    // This ensures sample_count stays accurate and the baseline improves continuously.
+    const hasRealOpmData = prosodicSummary != null
+    const needsUpdate = hasRealOpmData || tierJustAdvanced
+
+    if (needsUpdate) {
+      // Recalculate from ALL logs with real OPM data (across all owners for this contact)
       const { data: allLogs } = await supabase
         .from('wa_perception_logs')
         .select('prosodic_summary, primary_emotion, audio_duration_sec')
         .eq('contact_id', contactId)
-        .eq('owner_id', ownerId)
         .not('prosodic_summary', 'is', null)
 
       const newBaseline = computeBaseline(allLogs || [])
 
       if (newBaseline) {
         baselineData = newBaseline
-        tierJustAdvanced = true
+        console.log(`[canon] Baseline update for contact=${contactId}: tier=${currentTier.tier} samples=${newBaseline.sample_count} cumulative_sec=${Math.round(cumulativeSec)} tier_advanced=${tierJustAdvanced} has_opm=${hasRealOpmData}`)
 
         if (existingBaseline) {
           // Update existing baseline row
@@ -325,12 +365,11 @@ export default async function handler(req: any, res: any) {
             })
             .eq('id', existingBaseline.id)
         } else {
-          // First baseline ever — insert
+          // First baseline ever — insert (no owner_id, baseline is per contact)
           const { error: baselineError } = await supabase
             .from('wa_voice_baseline')
             .insert({
               contact_id: contactId,
-              owner_id: ownerId,
               current_tier: currentTier.tier,
               tier_name: currentTier.name,
               confidence: currentTier.confidence,
@@ -343,7 +382,11 @@ export default async function handler(req: any, res: any) {
             console.warn('[canon] Baseline insert error:', baselineError.message)
           }
         }
+      } else {
+        console.log(`[canon] Baseline update skipped for contact=${contactId}: computeBaseline returned null (no prosodic data in logs)`)
       }
+    } else {
+      console.log(`[canon] Baseline update skipped for contact=${contactId}: no real OPM data in this message (prosodic_summary is null) and no tier advancement`)
     }
 
     // 5. Compute delta against baseline (current or just-recalibrated)

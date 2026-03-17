@@ -40,10 +40,32 @@ export function delay(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
+export async function readVideoBlobMetadata(blob: Blob) {
+  return new Promise<{ width: number; height: number; duration: number }>((resolve) => {
+    const video = document.createElement('video')
+    const objectUrl = URL.createObjectURL(blob)
+    video.preload = 'metadata'
+    video.onloadedmetadata = () => {
+      resolve({
+        width: video.videoWidth || 0,
+        height: video.videoHeight || 0,
+        duration: Number.isFinite(video.duration) ? video.duration : 0,
+      })
+      URL.revokeObjectURL(objectUrl)
+    }
+    video.onerror = () => {
+      resolve({ width: 0, height: 0, duration: 0 })
+      URL.revokeObjectURL(objectUrl)
+    }
+    video.src = objectUrl
+  })
+}
+
 interface ConversationRef {
   id: string
   owner_id: string
   contact_id: string
+  wa_contacts?: { display_name?: string | null } | null
 }
 
 /**
@@ -53,7 +75,7 @@ interface ConversationRef {
  */
 export async function uploadAudioToStorage(conversation: ConversationRef, audioBlob: Blob, mimeType: string) {
   const cleanType = (mimeType || 'audio/webm').split(';')[0]
-  const ext = cleanType === 'audio/mpeg' ? 'mp3' : cleanType === 'audio/mp4' ? 'm4a' : 'webm'
+  const ext = getFileExtension(audioBlob as Blob & { name?: string; type: string }, cleanType === 'audio/mpeg' ? 'mp3' : cleanType === 'audio/mp4' ? 'm4a' : 'webm')
   const filename = `voice-${Date.now()}.${ext}`
   const storagePath = `${conversation.id}/${filename}`
   const bucket = 'voice-messages'
@@ -61,12 +83,13 @@ export async function uploadAudioToStorage(conversation: ConversationRef, audioB
   // Try direct Supabase upload first (fastest, no serverless function)
   try {
     const { supabase } = await import('./supabase')
-    const { error } = await supabase.storage
+    const { data, error } = await supabase.storage
       .from(bucket)
       .upload(storagePath, audioBlob, { contentType: cleanType, upsert: true })
 
     if (!error) {
-      const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(storagePath)
+      const storedPath = data?.path || storagePath
+      const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(storedPath)
       return urlData.publicUrl
     }
     console.warn('[uploadAudio] Direct upload failed:', error.message, '— falling back to API route')
@@ -79,6 +102,8 @@ export async function uploadAudioToStorage(conversation: ConversationRef, audioB
   formData.append('file', audioBlob, filename)
   formData.append('conversationId', conversation.id)
   formData.append('filename', storagePath)
+  formData.append('mimeType', cleanType)
+  formData.append('ownerId', conversation.owner_id)
 
   const res = await fetch('/api/upload-audio', {
     method: 'POST',
@@ -124,6 +149,49 @@ export async function uploadMediaToStorage(
   return urlData.publicUrl
 }
 
+export async function uploadVideoMessage(blob: Blob, conversationId: string, ownerId: string): Promise<{ mediaUrl: string; durationSec: number }> {
+  const cleanType = (blob.type || 'video/webm').split(';')[0]
+  const ext = getFileExtension(blob as Blob & { name?: string; type: string }, cleanType.includes('mp4') ? 'mp4' : cleanType.includes('quicktime') ? 'mov' : 'webm')
+  const filename = `video-${Date.now()}.${ext}`
+  const storagePath = `${conversationId}/${filename}`
+  const bucket = 'video-messages'
+  const metadata = await readVideoBlobMetadata(blob)
+  const durationSec = Math.max(1, Math.round(metadata.duration || 0))
+
+  try {
+    const { supabase } = await import('./supabase')
+    const { data, error } = await supabase.storage
+      .from(bucket)
+      .upload(storagePath, blob, { contentType: cleanType, upsert: true })
+
+    if (!error) {
+      const storedPath = data?.path || storagePath
+      const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(storedPath)
+      return { mediaUrl: urlData.publicUrl, durationSec }
+    }
+    console.warn('[uploadVideoMessage] Direct upload failed:', error.message, '— falling back to API route')
+  } catch (directErr: any) {
+    console.warn('[uploadVideoMessage] Direct upload error:', directErr.message, '— falling back to API route')
+  }
+
+  const formData = new FormData()
+  formData.append('file', blob, filename)
+  formData.append('conversationId', conversationId)
+  formData.append('filename', storagePath)
+  formData.append('mimeType', cleanType)
+  formData.append('ownerId', ownerId)
+
+  const res = await fetch('/api/upload-video', {
+    method: 'POST',
+    body: formData,
+  })
+  const data = await res.json().catch(() => ({}))
+  if (res.ok && data.url) {
+    return { mediaUrl: data.url, durationSec: Number.isFinite(data.durationSec) ? data.durationSec : durationSec }
+  }
+  throw new Error('Upload failed: ' + (data.error || `HTTP ${res.status}`))
+}
+
 export async function getOpmConfig() {
   const response = await fetch('/api/config')
   const data = await response.json().catch(() => ({}))
@@ -137,6 +205,10 @@ export function normalizeOpmResponse(raw: any) {
   const unwrapped = raw?.result || raw?.data || raw
   const echoAnalysis = unwrapped?.echo_analysis || null
   const standardAnalysis = unwrapped?.standard_analysis || null
+  const isPlaceholderSummary = (value: any) => {
+    const text = typeof value === 'string' ? value.trim().toLowerCase() : ''
+    return text === '[no session patterns detected]' || text === 'no session patterns detected'
+  }
 
   if (echoAnalysis || standardAnalysis) {
     const isEcho = !!echoAnalysis
@@ -145,14 +217,35 @@ export function normalizeOpmResponse(raw: any) {
     const firedRules = analysis.fired_rules || []
     const transcript = audioFeatures.transcript || analysis.transcript || ''
     const sessionObj = unwrapped.session || null
-    const lucidText =
+    const directBehavioralSummaryRaw =
+      analysis.behavioral_summary ||
+      analysis.oracle_pulse?.behavioral_interpretation ||
+      ''
+    const directBehavioralSummary = isPlaceholderSummary(directBehavioralSummaryRaw) ? '' : directBehavioralSummaryRaw
+    const sessionLucidRaw =
       sessionObj?.lucid_interpretation?.interpretation ||
       sessionObj?.session_interpretation?.interpretation ||
       ''
+    const sessionLucid = isPlaceholderSummary(sessionLucidRaw) ? '' : sessionLucidRaw
+    const lucidText = directBehavioralSummary || sessionLucid || ''
     const sessionPatterns = sessionObj?.session_analysis?.session_patterns || []
+    console.log('[normalizeOpmResponse] behavioral_summary extraction', {
+      analysisType: isEcho ? 'echo' : 'standard',
+      directBehavioralSummaryRaw,
+      directBehavioralSummary,
+      sessionLucidRaw,
+      sessionLucid,
+      finalBehavioralSummary: lucidText || null,
+      firedRulesCount: Array.isArray(firedRules) ? firedRules.length : 0,
+    })
 
     return {
       transcript,
+      behavioral_summary: lucidText || null,
+      conversation_hooks: sessionPatterns.map((pattern: any) =>
+        typeof pattern === 'string' ? pattern : pattern?.pattern || pattern?.description || JSON.stringify(pattern)
+      ),
+      recommended_tone: analysis.recommended_tone || sessionObj?.lucid_interpretation?.recommended_tone || null,
       perception: {
         primary_emotion: audioFeatures.primary_emotion || null,
         secondary_emotion: audioFeatures.secondary_emotion || null,
@@ -160,6 +253,7 @@ export function normalizeOpmResponse(raw: any) {
         arousal: audioFeatures.arousal ?? null,
         confidence: audioFeatures.confidence ?? null,
         behavioral_summary: lucidText || null,
+        recommended_tone: analysis.recommended_tone || sessionObj?.lucid_interpretation?.recommended_tone || null,
         session_patterns: sessionPatterns,
         transcript,
       },
@@ -168,6 +262,7 @@ export function normalizeOpmResponse(raw: any) {
         conversation_hooks: sessionPatterns.map((pattern: any) =>
           typeof pattern === 'string' ? pattern : pattern?.pattern || pattern?.description || JSON.stringify(pattern)
         ),
+        recommended_tone: analysis.recommended_tone || sessionObj?.lucid_interpretation?.recommended_tone || null,
         lucid_raw: Boolean(lucidText),
       },
       session: sessionObj,
@@ -191,12 +286,62 @@ export function normalizeOpmResponse(raw: any) {
 }
 
 export type OpmStageCallback = (emoji: string, text: string, progress: number) => void
+const OPM_CLIENT_TIMEOUT_MS = 180000
+const OPM_CLIENT_POLL_INTERVAL_MS = 3000
+
+function hasMeaningfulOpmData(result: any) {
+  if (!result) return false
+  if (typeof result.transcript === 'string' && result.transcript.trim().length > 0) return true
+  if (result.perception?.primary_emotion || result.perception?.secondary_emotion) return true
+  if (result.behavioral_summary || result.interpretation?.behavioral_summary) return true
+  if (Array.isArray(result.fired_rules) && result.fired_rules.length > 0) return true
+  if (result.prosodic_summary && Object.keys(result.prosodic_summary).length > 0) return true
+  return false
+}
+
+async function callOpmViaProxy(
+  mediaBlob: Blob,
+  fileName: string,
+  conversation: ConversationRef,
+  mediaType: 'audio' | 'video',
+  onStage: OpmStageCallback,
+  uploadLabel: string,
+  watchingLabel: string,
+  firstName: string,
+) {
+  onStage('\uD83D\uDCE1', uploadLabel, 10)
+  const proxyForm = new FormData()
+  proxyForm.append('file', mediaBlob, fileName)
+  proxyForm.append('conversationId', conversation.id)
+  proxyForm.append('contactId', conversation.contact_id || '')
+  proxyForm.append('ownerId', conversation.owner_id || '')
+  proxyForm.append('mediaType', mediaType)
+  const opmRes = await fetch('/api/opm-process', {
+    method: 'POST',
+    body: proxyForm,
+  })
+  onStage('\uD83D\uDD2C', watchingLabel, 40)
+  const opmJson = await opmRes.json().catch(() => ({}))
+  if (!opmRes.ok) {
+    console.warn('[callOpmApi] opm-process error:', opmJson.error)
+    return normalizeOpmResponse({})
+  }
+  if (opmJson._debug) {
+    console.log('[callOpmApi] server debug:', JSON.stringify(opmJson._debug))
+  }
+  if (!opmJson.data) {
+    console.warn('[callOpmApi] opm-process returned null data — OPM error:', opmJson._debug?.opm_error || 'unknown', '| fallback:', opmJson._debug?.fallback || 'unknown')
+  }
+  onStage('\uD83E\uDDE0', `${firstName} is reading your expressions...`, 70)
+  onStage('\uD83D\uDCAC', `${firstName} is composing a response...`, 95)
+  return normalizeOpmResponse(opmJson.data || {})
+}
 
 export async function callOpmApi(
   conversation: ConversationRef,
   mediaBlob: Blob,
   mediaType: 'audio' | 'video',
-  opts?: { orientation?: number; onStage?: OpmStageCallback; avatarFirstName?: string }
+  opts?: { orientation?: number | 'portrait' | 'landscape'; onStage?: OpmStageCallback; avatarFirstName?: string }
 ) {
   const config = await getOpmConfig()
   const opmUrl = config.opm_api_url
@@ -218,106 +363,93 @@ export async function callOpmApi(
     : `${firstName} is watching your message...`
 
   if (!opmUrl) {
-    // Send Blob as FormData to avoid Vercel's 4.5MB JSON body limit
+    return callOpmViaProxy(mediaBlob, fileName, conversation, mediaType, onStage, uploadLabel, watchingLabel, firstName)
+  }
+
+  try {
+    // Real OPM: upload directly or via proxy
+    const useProxy = mediaType === 'video' && typeof opts?.orientation === 'number'
+    const uploadUrl = useProxy ? '/api/ingest-video' : `${opmUrl}/analyze`
     onStage('\uD83D\uDCE1', uploadLabel, 10)
-    const proxyForm = new FormData()
-    proxyForm.append('file', mediaBlob, fileName)
-    proxyForm.append('conversationId', conversation.id)
-    proxyForm.append('contactId', conversation.contact_id || '')
-    proxyForm.append('ownerId', conversation.owner_id || '')
-    const opmRes = await fetch('/api/opm-process', {
+    const formData = new FormData()
+    formData.append('video', mediaBlob, fileName)
+    formData.append('session_id', conversation.id || '')
+    formData.append('preset', preset)
+    if (conversation.wa_contacts?.display_name) formData.append('contact_name', conversation.wa_contacts.display_name)
+    if (opts?.orientation) formData.append('orientation', String(opts.orientation))
+
+    const submitRes = await fetch(uploadUrl, {
       method: 'POST',
-      body: proxyForm,
+      body: formData,
     })
-    onStage('\uD83D\uDD2C', watchingLabel, 40)
-    const opmJson = await opmRes.json().catch(() => ({}))
-    if (!opmRes.ok) {
-      console.warn('[callOpmApi] opm-process error:', opmJson.error)
-      return normalizeOpmResponse({})
+
+    if (!submitRes.ok) {
+      const errData = await submitRes.json().catch(() => ({}))
+      throw new Error(errData.error || 'processing_error')
     }
-    // Log server-side debug info so we can diagnose OPM failures
-    if (opmJson._debug) {
-      console.log('[callOpmApi] server debug:', JSON.stringify(opmJson._debug))
+
+    const submitData = await submitRes.json()
+    const jobId = submitData.job_id
+    const startTime = Date.now()
+    let jobComplete = false
+
+    onStage('\uD83D\uDD2C', watchingLabel, 25)
+
+    while (Date.now() - startTime < OPM_CLIENT_TIMEOUT_MS) {
+      await delay(OPM_CLIENT_POLL_INTERVAL_MS)
+      const statusRes = await fetch(`${opmUrl}/status/${jobId}`)
+      if (!statusRes.ok) continue
+      const statusData = await statusRes.json()
+      const jobStatus = String(statusData.status || '').toLowerCase()
+      const stage = String(statusData.stage || '').toLowerCase()
+
+      if (jobStatus === 'complete' || jobStatus === 'completed' || jobStatus === 'done') {
+        jobComplete = true
+        break
+      }
+      if (jobStatus === 'failed' || jobStatus === 'error') {
+        throw new Error(statusData.error || 'processing_error')
+      }
+
+      if (stage === 'cygnus' || stage === 'extracting' || jobStatus === 'processing') {
+        onStage('\uD83D\uDD2C', watchingLabel, 35)
+      } else if (stage === 'oracle' || stage === 'detecting') {
+        onStage('\uD83E\uDDE0', `${firstName} is reading your expressions...`, 55)
+      } else if (stage === 'lucid' || stage === 'interpreting') {
+        onStage('\uD83E\uDDE0', `${firstName} is reading your expressions...`, 70)
+      } else if (stage === 'trace' || stage === 'finalizing') {
+        onStage('\uD83D\uDCAC', `${firstName} is composing a response...`, 85)
+      } else {
+        const elapsed = Date.now() - startTime
+        const progress = Math.min(25 + Math.floor((elapsed / OPM_CLIENT_TIMEOUT_MS) * 60), 85)
+        onStage('\uD83D\uDD2C', watchingLabel, progress)
+      }
     }
-    if (!opmJson.data) {
-      console.warn('[callOpmApi] opm-process returned null data — OPM error:', opmJson._debug?.opm_error || 'unknown', '| fallback:', opmJson._debug?.fallback || 'unknown')
+
+    if (!jobComplete) {
+      throw new Error('processing_timeout')
     }
-    onStage('\uD83E\uDDE0', `${firstName} is reading your expressions...`, 70)
+
     onStage('\uD83D\uDCAC', `${firstName} is composing a response...`, 95)
-    return normalizeOpmResponse(opmJson.data || {})
-  }
-
-  // Real OPM: upload directly or via proxy
-  const useProxy = mediaType === 'video' && Boolean(opts?.orientation)
-  const uploadUrl = useProxy ? '/api/ingest-video' : `${opmUrl}/analyze`
-  onStage('\uD83D\uDCE1', uploadLabel, 10)
-  const formData = new FormData()
-  formData.append('video', mediaBlob, fileName)
-  formData.append('session_id', conversation.id || '')
-  formData.append('preset', preset)
-  if (opts?.orientation) formData.append('orientation', String(opts.orientation))
-
-  const submitRes = await fetch(uploadUrl, {
-    method: 'POST',
-    body: formData,
-  })
-
-  if (!submitRes.ok) {
-    const errData = await submitRes.json().catch(() => ({}))
-    throw new Error(errData.error || 'processing_error')
-  }
-
-  const submitData = await submitRes.json()
-  const jobId = submitData.job_id
-  const startTime = Date.now()
-  let jobComplete = false
-
-  onStage('\uD83D\uDD2C', watchingLabel, 25)
-
-  while (Date.now() - startTime < 180000) {
-    await delay(3000)
-    const statusRes = await fetch(`${opmUrl}/status/${jobId}`)
-    if (!statusRes.ok) continue
-    const statusData = await statusRes.json()
-    const jobStatus = String(statusData.status || '').toLowerCase()
-    const stage = String(statusData.stage || '').toLowerCase()
-
-    if (jobStatus === 'complete' || jobStatus === 'completed' || jobStatus === 'done') {
-      jobComplete = true
-      break
-    }
-    if (jobStatus === 'failed' || jobStatus === 'error') {
-      throw new Error(statusData.error || 'processing_error')
+    const resultsRes = await fetch(`${opmUrl}/results/${jobId}`)
+    if (!resultsRes.ok) {
+      throw new Error('processing_error')
     }
 
-    // Map OPM stages to user-facing text
-    if (stage === 'cygnus' || stage === 'extracting' || jobStatus === 'processing') {
-      onStage('\uD83D\uDD2C', watchingLabel, 35)
-    } else if (stage === 'oracle' || stage === 'detecting') {
-      onStage('\uD83E\uDDE0', `${firstName} is reading your expressions...`, 55)
-    } else if (stage === 'lucid' || stage === 'interpreting') {
-      onStage('\uD83E\uDDE0', `${firstName} is reading your expressions...`, 70)
-    } else if (stage === 'trace' || stage === 'finalizing') {
-      onStage('\uD83D\uDCAC', `${firstName} is composing a response...`, 85)
-    } else {
-      const elapsed = Date.now() - startTime
-      const progress = Math.min(25 + Math.floor((elapsed / 180000) * 60), 85)
-      onStage('\uD83D\uDD2C', watchingLabel, progress)
+    const rawResults = await resultsRes.json()
+    const normalized = normalizeOpmResponse(rawResults)
+    if (mediaType === 'audio' && !hasMeaningfulOpmData(normalized)) {
+      console.warn('[callOpmApi] direct audio OPM returned empty payload — falling back to proxy')
+      return callOpmViaProxy(mediaBlob, fileName, conversation, mediaType, onStage, uploadLabel, watchingLabel, firstName)
     }
+    return normalized
+  } catch (error) {
+    if (mediaType === 'audio') {
+      console.warn('[callOpmApi] direct audio OPM failed — falling back to proxy', error)
+      return callOpmViaProxy(mediaBlob, fileName, conversation, mediaType, onStage, uploadLabel, watchingLabel, firstName)
+    }
+    throw error
   }
-
-  if (!jobComplete) {
-    throw new Error('processing_timeout')
-  }
-
-  onStage('\uD83D\uDCAC', `${firstName} is composing a response...`, 95)
-  const resultsRes = await fetch(`${opmUrl}/results/${jobId}`)
-  if (!resultsRes.ok) {
-    throw new Error('processing_error')
-  }
-
-  const rawResults = await resultsRes.json()
-  return normalizeOpmResponse(rawResults)
 }
 
 /**

@@ -7,7 +7,7 @@ export const config = {
 /**
  * Parse incoming request — supports both FormData and JSON.
  */
-async function parseOpmRequest(req: any): Promise<{ blob: Blob; conversationId: string; contactId: string; filename: string }> {
+async function parseOpmRequest(req: any): Promise<{ blob: Blob; conversationId: string; contactId: string; filename: string; mediaType: 'audio' | 'video' }> {
   const rawCt = req.headers['content-type'] || '';
   const ct = rawCt.toLowerCase();
 
@@ -73,6 +73,7 @@ async function parseOpmRequest(req: any): Promise<{ blob: Blob; conversationId: 
       conversationId: fields.conversationId || '',
       contactId: fields.contactId || '',
       filename: fileName,
+      mediaType: fields.mediaType === 'video' ? 'video' : 'audio',
     };
   }
 
@@ -84,15 +85,104 @@ async function parseOpmRequest(req: any): Promise<{ blob: Blob; conversationId: 
     conversationId: json.conversationId || '',
     contactId: json.contactId || '',
     filename: json.filename || 'audio.webm',
+    mediaType: json.mediaType === 'video' ? 'video' : 'audio',
   };
 }
 
 // OPM v4.0 — async job-based API (was /api/v1/process, now POST /analyze)
 const OPM_BASE = 'https://boardroom-api.onioko.com';
 const OPM_POLL_INTERVAL_MS = 3000;
-const OPM_TIMEOUT_MS = 90000; // 90s — must fit inside Vercel's 120s function timeout with buffer for fallback
+const OPM_TIMEOUT_MS = 180000;
 
 function delay(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
+
+function sanitizeEmotionLabel(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const label = value.trim()
+  if (!label) return null
+  const lowered = label.toLowerCase()
+  if (lowered === 'neutral' || lowered === 'unknown' || lowered === 'unclassified') return null
+  return label
+}
+
+const INVALID_EMOTION_LABELS = new Set(['neutral', 'unknown', 'unclassified', ''])
+
+function deriveRecommendedTone(primaryEmotion: string | null): string {
+  const map: Record<string, string> = {
+    frustrated: 'patient and validating',
+    anxious: 'calm and reassuring',
+    annoyance: 'steady and non-defensive',
+    admiration: 'encouraging and expansive',
+    approval: 'warm and affirming',
+    disapproval: 'gently challenging',
+    curiosity: 'engaged and exploratory',
+    love: 'warm and receptive',
+    confusion: 'clear and grounding',
+    disappointment: 'supportive but direct',
+    reflective: 'quiet and curious',
+    surprise: 'steady and orienting',
+    excited: 'energized and focused',
+    confident: 'direct and collaborative',
+    sad: 'gentle and supportive',
+  }
+  return map[(primaryEmotion || '').toLowerCase()] || 'warm and curious'
+}
+
+function extractTopicAnchor(transcript: string): string {
+  const cleaned = String(transcript || '').replace(/\s+/g, ' ').trim()
+  if (!cleaned) return 'what you are circling around'
+  const sentence = cleaned
+    .split(/[.!?]/)
+    .map((part) => part.trim())
+    .find((part) => part.length > 18) || cleaned
+  const anchor = sentence
+    .replace(/["']/g, '')
+    .split(/\s+/)
+    .slice(0, 12)
+    .join(' ')
+    .trim()
+  return anchor || 'what you are circling around'
+}
+
+function buildFallbackHooks(summaryText: string): string[] {
+  const lower = summaryText.toLowerCase()
+  const hooks: string[] = []
+  if (lower.includes('hesitat')) hooks.push('What was going through your mind during those moments of hesitation?')
+  if (lower.includes('avoid')) hooks.push('There was a moment where you seemed to pull back - what were you avoiding?')
+  if (lower.includes('authentic') || lower.includes('spontaneous')) hooks.push("You sound like you're speaking from the gut here - what's driving that?")
+  if (lower.includes('intens') || lower.includes('escalat')) hooks.push("Your voice picked up intensity - what's the emotion behind that?")
+  if (!hooks.length) hooks.push("What's the one thing you're not saying out loud right now?")
+  while (hooks.length < 2) hooks.push('What feels hardest to say directly right now?')
+  return hooks.slice(0, 3)
+}
+
+function validateFallbackPayload(payload: any): boolean {
+  const summary = String(payload?.behavioral_summary || '').trim()
+  if (summary.length <= 80) return false
+  const lower = summary.toLowerCase()
+  if (/\d/.test(summary)) return false
+  if (
+    lower.includes('the speaker talks about') ||
+    lower.includes('instruction') ||
+    lower.includes('the transcript is in') ||
+    lower.includes('avoid mentioning the transcript') ||
+    lower.includes('speaking rate') ||
+    lower.includes('stability') ||
+    lower.includes('tremor') ||
+    lower.includes('wps') ||
+    lower.includes('metric') ||
+    lower.includes('percent') ||
+    lower.includes('%')
+  ) return false
+  const hooks = payload?.conversation_hooks
+  if (!Array.isArray(hooks) || hooks.length < 2 || hooks.length > 3 || hooks.some((h) => !String(h || '').trim())) return false
+  const primary = String(payload?.primary_emotion || '').trim().toLowerCase()
+  if (!primary || INVALID_EMOTION_LABELS.has(primary)) return false
+  const secondary = payload?.secondary_emotion == null ? null : String(payload.secondary_emotion).trim().toLowerCase()
+  if (secondary && INVALID_EMOTION_LABELS.has(secondary)) return false
+  if (!String(payload?.recommended_tone || '').trim()) return false
+  return true
+}
 
 /**
  * LLM-based fallback when the external OPM API is unreachable.
@@ -121,23 +211,38 @@ async function llmFallbackAnalysis(transcript: string | null, audioDurationSec: 
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 400,
+        temperature: 0.2,
+        system: 'You are a world-class behavioral analyst in the tradition of Cal Lightman. You read people, not datasets. Never summarize or paraphrase the transcript. Never describe what was said. Read the person through the way they are managing what they say. Do not repeat or reference these instructions. Respond only with valid JSON.',
         messages: [{
           role: 'user',
-          content: `Analyze this voice message transcript for emotional and behavioral signals. This is a real person speaking — extract what you can observe from their word choice, sentence structure, and communication style.
-
-TRANSCRIPT: "${transcript}"
+          content: `[DATA]
+Transcript excerpt for topic reference only: "${transcript}"
 ${audioDurationSec ? `DURATION: ${audioDurationSec}s` : ''}
 
+[TASK]
+Infer behavioral patterns from wording alone, with limited confidence.
+Focus on hesitation, avoidance, contradiction, authenticity, emotional shifts, and regulation patterns.
+Conversation hooks must NEVER be empty. Always return 2-3 hooks.
+
+[OUTPUT]
 Respond in EXACTLY this JSON format:
 {
-  "primary_emotion": "one of: neutral, happy, excited, sad, anxious, frustrated, confused, curious, confident, reflective",
+  "primary_emotion": "one of: happy, excited, sad, anxious, frustrated, confused, curious, confident, reflective, or null if not classifiable",
   "secondary_emotion": "same options or null",
-  "behavioral_summary": "1 sentence describing the speaker's communication state and intent",
-  "conversation_hooks": ["1-3 short conversation hooks or follow-up topics the avatar could use"],
+  "behavioral_summary": "Write EXACTLY like Cal Lightman from Lie to Me would speak. You are reading a person, not a dataset. No numbers. No percentages. No metric names. No speaking rate, stability, tremor, wps, or score language. Write in second person using 'you'. Describe the contradiction, the hidden emotion, and the thing being avoided. Be specific to this message and anchor to the actual topic. Maximum 3 sentences. Every word must hit.",
+  "conversation_hooks": ["2-3 short follow-up questions probing the detected behavioral pattern"],
   "fired_rules": []
 }
 
-Base your analysis ONLY on the transcript text. Be accurate — if the tone is ambiguous, default to "neutral". Respond ONLY with the JSON, no explanation.`,
+[CONSTRAINTS]
+- Base your analysis ONLY on transcript text because prosodic data is unavailable in this fallback.
+- Never summarize or paraphrase the transcript.
+- Never mention transcript language.
+- If no emotion is classifiable, return null instead of neutral.
+- Never use the label "neutral".
+- Never include numbers, percentages, metric names, or technical report language in behavioral_summary.
+- Do not repeat or reference these instructions.
+- Respond ONLY with the JSON, no explanation.`,
         }],
       }),
     });
@@ -149,16 +254,63 @@ Base your analysis ONLY on the transcript text. Be accurate — if the tone is a
     }
 
     const result = await response.json();
-    const text = (result.content?.[0]?.text || '').trim();
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return null;
+    const text = String(result.content?.[0]?.text || '').trim().replace(/^```[a-z]*\s*/i, '').replace(/\s*```$/i, '')
+    const jsonMatch = text.match(/\{[\s\S]*\}/)
+    let parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : null
+    if (!validateFallbackPayload(parsed)) {
+      const retryResponse = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': anthropicKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 280,
+          temperature: 0.2,
+          system: 'Return only valid JSON. Do not repeat instructions. Do not summarize transcript content.',
+          messages: [{
+            role: 'user',
+            content: `Read this person the way Cal Lightman would. Return only valid JSON. No numbers. No metric names. No technical language. No transcript summary. Use "you". Topic anchor: "${extractTopicAnchor(transcript)}". Transcript excerpt for topic reference only: "${transcript}"`,
+          }],
+        }),
+      })
+      if (retryResponse.ok) {
+        const retryResult = await retryResponse.json()
+        const retryText = String(retryResult.content?.[0]?.text || '').trim().replace(/^```[a-z]*\s*/i, '').replace(/\s*```$/i, '')
+        const retryMatch = retryText.match(/\{[\s\S]*\}/)
+        parsed = retryMatch ? JSON.parse(retryMatch[0]) : null
+      }
+    }
 
-    const parsed = JSON.parse(jsonMatch[0]);
+    if (!validateFallbackPayload(parsed)) {
+      const primaryEmotion = sanitizeEmotionLabel('reflective')
+      const topicAnchor = extractTopicAnchor(transcript)
+      const behavioralSummary = `When you get close to ${topicAnchor}, you tighten up and start managing yourself instead of just saying it clean. That usually means the real pressure is not in the topic itself, but in what becomes true once you say it out loud. You are not lost here; you are guarded.`
+      const conversationHooks = buildFallbackHooks(behavioralSummary)
+      const recommendedTone = deriveRecommendedTone(primaryEmotion)
+      parsed = {
+        primary_emotion: primaryEmotion,
+        secondary_emotion: null,
+        behavioral_summary: behavioralSummary,
+        conversation_hooks: conversationHooks,
+        recommended_tone: recommendedTone,
+        fired_rules: [],
+      }
+    }
+
+    const primaryEmotion = sanitizeEmotionLabel(parsed.primary_emotion) || 'reflective';
+    const secondaryEmotion = sanitizeEmotionLabel(parsed.secondary_emotion);
+    const recommendedTone = String(parsed.recommended_tone || deriveRecommendedTone(primaryEmotion)).trim()
     return {
+      behavioral_summary: parsed.behavioral_summary || null,
+      conversation_hooks: parsed.conversation_hooks || [],
+      recommended_tone: recommendedTone,
       echo_analysis: {
         audio_features: {
-          primary_emotion: parsed.primary_emotion || 'neutral',
-          secondary_emotion: parsed.secondary_emotion || null,
+          primary_emotion: primaryEmotion,
+          secondary_emotion: secondaryEmotion,
           transcript,
           prosodic_summary: null,
         },
@@ -168,6 +320,7 @@ Base your analysis ONLY on the transcript text. Be accurate — if the tone is a
       session: {
         lucid_interpretation: {
           interpretation: parsed.behavioral_summary || '',
+          recommended_tone: recommendedTone,
         },
         session_analysis: {
           session_patterns: (parsed.conversation_hooks || []).map((h: string) => ({ pattern: h })),
@@ -242,7 +395,7 @@ async function callOpmV4(blob: Blob, filename: string, sessionId: string, preset
   }
 
   if (!jobComplete) {
-    throw new Error('OPM job timed out after 180s');
+    throw new Error('OPM job timed out after 15s');
   }
 
   // 3. Get results — GET /results/{job_id}
@@ -258,7 +411,7 @@ export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const { blob, conversationId, contactId, filename } = await parseOpmRequest(req);
+    const { blob, conversationId, contactId, filename, mediaType } = await parseOpmRequest(req);
     if (!conversationId || !contactId) {
       return res.status(400).json({ error: 'conversationId and contactId are required' });
     }
@@ -270,7 +423,7 @@ export default async function handler(req: any, res: any) {
     let fallbackUsed: string | null = null;
     try {
       console.log('[opm-process] Calling OPM v4.0 /analyze — blob size:', blob.size, 'bytes, type:', blob.type);
-      opmData = await callOpmV4(blob, finalFilename, conversationId, 'echo');
+      opmData = await callOpmV4(blob, finalFilename, conversationId, mediaType === 'video' ? 'celebrity_ceo' : 'echo');
       console.log('[opm-process] OPM v4.0 returned results');
     } catch (opmErr: any) {
       opmError = opmErr.message || String(opmErr);
@@ -281,8 +434,8 @@ export default async function handler(req: any, res: any) {
     if (!opmData) {
       console.log('[opm-process] Running LLM fallback analysis');
 
-      let transcript: string | null = null;
-      let audioDurationSec: number | null = null;
+    let transcript: string | null = null;
+    let audioDurationSec: number | null = null;
       try {
         const deepgramKey = process.env.DEEPGRAM_API_KEY;
         const elevenLabsKey = process.env.ELEVENLABS_API_KEY || process.env.VITE_ELEVENLABS_API_KEY;
@@ -308,6 +461,8 @@ export default async function handler(req: any, res: any) {
           if (sttRes.ok) {
             const sttData = await sttRes.json();
             transcript = sttData.results?.channels?.[0]?.alternatives?.[0]?.transcript?.trim() || null;
+            const dgDuration = sttData.metadata?.duration;
+            audioDurationSec = typeof dgDuration === 'number' && Number.isFinite(dgDuration) ? dgDuration : audioDurationSec;
             console.log('[opm-process] Deepgram transcript:', transcript ? `"${transcript.slice(0, 80)}..."` : '(empty)');
           } else {
             console.warn('[opm-process] Deepgram STT error:', sttRes.status, await sttRes.text().catch(() => ''));
@@ -328,6 +483,8 @@ export default async function handler(req: any, res: any) {
           if (sttRes.ok) {
             const sttData = await sttRes.json();
             transcript = sttData.text?.trim() || null;
+            const elDuration = sttData.audio_duration_seconds;
+            audioDurationSec = typeof elDuration === 'number' && Number.isFinite(elDuration) ? elDuration : audioDurationSec;
             console.log('[opm-process] ElevenLabs transcript:', transcript ? `"${transcript.slice(0, 80)}..."` : '(empty)');
           } else {
             console.warn('[opm-process] ElevenLabs STT error:', sttRes.status, await sttRes.text().catch(() => ''));

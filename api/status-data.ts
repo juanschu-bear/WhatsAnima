@@ -10,7 +10,7 @@ function getSupabaseAdmin() {
   return createClient(url, key)
 }
 
-const CHECK_NAMES = ['db_schema', 'opm', 'auth', 'tts', 'chat_api', 'transcription', 'tunnel_latency'] as const
+const CHECK_NAMES = ['db_schema', 'opm', 'auth', 'tts', 'chat_api', 'transcription', 'tunnel_latency', 'avatar_reply'] as const
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
 
 export default async function handler(req: any, res: any) {
@@ -29,14 +29,16 @@ export default async function handler(req: any, res: any) {
 
   const sevenDaysAgo = new Date(Date.now() - SEVEN_DAYS_MS).toISOString()
 
-  // Fetch last 7 days of checks + incidents in parallel
-  const [checksResult, incidentsResult] = await Promise.all([
+  // Fetch last 7 days of checks (paginated to bypass PostgREST max-rows cap)
+  // and incidents in parallel
+  const PAGE_SIZE = 1000
+  const [firstPage, incidentsResult] = await Promise.all([
     supabase
       .from('wa_health_checks')
       .select('check_name, status, message, response_time_ms, timestamp')
       .gte('timestamp', sevenDaysAgo)
       .order('timestamp', { ascending: false })
-      .limit(50000),
+      .range(0, PAGE_SIZE - 1),
     supabase
       .from('wa_incidents')
       .select('*')
@@ -44,7 +46,25 @@ export default async function handler(req: any, res: any) {
       .order('started_at', { ascending: false }),
   ])
 
-  const checks = checksResult.data || []
+  let checks = firstPage.data || []
+
+  // Keep fetching until we get all rows (server may cap each page)
+  if (checks.length === PAGE_SIZE) {
+    let offset = PAGE_SIZE
+    while (true) {
+      const { data } = await supabase
+        .from('wa_health_checks')
+        .select('check_name, status, message, response_time_ms, timestamp')
+        .gte('timestamp', sevenDaysAgo)
+        .order('timestamp', { ascending: false })
+        .range(offset, offset + PAGE_SIZE - 1)
+      if (!data || data.length === 0) break
+      checks = checks.concat(data)
+      if (data.length < PAGE_SIZE) break
+      offset += PAGE_SIZE
+    }
+  }
+
   const incidents = incidentsResult.data || []
 
   // Build per-service summary
@@ -75,22 +95,32 @@ function buildTimeline(checks: any[], sinceIso: string) {
   const nowMs = Date.now()
   const slotDuration = (nowMs - sinceMs) / slots
 
-  const timeline: ('ok' | 'fail' | 'degraded' | 'no_data')[] = new Array(slots).fill('no_data')
+  // Collect all check statuses per slot, then decide by majority
+  const slotChecks: { ok: number; fail: number; degraded: number }[] = Array.from(
+    { length: slots },
+    () => ({ ok: 0, fail: 0, degraded: 0 })
+  )
 
   for (const check of checks) {
     const ts = new Date(check.timestamp).getTime()
-    const idx = Math.floor((ts - sinceMs) / slotDuration)
-    if (idx >= 0 && idx < slots) {
-      // Priority: fail > degraded > ok > no_data
-      if (timeline[idx] === 'no_data') {
-        timeline[idx] = check.status === 'ok' ? 'ok' : check.status === 'degraded' ? 'degraded' : 'fail'
-      } else if (check.status === 'fail') {
-        timeline[idx] = 'fail'
-      } else if (check.status === 'degraded' && timeline[idx] === 'ok') {
-        timeline[idx] = 'degraded'
-      }
+    if (isNaN(ts)) continue
+    const idx = Math.min(Math.floor((ts - sinceMs) / slotDuration), slots - 1)
+    if (idx >= 0) {
+      const status = check.status === 'ok' ? 'ok' : check.status === 'degraded' ? 'degraded' : 'fail'
+      slotChecks[idx][status]++
     }
   }
+
+  const FAIL_THRESHOLD = 0.3 // 30% of checks must fail to mark slot as "fail"
+
+  const timeline: ('ok' | 'fail' | 'degraded' | 'no_data')[] = slotChecks.map((counts) => {
+    const total = counts.ok + counts.fail + counts.degraded
+    if (total === 0) return 'no_data'
+    const failRatio = counts.fail / total
+    if (failRatio >= FAIL_THRESHOLD) return 'fail'
+    if (counts.fail > 0 || counts.degraded > 0) return 'degraded'
+    return 'ok'
+  })
 
   return timeline
 }

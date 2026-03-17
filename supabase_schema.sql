@@ -311,8 +311,9 @@ CREATE POLICY "owners_claim_orphan" ON public.wa_owners
 -- =============================================================
 -- Canon: Personal Voice Baseline (5-Tier Calibration System)
 -- =============================================================
--- Stores the calibrated personal audio baseline per contact+owner pair.
--- Baseline is recalculated from ALL data at each tier advancement.
+-- Stores the calibrated personal audio baseline per contact.
+-- A user has ONE voice regardless of which avatar they talk to.
+-- Baseline is recalculated from ALL data after every real OPM message.
 --
 -- Tier 0: building       (< 60s)       — collecting, no baseline
 -- Tier 1: snapshot       (≥ 60s)       — first glimpse, ~15% confidence
@@ -360,7 +361,7 @@ CREATE TABLE IF NOT EXISTS public.wa_voice_baseline (
   sample_count INTEGER NOT NULL DEFAULT 0,
   locked_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(contact_id, owner_id)
+  UNIQUE(contact_id)
 );
 
 ALTER TABLE public.wa_voice_baseline ENABLE ROW LEVEL SECURITY;
