@@ -392,6 +392,47 @@ export async function callAnthropic(apiKey: string, systemPrompt: string, messag
   return text
 }
 
+export async function callOpenAI(apiKey: string, systemPrompt: string, messages: ChatMessage[]) {
+  const payload = {
+    model: process.env.OPENAI_CHAT_MODEL || 'gpt-4o-mini',
+    messages: [
+      { role: 'system', content: systemPrompt },
+      ...messages.map((message) => {
+        const tag = message.role === 'user' ? getMessageTypeTag(message) : ''
+        if (message.image_url && message.role === 'user') {
+          return {
+            role: message.role,
+            content: [
+              { type: 'text', text: `${tag}${message.content || 'The user shared this image.'}` },
+              { type: 'image_url', image_url: { url: message.image_url } },
+            ],
+          }
+        }
+        return { role: message.role, content: tag ? `${tag}${message.content}` : message.content }
+      }),
+    ],
+    max_tokens: 2048,
+  }
+
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(payload),
+  })
+
+  const result = await response.json()
+  if (!response.ok) {
+    throw new Error(result.error?.message || `OpenAI error ${response.status}`)
+  }
+
+  let text = result.choices?.[0]?.message?.content?.trim() || ''
+  text = text.replace(/^\[(?:Voice\s*(?:Response|message)|Text|Audio)\]\s*/i, '')
+  return text
+}
+
 export async function generateImageFromPrompt(prompt: string, conversationId?: string): Promise<string | null> {
   const accountId = process.env.CLOUDFLARE_ACCOUNT_ID
   const apiToken = process.env.CLOUDFLARE_AI_TOKEN
@@ -514,9 +555,10 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY
-  if (!apiKey) {
-    return res.status(500).json({ error: 'Missing ANTHROPIC_API_KEY' })
+  const anthropicApiKey = process.env.ANTHROPIC_API_KEY
+  const openaiApiKey = process.env.OPENAI_API_KEY
+  if (!anthropicApiKey && !openaiApiKey) {
+    return res.status(500).json({ error: 'Missing ANTHROPIC_API_KEY and OPENAI_API_KEY' })
   }
 
   let {
@@ -623,7 +665,22 @@ export default async function handler(req: any, res: any) {
     const systemPrompt = buildSystemPrompt(ownerPrompt, memory, stylePrompt, behavioralMemory, perception)
     const messages = prepareMessages(priorMessages, message, { image_url, isImage, isVideo, isVoice })
 
-    let content = await callAnthropic(apiKey, systemPrompt, messages)
+    let content = ''
+    let lastError: Error | null = null
+    if (anthropicApiKey) {
+      try {
+        content = await callAnthropic(anthropicApiKey, systemPrompt, messages)
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error))
+        console.error('[chat] Anthropic failed, falling back if available:', lastError.message)
+      }
+    }
+    if (!content && openaiApiKey) {
+      content = await callOpenAI(openaiApiKey, systemPrompt, messages)
+    }
+    if (!content && lastError) {
+      throw lastError
+    }
     if (!content) {
       return res.status(502).json({ error: 'Empty response from AI' })
     }
@@ -648,9 +705,6 @@ export default async function handler(req: any, res: any) {
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     console.error('Chat API error:', err.message, err.stack)
-    return res.status(500).json({
-      error: err.message || 'Chat processing failed',
-      stack: err.stack || null,
-    })
+    return res.status(500).json({ error: 'Chat processing failed' })
   }
 }
