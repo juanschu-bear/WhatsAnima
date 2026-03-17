@@ -53,12 +53,26 @@ interface ConversationRow {
 }
 
 export async function listAllOwners() {
-  const response = await fetch('/api/list-owners')
-  const data = await response.json()
-  if (!response.ok) {
-    throw new Error(data?.error || `Failed to load owners (${response.status})`)
+  try {
+    const response = await fetch('/api/list-owners')
+    const data = await response.json()
+    if (!response.ok) {
+      throw new Error(data?.error || `Failed to load owners (${response.status})`)
+    }
+    return data ?? []
+  } catch (error) {
+    console.warn('[listAllOwners] API route failed, falling back to client query:', error)
+    const { data, error: queryError } = await supabase
+      .from('wa_owners')
+      .select('id, display_name')
+      .is('deleted_at', null)
+      .order('display_name', { ascending: true })
+
+    if (queryError) {
+      throw queryError
+    }
+    return data ?? []
   }
-  return data ?? []
 }
 
 export async function findOrCreateConversation(ownerId: string, contactId: string) {
