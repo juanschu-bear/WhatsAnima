@@ -102,14 +102,13 @@ const EMOTION_STYLES: Record<string, { color: string; bg: string; border: string
   admiration: { color: 'text-emerald-300', bg: 'bg-emerald-500/12', border: 'border-emerald-400/20', emoji: '🤩' },
   approval: { color: 'text-blue-300', bg: 'bg-blue-500/12', border: 'border-blue-400/20', emoji: '👍' },
   disapproval: { color: 'text-violet-300', bg: 'bg-violet-500/12', border: 'border-violet-400/20', emoji: '👎' },
-  neutral: { color: 'text-slate-300', bg: 'bg-slate-500/12', border: 'border-slate-400/20', emoji: '😐' },
   curiosity: { color: 'text-cyan-300', bg: 'bg-cyan-500/12', border: 'border-cyan-400/20', emoji: '🧐' },
   love: { color: 'text-pink-300', bg: 'bg-pink-500/12', border: 'border-pink-400/20', emoji: '❤️' },
   confusion: { color: 'text-purple-300', bg: 'bg-purple-500/12', border: 'border-purple-400/20', emoji: '😵' },
   disappointment: { color: 'text-gray-300', bg: 'bg-gray-500/12', border: 'border-gray-400/20', emoji: '😞' },
   reflective: { color: 'text-indigo-300', bg: 'bg-indigo-500/12', border: 'border-indigo-400/20', emoji: '🤔' },
   surprise: { color: 'text-fuchsia-300', bg: 'bg-fuchsia-500/12', border: 'border-fuchsia-400/20', emoji: '😲' },
-  unknown: { color: 'text-slate-300', bg: 'bg-slate-500/12', border: 'border-slate-400/20', emoji: '😐' },
+  unclassified: { color: 'text-slate-400', bg: 'bg-slate-600/12', border: 'border-slate-600/30', emoji: '—' },
 }
 
 const RULE_STYLES: Record<string, { color: string; bg: string; border: string }> = {
@@ -203,8 +202,18 @@ function normalizeKey(value: string) {
   return value.trim().toLowerCase().replace(/\s+/g, '_')
 }
 
+function normalizeEmotionValue(value: string | null | undefined) {
+  const raw = (value || '').trim()
+  if (!raw) return 'Unclassified'
+  const lowered = raw.toLowerCase()
+  if (lowered === 'neutral' || lowered === 'unknown' || lowered === 'unclassified') return 'Unclassified'
+  return titleCase(raw, 'Unclassified')
+}
+
 function emotionStyle(value: string) {
-  return EMOTION_STYLES[normalizeKey(value)] ?? EMOTION_STYLES.unknown
+  const key = normalizeKey(value)
+  if (key === 'neutral' || key === 'unknown' || key === 'unclassified') return EMOTION_STYLES.unclassified
+  return EMOTION_STYLES[key] ?? EMOTION_STYLES.unclassified
 }
 
 function ruleStyle(value: string) {
@@ -474,8 +483,8 @@ export default function Perception() {
             contactName: contact?.display_name?.trim() || contact?.email?.trim() || 'Guest',
             transcript,
             language: detectLanguage(transcript),
-            primaryEmotion: titleCase(log.primary_emotion, 'Unknown'),
-            secondaryEmotion: titleCase(log.secondary_emotion, 'Unknown'),
+            primaryEmotion: normalizeEmotionValue(log.primary_emotion),
+            secondaryEmotion: normalizeEmotionValue(log.secondary_emotion),
             recommendedTone: titleCase(log.recommended_tone, 'Calm, direct'),
             behavioralSummary: (log.behavioral_summary || '').trim(),
             conversationHooks: normalizeHooks(log.conversation_hooks),
@@ -512,7 +521,7 @@ export default function Perception() {
     [entries],
   )
   const emotionOptions = useMemo(
-    () => ['All', ...Array.from(new Set(entries.flatMap((entry) => [entry.primaryEmotion, entry.secondaryEmotion]).filter(Boolean))).sort()],
+    () => ['All', ...Array.from(new Set(entries.flatMap((entry) => [entry.primaryEmotion, entry.secondaryEmotion]).filter((emotion) => emotion && emotion !== 'Unclassified'))).sort()],
     [entries],
   )
   const ruleOptions = useMemo(

@@ -94,6 +94,15 @@ const OPM_TIMEOUT_MS = 90000; // must leave room inside Vercel's function timeou
 
 function delay(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
 
+function sanitizeEmotionLabel(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const label = value.trim()
+  if (!label) return null
+  const lowered = label.toLowerCase()
+  if (lowered === 'neutral' || lowered === 'unknown' || lowered === 'unclassified') return null
+  return label
+}
+
 /**
  * LLM-based fallback when the external OPM API is unreachable.
  * Analyzes the transcript to extract emotion, behavioral summary, and
@@ -130,14 +139,14 @@ ${audioDurationSec ? `DURATION: ${audioDurationSec}s` : ''}
 
 Respond in EXACTLY this JSON format:
 {
-  "primary_emotion": "one of: neutral, happy, excited, sad, anxious, frustrated, confused, curious, confident, reflective",
+  "primary_emotion": "one of: happy, excited, sad, anxious, frustrated, confused, curious, confident, reflective, or null if not classifiable",
   "secondary_emotion": "same options or null",
   "behavioral_summary": "1 sentence describing the speaker's communication state and intent",
   "conversation_hooks": ["1-3 short conversation hooks or follow-up topics the avatar could use"],
   "fired_rules": []
 }
 
-Base your analysis ONLY on the transcript text. Be accurate — if the tone is ambiguous, default to "neutral". Respond ONLY with the JSON, no explanation.`,
+Base your analysis ONLY on the transcript text. If no emotion is classifiable, return null instead of neutral. Never use the label "neutral". Respond ONLY with the JSON, no explanation.`,
         }],
       }),
     });
@@ -154,11 +163,13 @@ Base your analysis ONLY on the transcript text. Be accurate — if the tone is a
     if (!jsonMatch) return null;
 
     const parsed = JSON.parse(jsonMatch[0]);
+    const primaryEmotion = sanitizeEmotionLabel(parsed.primary_emotion);
+    const secondaryEmotion = sanitizeEmotionLabel(parsed.secondary_emotion);
     return {
       echo_analysis: {
         audio_features: {
-          primary_emotion: parsed.primary_emotion || 'neutral',
-          secondary_emotion: parsed.secondary_emotion || null,
+          primary_emotion: primaryEmotion,
+          secondary_emotion: secondaryEmotion,
           transcript,
           prosodic_summary: null,
         },
