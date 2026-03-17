@@ -1,4 +1,4 @@
-import { getSupabaseAdmin, logLiveSessionEvent, normalizeBody } from './_lib/liveSessionAudit'
+import { getSupabaseAdmin, logLiveSessionEvent, normalizeBody } from './_lib/liveSessionAudit.js'
 
 const LIVE_CALL_API_BASE =
   process.env.LIVE_CALL_API_BASE ||
@@ -43,7 +43,7 @@ export default async function handler(req: any, res: any) {
 
   try {
     const response = await fetch(
-      `${LIVE_CALL_API_BASE.replace(/\\/$/, '')}/api/sessions/${encodeURIComponent(sessionId)}`,
+      `${LIVE_CALL_API_BASE.replace(/\/$/, '')}/api/sessions/${encodeURIComponent(sessionId)}`,
       { method: 'DELETE' },
     )
 
