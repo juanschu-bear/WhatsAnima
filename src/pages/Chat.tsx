@@ -11,9 +11,7 @@ import { getConversation, listMessages, listPerceptionLogs, sendMessage, createP
 import { resolveAvatarUrl } from '../lib/avatars'
 import { t } from '../lib/i18n'
 import {
-  uploadAudioToStorage, uploadMediaToStorage, uploadVideoMessage,
-  callOpmApi,
-  readVideoMetadata, readVideoBlobMetadata, correctVideoOrientation,
+  uploadAudioToStorage, uploadMediaToStorage,
 } from '../lib/mediaUtils'
 import { useReactions, QUICK_EMOJIS } from '../hooks/useReactions'
 import { useReadReceipts } from '../hooks/useReadReceipts'
@@ -21,7 +19,6 @@ import { useSessionMemory } from '../hooks/useSessionMemory'
 import { useMessageSelection } from '../hooks/useMessageSelection'
 import { useVoiceRecording } from '../hooks/useVoiceRecording'
 import { getVoiceListeningDelay, getVideoWatchingDelay, getAvatarFirstName, VOICE_SEEN_DELAY_MS } from '../lib/voiceDelay'
-import { VideoRecorder } from '../components/VideoRecorder'
 import {
   playNotificationSound,
   isAppVisible,
@@ -69,7 +66,6 @@ interface ConversationData {
 
 interface CaptionDraft {
   file: File
-  kind: 'image' | 'video'
   previewUrl: string
 }
 const WAVEFORM_BARS = Array.from({ length: 15 }, (_, index) => index)
@@ -971,21 +967,11 @@ const MediaMessageBubble = memo(function MediaMessageBubble({
   isContact,
   message,
   isRead,
-  transcript,
 }: {
   isContact: boolean
   message: Message
   isRead?: boolean
-  transcript?: string
 }) {
-  const [isVideoPlaying, setIsVideoPlaying] = useState(false)
-  const [isTranscriptOpen, setIsTranscriptOpen] = useState(false)
-  const [videoAspectRatio, setVideoAspectRatio] = useState<'9 / 16' | '16 / 9'>('9 / 16')
-  const [videoTransform, setVideoTransform] = useState<'none' | 'rotate(90deg)'>('none')
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const posterUrl = message.thumbnail_url || message.poster_url || message.preview_url || undefined
-  const isRecordedVideoMessage = (message.content || '') === '[Video message]' || (message.content || '') === '[Recorded video]'
-
   if (!message.media_url) return null
 
   const checkmark = isContact ? (
@@ -1022,82 +1008,19 @@ const MediaMessageBubble = memo(function MediaMessageBubble({
     )
   }
 
-  function handleVideoClick() {
-    const video = videoRef.current
-    if (!video) return
-    if (video.paused) {
-      video.play().catch(() => undefined)
-      setIsVideoPlaying(true)
-    } else {
-      video.pause()
-      setIsVideoPlaying(false)
-    }
-  }
-
   return (
-    <div className="w-[260px] max-w-[75vw] bg-transparent p-1">
-      <div
-        className="relative cursor-pointer overflow-hidden rounded-xl bg-[#1c1c1e]"
-        onClick={handleVideoClick}
-      >
-        <div className="relative w-full" style={{ aspectRatio: videoAspectRatio }}>
-          <video
-            ref={videoRef}
-            src={message.media_url ?? undefined}
-            poster={posterUrl}
-            playsInline
-            controls
-            preload="auto"
-            className="absolute inset-0 h-full w-full rounded-xl object-cover"
-            onLoadedMetadata={() => {
-              const video = videoRef.current
-              if (!video) return
-              const shouldRotate = isRecordedVideoMessage && video.videoWidth > video.videoHeight
-              setVideoTransform(shouldRotate ? 'rotate(90deg)' : 'none')
-              setVideoAspectRatio(shouldRotate || video.videoHeight >= video.videoWidth ? '9 / 16' : '16 / 9')
-            }}
-            onLoadedData={() => {
-              if (posterUrl) return
-              if (videoRef.current) videoRef.current.currentTime = 0.1
-            }}
-            style={{ transform: videoTransform }}
-            onPlay={() => setIsVideoPlaying(true)}
-            onPause={() => setIsVideoPlaying(false)}
-            onEnded={() => setIsVideoPlaying(false)}
-          />
-          <VideoPlayOverlay hidden={isVideoPlaying} />
-        </div>
-      </div>
-      <div className="px-2 pb-1 pt-2">
-        {!isPlaceholderContent(message) ? <div className="text-[14px] text-white/90">{message.content}</div> : null}
-        {message.type === 'video' ? (
-          <div className="mt-2 flex items-center gap-2">
-            <a
-              href={message.media_url}
-              download
-              className="rounded-full border border-white/10 px-3 py-1 text-[11px] text-white/70"
-            >
-              Download
-            </a>
-            <button
-              type="button"
-              onClick={() => setIsTranscriptOpen((current) => !current)}
-              className="rounded-full border border-white/10 px-3 py-1 text-[11px] text-white/70"
-            >
-              {isTranscriptOpen ? 'Hide transcript' : 'Transcribe'}
-            </button>
-          </div>
-        ) : null}
-        {isTranscriptOpen ? (
-          <div className="mt-2 rounded-2xl bg-white/[0.04] px-3 py-2 text-[12px] leading-5 text-white/78">
-            {(transcript || '').trim() || 'No transcript available yet.'}
-          </div>
-        ) : null}
-        <div className={`mt-1 flex items-center justify-between gap-4 text-[10px] ${isContact ? 'text-white/40' : 'text-white/30'}`}>
-          <span>{message.duration_sec ? formatClock(message.duration_sec) : ''}</span>
-          <span>{formatMessageTime(message.created_at)}</span>
-        </div>
-      </div>
+    <div
+      className={`relative overflow-hidden rounded-[20px] border shadow-[0_2px_8px_rgba(0,0,0,0.12)] ${
+        isContact
+          ? 'rounded-tr-[6px] border-[#00a884]/15 bg-[#005c4b]'
+          : 'rounded-tl-[6px] border-white/[0.06] bg-[#1a2332]'
+      }`}
+    >
+      <img src={message.media_url} alt="Shared image" className="max-h-80 w-full object-cover" />
+      {!isPlaceholderContent(message) ? (
+        <div className="px-4 pt-2 text-[14px] text-white/90">{message.content}</div>
+      ) : null}
+      <div className="px-4 pb-2 pt-1">{commonMeta}</div>
     </div>
   )
 })
@@ -1120,11 +1043,8 @@ export default function Chat() {
   const [transcriptMap, setTranscriptMap] = useState<Record<string, string>>({})
   const [mediaMenuOpen, setMediaMenuOpen] = useState(false)
   const [isDesktopLayout, setIsDesktopLayout] = useState(false)
-  const [inlineProcessing, setInlineProcessing] = useState<{ emoji: string; text: string } | null>(null)
-  const [videoRecorderOpen, setVideoRecorderOpen] = useState(false)
   const avatarReplyInFlight = useRef(new Set<string>())
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const videoInputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
 
   // --- Extracted hooks ---
@@ -1641,30 +1561,13 @@ export default function Chat() {
     }
   }
 
-  function getImmersiveError(errorType: string, name: string): string {
-    const errors: Record<string, string> = {
-      processing_timeout: `${name} is in a meeting right now. Will watch your video as soon as possible.`,
-      api_down: `${name} is currently unavailable. Try again in a moment.`,
-      no_face_detected: `${name} couldn't see your face clearly. Try recording again with better lighting.`,
-      processing_error: `${name} had trouble reading your message. Want to send it again?`,
-      no_transcript: `${name} watched your video but the audio was unclear. Responding based on what was visible.`,
-      video_too_long: `That was a bit long! Keep it under 5 minutes so ${name} can focus.`,
-    }
-    return errors[errorType] || `${name} had trouble reading your message. Want to send it again?`
-  }
-
-  function handleOpenVideoOverlay() {
-    setMediaMenuOpen(false)
-    setVideoRecorderOpen(true)
-  }
-
-  function openCaptionDraft(file: File, kind: 'image' | 'video') {
+  function openCaptionDraft(file: File) {
     const previewUrl = URL.createObjectURL(file)
     setMediaMenuOpen(false)
     setCaptionText('')
     setCaptionDraft((current) => {
       if (current) URL.revokeObjectURL(current.previewUrl)
-      return { file, kind, previewUrl }
+      return { file, previewUrl }
     })
   }
 
@@ -1676,178 +1579,32 @@ export default function Chat() {
     setCaptionText('')
   }
 
-  async function analyzeAndStoreVideo(options: {
-    messageId: string
-    videoBlob: Blob
-    durationSec: number | null
-    replySeedText: string
-  }) {
-    if (!conversation) return
-    const avatarName = getAvatarFirstName(conversation?.wa_owners?.display_name)
-    const metadata = await readVideoBlobMetadata(options.videoBlob)
-    const opmResponse: any = await callOpmApi(conversation, options.videoBlob, 'video', {
-      orientation: metadata.height > metadata.width ? 'portrait' : 'landscape',
-      avatarFirstName: avatarName,
-      onStage: (emoji, text, _progress) => setInlineProcessing(emoji || text ? { emoji, text } : null),
-    }).catch((analysisError) => {
-      console.error('[Video] OPM analysis failed:', analysisError)
-      return null
-    })
-
-    createPerceptionLog({
-      messageId: options.messageId,
-      conversationId: conversation.id,
-      contactId: conversation.contact_id,
-      ownerId: conversation.owner_id,
-      transcript: opmResponse?.transcript?.trim() || null,
-      audioDurationSec: options.durationSec ?? null,
-      videoDurationSec: options.durationSec ?? null,
-      primaryEmotion: opmResponse?.perception?.primary_emotion ?? null,
-      secondaryEmotion: opmResponse?.perception?.secondary_emotion ?? null,
-      firedRules: opmResponse?.fired_rules ?? null,
-      behavioralSummary: opmResponse?.behavioral_summary ?? opmResponse?.perception?.behavioral_summary ?? opmResponse?.interpretation?.behavioral_summary ?? null,
-      conversationHooks: opmResponse?.conversation_hooks ?? opmResponse?.interpretation?.conversation_hooks ?? null,
-      recommendedTone: opmResponse?.recommended_tone ?? opmResponse?.perception?.recommended_tone ?? opmResponse?.interpretation?.recommended_tone ?? null,
-      prosodicSummary: opmResponse?.prosodic_summary ?? null,
-      facialAnalysis: opmResponse?.session?.cygnus?.facial_analysis ?? opmResponse?.session?.cygnus?.face ?? opmResponse?.cygnus?.facial_analysis ?? opmResponse?.cygnus ?? null,
-      bodyLanguage: opmResponse?.session?.cygnus?.body_language ?? opmResponse?.cygnus?.body_language ?? null,
-      mediaType: 'video',
-    }).catch((logErr) => console.warn('[perception-log]', logErr.message))
-
-    const transcript = opmResponse?.transcript?.trim() || ''
-    if (transcript) {
-      setTranscriptMap((current) => ({ ...current, [options.messageId]: transcript }))
-    }
-
-    const replied = await sendAvatarReply(options.replySeedText || transcript || 'a video message', {
-      useVoice: false,
-      isVideo: true,
-      videoDurationSec: options.durationSec || undefined,
-      perception: opmResponse,
-      userMessageId: options.messageId,
-    })
-    if (replied) maybeAvatarReact(options.messageId)
-    setInlineProcessing(null)
-  }
-
-  async function handleRecordedVideoSend(payload: {
-    blob: Blob
-    durationSec: number
-    orientation: 'portrait' | 'landscape'
-    width: number
-    height: number
-  }) {
-    if (!conversationId || !conversation || sending) return
-
-    const localBlobUrl = URL.createObjectURL(payload.blob)
-    const tempId = `temp-video-${Date.now()}`
-    const optimisticMessage: Message = {
-      id: tempId,
-      sender: 'contact',
-      type: 'video',
-      content: '[Video message]',
-      media_url: localBlobUrl,
-      duration_sec: payload.durationSec,
-      created_at: new Date().toISOString(),
-      _pending: true,
-      _localBlobUrl: localBlobUrl,
-    }
-
-    setMessages((current) => [...current, optimisticMessage])
-    setSending(true)
-    setError(null)
-    setVideoRecorderOpen(false)
-
-    try {
-      const { mediaUrl, durationSec } = await uploadVideoMessage(payload.blob, conversation.id, conversation.owner_id)
-      const message = await sendMessage(
-        conversationId,
-        'contact',
-        'video',
-        '[Video message]',
-        mediaUrl,
-        durationSec
-      ) as Message
-
-      setMessages((current) => current.map((entry) => (
-        entry.id === tempId
-          ? { ...message, _pending: false, _localBlobUrl: localBlobUrl }
-          : entry
-      )))
-      simulateAvatarRead(message.id)
-      console.log('OPM trigger — mediaUrl:', mediaUrl)
-      await analyzeAndStoreVideo({
-        messageId: message.id,
-        videoBlob: payload.blob,
-        durationSec,
-        replySeedText: 'a video message',
-      })
-    } catch (videoError: any) {
-      console.error(videoError)
-      setMessages((current) => current.map((entry) => (
-        entry.id === tempId
-          ? { ...entry, _pending: false, _failed: true, _errorMessage: videoError?.message || 'Unable to send this video.' }
-          : entry
-      )))
-      setError(videoError?.message || 'Unable to send this video.')
-    } finally {
-      setSending(false)
-    }
-  }
-
-  async function sendImageOrVideoDraft() {
+  async function sendImageDraft() {
     if (!captionDraft || !conversationId) return
 
-    const { file, kind } = captionDraft
+    const { file } = captionDraft
     const caption = captionText.trim()
     closeCaptionDraft()
     setSending(true)
     setError(null)
 
     try {
-      if (kind === 'image') {
-        setAvatarStatus('looking')
-        const mediaUrl = await uploadMediaToStorage(conversation!, file, 'image')
-        if (!mediaUrl) throw new Error('upload failed')
-        const message = await sendMessage(conversationId, 'contact', 'image', caption || '[Image]', mediaUrl)
-        setMessages((current) => [...current, message as Message])
-        simulateAvatarRead((message as Message).id)
-        const imgReplied = await sendAvatarReply(caption || 'The user shared this image.', {
-          useVoice: true,
-          imageUrl: mediaUrl,
-          isImage: true,
-          userMessageId: String((message as Message).id),
-        })
-        if (imgReplied) maybeAvatarReact((message as Message).id)
-        return
-      }
-
-      setAvatarStatus('watching')
-      const rotatedFile = await correctVideoOrientation(file)
-      const metadata = await readVideoMetadata(rotatedFile)
-      const mediaUrl = await uploadMediaToStorage(conversation!, rotatedFile, 'video')
+      setAvatarStatus('looking')
+      const mediaUrl = await uploadMediaToStorage(conversation!, file, 'image')
       if (!mediaUrl) throw new Error('upload failed')
-      const message = await sendMessage(
-        conversationId,
-        'contact',
-        'video',
-        caption || '[Video]',
-        mediaUrl,
-        metadata.duration || null || undefined
-      )
+      const message = await sendMessage(conversationId, 'contact', 'image', caption || '[Image]', mediaUrl)
       setMessages((current) => [...current, message as Message])
       simulateAvatarRead((message as Message).id)
-      await analyzeAndStoreVideo({
-        messageId: String((message as Message).id),
-        videoBlob: rotatedFile,
-        durationSec: metadata.duration || null,
-        replySeedText: caption || 'an uploaded video',
+      const imgReplied = await sendAvatarReply(caption || 'The user shared this image.', {
+        useVoice: true,
+        imageUrl: mediaUrl,
+        isImage: true,
+        userMessageId: String((message as Message).id),
       })
+      if (imgReplied) maybeAvatarReact((message as Message).id)
     } catch (draftError: any) {
       console.error(draftError)
-      setInlineProcessing(null)
-      const name = getAvatarFirstName(conversation?.wa_owners?.display_name)
-      setError(getImmersiveError(draftError?.message || 'processing_error', name))
+      setError(draftError?.message || 'Unable to send this image.')
       setAvatarStatus(null)
     } finally {
       setSending(false)
@@ -1862,22 +1619,7 @@ export default function Chat() {
       setError('Please choose an image file.')
       return
     }
-    openCaptionDraft(file, 'image')
-  }
-
-  function handleVideoSelected(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]
-    event.target.value = ''
-    if (!file) return
-    if (!file.type.startsWith('video/')) {
-      setError('Please choose a video file.')
-      return
-    }
-    if (file.size > 500 * 1024 * 1024) {
-      setError('Video must be under 500MB.')
-      return
-    }
-    openCaptionDraft(file, 'video')
+    openCaptionDraft(file)
   }
 
   if (loading) {
@@ -2075,12 +1817,11 @@ export default function Chat() {
                     <LessonBubble message={message} isRead={isRead} />
                   ) : message.type === 'fillin' ? (
                     <FillInBubble message={message} isRead={isRead} />
-                  ) : message.type === 'image' || message.type === 'video' ? (
+                  ) : message.type === 'image' ? (
                     <MediaMessageBubble
                       isContact={isContact}
                       message={message}
                       isRead={isRead}
-                      transcript={transcriptMap[message.id] || (!isPlaceholderContent(message) ? message.content || '' : '')}
                     />
                   ) : (
                     <div
@@ -2169,19 +1910,6 @@ export default function Chat() {
             </div>
           ) : null}
 
-          {/* Inline OPM processing stages */}
-          {inlineProcessing ? (
-            <div className="flex justify-end">
-              <div className="flex items-center gap-2.5 rounded-[20px] rounded-tr-[6px] border border-white/[0.06] bg-[#1a2332] px-4 py-2.5 shadow-[0_2px_8px_rgba(0,0,0,0.12)]">
-                <div className="inline-processing-spinner" />
-                <div className="inline-processing-stage">
-                  <span className="text-[14px] leading-none">{inlineProcessing.emoji}</span>
-                  <span className="text-[13px] text-white/50">{inlineProcessing.text}</span>
-                </div>
-              </div>
-            </div>
-          ) : null}
-
           <div ref={messagesEndRef} />
         </div>
       </main>
@@ -2261,30 +1989,6 @@ export default function Chat() {
                   </span>
                   <span>Share image</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => videoInputRef.current?.click()}
-                  className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm text-white/88 transition hover:bg-white/6"
-                >
-                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#173447] text-[#88ffe4]">
-                    <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M17 10.5V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-3.5l4 4v-11l-4 4z" />
-                    </svg>
-                  </span>
-                  <span>Share video</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleOpenVideoOverlay}
-                  className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm text-white/88 transition hover:bg-white/6"
-                >
-                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#173447] text-[#88ffe4]">
-                    <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M17 10.5V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-3.5l4 4v-11l-4 4z" />
-                    </svg>
-                  </span>
-                  <span>Record video</span>
-                </button>
               </div>
             ) : null}
           </div>
@@ -2310,7 +2014,7 @@ export default function Chat() {
             <button
               type="button"
               onClick={() => void openVoiceOverlay()}
-              disabled={sending || text.trim().length > 0 || videoRecorderOpen || mediaMenuOpen}
+              disabled={sending || text.trim().length > 0 || mediaMenuOpen}
               className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#00a884] text-white shadow-[0_2px_12px_rgba(0,168,132,0.25)] transition hover:bg-[#00bf96] disabled:opacity-40"
               title="Record voice note"
             >
@@ -2333,13 +2037,6 @@ export default function Chat() {
         </div>
 
         <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageSelected} />
-        <input
-          ref={videoInputRef}
-          type="file"
-          accept="video/*"
-          className="hidden"
-          onChange={handleVideoSelected}
-        />
       </footer>
       </div>
 
@@ -2411,33 +2108,16 @@ export default function Chat() {
         </div>
       ) : null}
 
-      <VideoRecorder
-        open={videoRecorderOpen}
-        onClose={() => setVideoRecorderOpen(false)}
-        onSend={handleRecordedVideoSend}
-      />
-
       {captionDraft ? (
         <div className="absolute inset-0 z-30 flex items-end bg-[#02060dcc] p-4 sm:items-center sm:justify-center">
           <div className="w-full max-w-md rounded-[32px] border border-white/10 bg-[linear-gradient(180deg,rgba(17,29,44,0.96),rgba(10,20,33,0.98))] p-4 shadow-[0_28px_100px_rgba(0,0,0,0.45)] backdrop-blur-2xl">
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-base font-semibold text-white">
-                {captionDraft.kind === 'image' ? 'Send image' : 'Send video'}
-              </h2>
+              <h2 className="text-base font-semibold text-white">Send image</h2>
               <button type="button" onClick={closeCaptionDraft} className="text-sm text-white/60">
                 Cancel
               </button>
             </div>
-            {captionDraft.kind === 'image' ? (
-              <img src={captionDraft.previewUrl} alt="Preview" className="max-h-80 w-full rounded-2xl object-cover" />
-            ) : (
-              <video
-                src={captionDraft.previewUrl}
-                controls
-                playsInline
-                className="max-h-80 w-full rounded-2xl object-cover"
-              />
-            )}
+            <img src={captionDraft.previewUrl} alt="Preview" className="max-h-80 w-full rounded-2xl object-cover" />
             <input
               type="text"
               value={captionText}
@@ -2448,7 +2128,7 @@ export default function Chat() {
             />
             <button
               type="button"
-              onClick={() => void sendImageOrVideoDraft()}
+              onClick={() => void sendImageDraft()}
               className="mt-4 w-full rounded-full bg-gradient-to-r from-[#11c2a0] to-[#38a9ff] px-4 py-3 text-sm font-semibold text-white shadow-[0_0_36px_rgba(42,196,231,0.22)] transition hover:brightness-110"
             >
               Send

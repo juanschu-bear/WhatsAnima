@@ -40,27 +40,6 @@ export function delay(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
-export async function readVideoBlobMetadata(blob: Blob) {
-  return new Promise<{ width: number; height: number; duration: number }>((resolve) => {
-    const video = document.createElement('video')
-    const objectUrl = URL.createObjectURL(blob)
-    video.preload = 'metadata'
-    video.onloadedmetadata = () => {
-      resolve({
-        width: video.videoWidth || 0,
-        height: video.videoHeight || 0,
-        duration: Number.isFinite(video.duration) ? video.duration : 0,
-      })
-      URL.revokeObjectURL(objectUrl)
-    }
-    video.onerror = () => {
-      resolve({ width: 0, height: 0, duration: 0 })
-      URL.revokeObjectURL(objectUrl)
-    }
-    video.src = objectUrl
-  })
-}
-
 interface ConversationRef {
   id: string
   owner_id: string
@@ -116,23 +95,12 @@ export async function uploadAudioToStorage(conversation: ConversationRef, audioB
 
 export async function uploadMediaToStorage(
   conversation: ConversationRef,
-  file: File,
-  mediaType: 'image' | 'video',
-  isRecorded = false
+  file: File
 ) {
-  const ext = file.name?.split('.').pop() || (mediaType === 'image' ? 'jpg' : 'webm')
-  const rawType = (file.type || '').split(';')[0] || (mediaType === 'image' ? 'image/jpeg' : 'video/webm')
-  const filename = `${mediaType}-${Date.now()}.${ext}`
-
-  const bucket = mediaType === 'image'
-    ? 'image-uploads'
-    : isRecorded
-      ? 'video-messages'
-      : 'video-uploads'
-
-  // Upload directly to Supabase Storage from browser to bypass
-  // Vercel's 4.5MB serverless function body size limit.
-  // This matches the pattern used by uploadAudioToStorage.
+  const ext = file.name?.split('.').pop() || 'jpg'
+  const rawType = (file.type || '').split(';')[0] || 'image/jpeg'
+  const filename = `image-${Date.now()}.${ext}`
+  const bucket = 'image-uploads'
   const { supabase } = await import('./supabase')
   const storagePath = `${conversation.id}/${filename}`
 
@@ -147,29 +115,6 @@ export async function uploadMediaToStorage(
 
   const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(storagePath)
   return urlData.publicUrl
-}
-
-export async function uploadVideoMessage(blob: Blob, conversationId: string, _ownerId: string): Promise<{ mediaUrl: string; durationSec: number }> {
-  const cleanType = (blob.type || 'video/webm').split(';')[0]
-  const ext = getFileExtension(blob as Blob & { name?: string; type: string }, cleanType.includes('mp4') ? 'mp4' : cleanType.includes('quicktime') ? 'mov' : 'webm')
-  const filename = `video-${Date.now()}.${ext}`
-  const storagePath = `${conversationId}/${filename}`
-  const bucket = 'video-messages'
-  const metadata = await readVideoBlobMetadata(blob)
-  const durationSec = Math.max(1, Math.round(metadata.duration || 0))
-  const { supabase } = await import('./supabase')
-  const { data, error } = await supabase.storage
-    .from(bucket)
-    .upload(storagePath, blob, { contentType: cleanType, upsert: true })
-
-  if (error) {
-    console.error('[uploadVideoMessage] Supabase storage error:', error.message)
-    throw new Error('Upload failed: ' + error.message)
-  }
-
-  const storedPath = data?.path || storagePath
-  const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(storedPath)
-  return { mediaUrl: urlData.publicUrl, durationSec }
 }
 
 export async function getOpmConfig() {
@@ -464,104 +409,4 @@ export async function transcribeServerSide(audioData: Blob | string, contentType
     console.warn('[transcribe] Request failed:', err)
     return ''
   }
-}
-
-export async function readVideoMetadata(file: File) {
-  return new Promise<{ width: number; height: number; duration: number }>((resolve) => {
-    const video = document.createElement('video')
-    const objectUrl = URL.createObjectURL(file)
-    video.preload = 'metadata'
-    video.onloadedmetadata = () => {
-      resolve({
-        width: video.videoWidth,
-        height: video.videoHeight,
-        duration: video.duration || 0,
-      })
-      URL.revokeObjectURL(objectUrl)
-    }
-    video.onerror = () => {
-      resolve({ width: 0, height: 0, duration: 0 })
-      URL.revokeObjectURL(objectUrl)
-    }
-    video.src = objectUrl
-  })
-}
-
-export async function correctVideoOrientation(file: File) {
-  const metadata = await readVideoMetadata(file)
-  const forceRotation =
-    metadata.width > metadata.height ||
-    file.type === 'video/quicktime' ||
-    /\.mov$/i.test(file.name)
-
-  if (!forceRotation) return file
-
-  const source = document.createElement('video')
-  const sourceUrl = URL.createObjectURL(file)
-  source.src = sourceUrl
-  source.muted = true
-  source.playsInline = true
-  source.preload = 'auto'
-
-  await new Promise<void>((resolve, reject) => {
-    source.onloadedmetadata = () => resolve()
-    source.onerror = () => reject(new Error('metadata failed'))
-  })
-
-  const canvas = document.createElement('canvas')
-  canvas.width = source.videoHeight || metadata.height || 720
-  canvas.height = source.videoWidth || metadata.width || 1280
-  const context = canvas.getContext('2d')
-  if (!context) {
-    URL.revokeObjectURL(sourceUrl)
-    return file
-  }
-
-  const canvasStream = canvas.captureStream(30)
-  const sourceStream =
-    (source as HTMLVideoElement & {
-      captureStream?: () => MediaStream
-      mozCaptureStream?: () => MediaStream
-    }).captureStream?.() ||
-    (source as HTMLVideoElement & { mozCaptureStream?: () => MediaStream }).mozCaptureStream?.()
-  const audioTracks = sourceStream?.getAudioTracks() || []
-  audioTracks.forEach((track) => canvasStream.addTrack(track))
-  const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')
-    ? 'video/webm;codecs=vp8,opus'
-    : 'video/webm'
-  const recorder = new MediaRecorder(canvasStream, { mimeType })
-  const chunks: Blob[] = []
-
-  recorder.ondataavailable = (event) => {
-    if (event.data.size > 0) chunks.push(event.data)
-  }
-
-  const recording = new Promise<Blob>((resolve) => {
-    recorder.onstop = () => resolve(new Blob(chunks, { type: mimeType }))
-  })
-
-  const drawFrame = () => {
-    if (source.paused || source.ended) return
-    context.save()
-    context.clearRect(0, 0, canvas.width, canvas.height)
-    context.translate(canvas.width / 2, canvas.height / 2)
-    context.rotate(Math.PI / 2)
-    context.drawImage(source, -canvas.height / 2, -canvas.width / 2, canvas.height, canvas.width)
-    context.restore()
-    requestAnimationFrame(drawFrame)
-  }
-
-  recorder.start(250)
-  await source.play()
-  drawFrame()
-  await new Promise<void>((resolve) => {
-    source.onended = () => resolve()
-  })
-  recorder.stop()
-
-  const correctedBlob = await recording
-  URL.revokeObjectURL(sourceUrl)
-  return new File([correctedBlob], file.name.replace(/\.\w+$/, '.webm'), {
-    type: correctedBlob.type || 'video/webm',
-  })
 }
