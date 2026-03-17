@@ -691,12 +691,6 @@ export default function Perception() {
                       }`}
                     >
                       <div className="flex items-start gap-3">
-                        <div className="flex w-12 shrink-0 flex-col items-center text-center">
-                          <div className="text-[20px] leading-none">{primaryEmotionStyle.emoji}</div>
-                          {durationLabel ? (
-                            <div className="mt-2 text-sm font-semibold tracking-[-0.02em] text-white">{durationLabel}</div>
-                          ) : null}
-                        </div>
                         <img src={entry.avatarImage} alt={entry.avatarName} className="h-12 w-12 rounded-2xl object-cover ring-1 ring-white/10" />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center justify-between gap-3">
@@ -704,7 +698,14 @@ export default function Perception() {
                             <span className="shrink-0 text-[11px] text-white/42">{new Date(entry.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                           </div>
                           <p className="mt-1 text-xs text-[#86f5e5]">{entry.contactName} · {entry.language}</p>
-                          <p className={`mt-2 text-sm font-medium ${primaryEmotionStyle.color}`}>{entry.primaryEmotion}</p>
+                          <div className="mt-2 flex items-center justify-between gap-3">
+                            <span className={`rounded-full border px-2.5 py-1 text-[11px] ${primaryEmotionStyle.border} ${primaryEmotionStyle.bg} ${primaryEmotionStyle.color}`}>
+                              {primaryEmotionStyle.emoji} {entry.primaryEmotion}
+                            </span>
+                            <span className="shrink-0 rounded-full border border-white/12 bg-white/[0.06] px-2.5 py-1 text-sm font-semibold tracking-[-0.02em] text-white">
+                              {durationLabel ?? '—'}
+                            </span>
+                          </div>
                           <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
                             {entry.firedRules.map((rule) => {
                               const style = ruleStyle(rule.rawName)
