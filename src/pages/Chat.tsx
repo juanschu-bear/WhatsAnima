@@ -18,6 +18,8 @@ import { useReadReceipts } from '../hooks/useReadReceipts'
 import { useSessionMemory } from '../hooks/useSessionMemory'
 import { useMessageSelection } from '../hooks/useMessageSelection'
 import { useVoiceRecording } from '../hooks/useVoiceRecording'
+import { useVideoRecording } from '../hooks/useVideoRecording'
+import { VideoRecorder } from '../components/VideoRecorder'
 import { getVoiceListeningDelay, getVideoWatchingDelay, getAvatarFirstName, VOICE_SEEN_DELAY_MS } from '../lib/voiceDelay'
 import {
   playNotificationSound,
@@ -998,19 +1000,31 @@ const MediaMessageBubble = memo(function MediaMessageBubble({
     )
   }
 
+  const videoDuration = Number.isFinite(message.duration_sec) ? Math.max(0, Number(message.duration_sec)) : 0
+  const videoDurationLabel = videoDuration > 0 ? formatClock(videoDuration) : 'Video'
+
   return (
-    <div
-      className={`relative overflow-hidden rounded-[20px] border shadow-[0_2px_8px_rgba(0,0,0,0.12)] ${
-        isContact
-          ? 'rounded-tr-[6px] border-[#00a884]/15 bg-[#005c4b]'
-          : 'rounded-tl-[6px] border-white/[0.06] bg-[#1a2332]'
-      }`}
-    >
-      <img src={message.media_url} alt="Shared image" className="max-h-80 w-full object-cover" />
+    <div className={`relative rounded-[20px] border px-3 py-3 shadow-[0_2px_8px_rgba(0,0,0,0.12)] ${
+      isContact
+        ? 'rounded-tr-[6px] border-[#00a884]/15 bg-[#005c4b]'
+        : 'rounded-tl-[6px] border-white/[0.06] bg-[#1a2332]'
+    }`}>
+      <div className="video-bubble">
+        <div className="video-bubble-circle selfie processed relative h-44 w-44 overflow-hidden rounded-full bg-black/30">
+          <video
+            src={message.media_url}
+            className="h-full w-full object-cover"
+            playsInline
+            controls
+            preload="metadata"
+          />
+        </div>
+        <div className="video-bubble-duration mt-2 text-center text-[11px] text-white/70">{videoDurationLabel}</div>
+      </div>
       {!isPlaceholderContent(message) ? (
-        <div className="px-4 pt-2 text-[14px] text-white/90">{message.content}</div>
+        <div className="px-1 pt-2 text-[14px] text-white/90">{message.content}</div>
       ) : null}
-      <div className="px-4 pb-2 pt-1">{commonMeta}</div>
+      <div className="px-1 pb-0.5 pt-1">{commonMeta}</div>
     </div>
   )
 })
@@ -1060,7 +1074,15 @@ export default function Chat() {
   } = useMessageSelection(messages as any, conversation as any)
 
   // sendAvatarReply is defined later — use a ref for hooks that need it
-  const sendAvatarReplyRef = useRef<(text: string, options?: { useVoice?: boolean; isVoice?: boolean; perception?: any }) => Promise<boolean>>(async () => false)
+  const sendAvatarReplyRef = useRef<(text: string, options?: {
+    useVoice?: boolean
+    isVoice?: boolean
+    isVideo?: boolean
+    voiceDurationSec?: number
+    videoDurationSec?: number
+    perception?: any
+    userMessageId?: string
+  }) => Promise<boolean>>(async () => false)
 
   const {
     recordingMode, captureKind,
@@ -1071,6 +1093,36 @@ export default function Chat() {
     openVoiceOverlay, closeVoiceOverlay, stopVoiceIntoDraft, sendVoiceDraft,
     finishVoiceRecording,
   } = useVoiceRecording({
+    conversationId,
+    conversation,
+    onSending: setSending,
+    onError: setError,
+    onMessageSent: (msg) => setMessages((current) => [...current, msg as Message]),
+    onMessageUpdate: (tempId, updates) => setMessages((current) =>
+      current.map((m) => m.id === tempId ? { ...m, ...updates } : m)
+    ),
+    onTranscript: (id, text) => setTranscriptMap((current) => ({ ...current, [id]: text })),
+    sendAvatarReply: (...args) => sendAvatarReplyRef.current(...args),
+    simulateAvatarRead,
+    maybeAvatarReact,
+  })
+
+  const {
+    videoOverlayOpen,
+    recordingMode: videoRecordingMode,
+    recordingSeconds: videoRecordingSeconds,
+    previewUrl: videoPreviewUrl,
+    previewDuration: videoPreviewDuration,
+    processingStage: videoProcessingStage,
+    liveVideoRef,
+    previewVideoRef,
+    openVideoOverlay,
+    closeVideoOverlay,
+    startVideoRecording,
+    stopVideoRecording,
+    retakeVideo,
+    sendVideoBlob,
+  } = useVideoRecording({
     conversationId,
     conversation,
     onSending: setSending,
@@ -1807,7 +1859,7 @@ export default function Chat() {
                     <LessonBubble message={message} isRead={isRead} />
                   ) : message.type === 'fillin' ? (
                     <FillInBubble message={message} isRead={isRead} />
-                  ) : message.type === 'image' ? (
+                  ) : message.type === 'image' || message.type === 'video' ? (
                     <MediaMessageBubble
                       isContact={isContact}
                       message={message}
@@ -1954,7 +2006,7 @@ export default function Chat() {
             <button
               type="button"
               onClick={() => setMediaMenuOpen((current) => !current)}
-              disabled={sending || recordingMode !== 'idle'}
+              disabled={sending || recordingMode !== 'idle' || videoRecordingMode !== 'idle'}
               className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-[#1a2332] text-white/60 transition hover:border-white/15 hover:text-white disabled:opacity-40"
               title="Media options"
             >
@@ -1995,16 +2047,28 @@ export default function Chat() {
                 }
               }}
               placeholder="Type a message"
-              disabled={sending || recordingMode !== 'idle'}
+              disabled={sending || recordingMode !== 'idle' || videoRecordingMode !== 'idle'}
               className="w-full rounded-full border border-white/[0.08] bg-[#1a2332] px-4 py-3 text-base text-white placeholder-white/30 outline-none transition focus:border-[#00a884]/40 focus:ring-1 focus:ring-[#00a884]/20 disabled:opacity-40"
               style={{ fontSize: '16px' }}
             />
           </div>
 
+          <button
+            type="button"
+            onClick={() => void openVideoOverlay()}
+            disabled={sending || text.trim().length > 0 || mediaMenuOpen || recordingMode !== 'idle' || videoRecordingMode !== 'idle'}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#1f8fff] text-white shadow-[0_2px_12px_rgba(31,143,255,0.25)] transition hover:bg-[#2f98ff] disabled:opacity-40"
+            title="Record video message"
+          >
+            <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M17 10.5V7a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h12a1 1 0 001-1v-3.5l4 4v-11l-4 4z" />
+            </svg>
+          </button>
+
             <button
               type="button"
               onClick={() => void openVoiceOverlay()}
-              disabled={sending || text.trim().length > 0 || mediaMenuOpen}
+              disabled={sending || text.trim().length > 0 || mediaMenuOpen || videoRecordingMode !== 'idle'}
               className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#00a884] text-white shadow-[0_2px_12px_rgba(0,168,132,0.25)] transition hover:bg-[#00bf96] disabled:opacity-40"
               title="Record voice note"
             >
@@ -2016,7 +2080,7 @@ export default function Chat() {
           <button
             type="button"
             onClick={() => void handleSendText()}
-            disabled={!text.trim() || sending || recordingMode !== 'idle'}
+            disabled={!text.trim() || sending || recordingMode !== 'idle' || videoRecordingMode !== 'idle'}
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#00a884] text-white shadow-[0_2px_12px_rgba(0,168,132,0.25)] transition hover:bg-[#00bf96] disabled:opacity-40"
             title="Send message"
           >
@@ -2097,6 +2161,23 @@ export default function Chat() {
           </div>
         </div>
       ) : null}
+
+      <VideoRecorder
+        open={videoOverlayOpen}
+        recordingMode={videoRecordingMode}
+        recordingSeconds={videoRecordingSeconds}
+        previewUrl={videoPreviewUrl}
+        previewDuration={videoPreviewDuration}
+        processingStage={videoProcessingStage}
+        liveVideoRef={liveVideoRef}
+        previewVideoRef={previewVideoRef}
+        onClose={closeVideoOverlay}
+        onStartRecording={startVideoRecording}
+        onStopRecording={stopVideoRecording}
+        onRetake={retakeVideo}
+        onSend={sendVideoBlob}
+        sending={sending}
+      />
 
       {captionDraft ? (
         <div className="absolute inset-0 z-30 flex items-end bg-[#02060dcc] p-4 sm:items-center sm:justify-center">
