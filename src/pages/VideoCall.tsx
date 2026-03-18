@@ -423,12 +423,17 @@ export default function VideoCall() {
     const callObject = callObjectRef.current
     callObjectRef.current = null
 
-    if (callObject) {
+    setStatusText('Ending call...')
+    setPhase((current) => (current === 'error' ? current : 'starting'))
+
+    const endSessionPromise = endBackendSession('leave_button')
+    const leaveRoomPromise = (async () => {
+      if (!callObject) return
       await callObject.leave().catch(() => undefined)
       callObject.destroy()
-    }
+    })()
 
-    await endBackendSession('leave_button')
+    await Promise.allSettled([endSessionPromise, leaveRoomPromise])
 
     if (conversationId) {
       navigate(`/chat/${conversationId}`, { replace: true })
@@ -472,6 +477,7 @@ export default function VideoCall() {
         persona: personaName,
         replica_id: replicaId,
         language: languageCode,
+        max_call_duration: 120,
         user_name: buildUserName(user, conversation),
         conversation_id: resolvedConversationId,
         owner_id: owner.id || conversation.owner_id || null,
