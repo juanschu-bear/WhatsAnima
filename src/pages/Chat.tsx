@@ -7,7 +7,7 @@ import {
   type ChangeEvent,
 } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { getConversation, listMessages, listPerceptionLogs, sendMessage, createPerceptionLog, listAllOwners, findContactByEmail, findOrCreateConversation, createContactForOwner } from '../lib/api'
+import { getConversation, listMessages, listPerceptionLogs, sendMessage, listAllOwners, findContactByEmail, findOrCreateConversation, createContactForOwner } from '../lib/api'
 import { resolveAvatarUrl } from '../lib/avatars'
 import { t } from '../lib/i18n'
 import {
@@ -373,16 +373,6 @@ const VoiceMessageBubble = memo(function VoiceMessageBubble({
     </div>
   )
 })
-
-const VideoPlayOverlay = ({ hidden, rounded }: { hidden?: boolean; rounded?: boolean }) => (
-  <div
-    className={`absolute inset-0 flex items-center justify-center transition-opacity ${rounded ? 'rounded-full' : 'rounded-xl'} ${hidden ? 'pointer-events-none opacity-0' : 'bg-black/25 opacity-100 hover:opacity-80'}`}
-  >
-    <svg className="h-9 w-9 drop-shadow-[0_1px_3px_rgba(0,0,0,0.3)]" viewBox="0 0 24 24" fill="white">
-      <polygon points="5 3 19 12 5 21 5 3" />
-    </svg>
-  </div>
-)
 
 // --- Flashcard / Quiz Bubble ---
 interface FlashcardData {
@@ -1590,7 +1580,7 @@ export default function Chat() {
 
     try {
       setAvatarStatus('looking')
-      const mediaUrl = await uploadMediaToStorage(conversation!, file, 'image')
+      const mediaUrl = await uploadMediaToStorage(conversation!, file)
       if (!mediaUrl) throw new Error('upload failed')
       const message = await sendMessage(conversationId, 'contact', 'image', caption || '[Image]', mediaUrl)
       setMessages((current) => [...current, message as Message])
