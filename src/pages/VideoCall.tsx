@@ -470,8 +470,11 @@ export default function VideoCall() {
       : ''
     const ownerEmail = String((owner as { email?: string | null })?.email || '').trim().toLowerCase()
     const ownerDisplayName = String(owner.display_name || '').trim().toLowerCase()
-    const enableGlueForExtendedJuan =
-      ownerEmail === 'mwg.jmschubert@gmail.com' || ownerDisplayName === 'juan schubert (extended)'
+    const enableGlueForJuan =
+      ownerEmail === 'mwg.jmschubert@gmail.com' ||
+      ownerEmail === 'aicallyu.global@gmail.com' ||
+      ownerDisplayName === 'juan schubert (extended)' ||
+      ownerDisplayName === 'juan schubert'
 
     const existingCall = callObjectRef.current
     if (existingCall) {
@@ -496,7 +499,7 @@ export default function VideoCall() {
         persona_id: personaIdFromOwner || undefined,
         replica_id: replicaId,
         language: languageCode,
-        glue_enabled: enableGlueForExtendedJuan,
+        glue_enabled: enableGlueForJuan,
         ...(isUnlimitedDurationUser ? {} : { max_call_duration: 120 }),
         user_name: buildUserName(user, conversation),
         conversation_id: resolvedConversationId,
