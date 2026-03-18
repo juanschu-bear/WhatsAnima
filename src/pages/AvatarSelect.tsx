@@ -123,7 +123,7 @@ export default function AvatarSelect() {
 
   if (loading) {
     return (
-      <div className="brand-scene flex min-h-[100dvh] items-center justify-center">
+      <div className="avatar-select-screen brand-scene flex min-h-[100dvh] items-center justify-center">
         <div className="h-10 w-10 animate-spin rounded-full border-4 border-[#1f2c34] border-t-[#00a884]" />
       </div>
     )
@@ -132,7 +132,7 @@ export default function AvatarSelect() {
   // --- Inline contact creation form ---
   if (showForm && formOwner) {
     return (
-      <div className="brand-scene flex min-h-[100dvh] flex-col items-center justify-center px-4">
+      <div className="avatar-select-screen brand-scene flex min-h-[100dvh] flex-col items-center justify-center px-4">
         <div className="brand-panel relative z-10 w-full max-w-md rounded-[30px] p-8">
           <div className="text-center">
             <img
@@ -220,7 +220,7 @@ export default function AvatarSelect() {
 
   // --- Owner selection list ---
   return (
-    <div className="brand-scene flex min-h-[100dvh] flex-col items-center justify-center px-4">
+    <div className="avatar-select-screen brand-scene flex min-h-[100dvh] flex-col items-center justify-center px-4">
       <div className="brand-panel relative z-10 w-full max-w-lg rounded-[30px] p-8">
         <div className="text-center">
           <h1 className="text-2xl font-bold text-white">{t(locale, 'chooseAvatar')}</h1>

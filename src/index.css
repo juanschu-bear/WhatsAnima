@@ -90,6 +90,16 @@ select {
   -webkit-backdrop-filter: blur(28px);
 }
 
+/* Hard reset for avatar selection screen to prevent accidental rotated/flipped layout. */
+.avatar-select-screen,
+.avatar-select-screen * {
+  rotate: 0deg;
+}
+
+.avatar-select-screen {
+  transform: none !important;
+}
+
 .brand-inset {
   border: 1px solid rgba(195, 246, 236, 0.08);
   background: rgba(5, 24, 33, 0.78);

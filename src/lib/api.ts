@@ -132,17 +132,29 @@ export async function findLatestConversationForOwnerAndEmail(ownerId: string, em
   const contactIds = (contacts ?? []).map((row) => row.id).filter(Boolean)
   if (contactIds.length === 0) return null
 
-  const { data: conversation, error: conversationError } = await supabase
+  const { data: conversations, error: conversationError } = await supabase
     .from('wa_conversations')
-    .select('id')
+    .select('id, updated_at')
     .eq('owner_id', normalizedOwnerId)
     .in('contact_id', contactIds)
     .order('updated_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
+    .limit(50)
 
   if (conversationError) throw conversationError
-  return conversation?.id ?? null
+  if (!conversations || conversations.length === 0) return null
+
+  const conversationIds = conversations.map((row) => row.id)
+  const { data: messages, error: messagesError } = await supabase
+    .from('wa_messages')
+    .select('conversation_id, created_at')
+    .in('conversation_id', conversationIds)
+    .order('created_at', { ascending: false })
+    .limit(500)
+
+  if (messagesError) throw messagesError
+  const withHistory = new Set((messages ?? []).map((row) => row.conversation_id))
+  const bestMatch = conversations.find((row) => withHistory.has(row.id)) ?? conversations[0]
+  return bestMatch?.id ?? null
 }
 
 export async function getOwnerByUserId(userId: string) {
