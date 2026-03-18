@@ -7,7 +7,7 @@ import { getConversation } from '../lib/api'
 
 type ConversationData = Awaited<ReturnType<typeof getConversation>>
 type CallPhase = 'setup' | 'starting' | 'joining' | 'connected' | 'error'
-type SupportedLanguage = 'English' | 'Deutsch' | 'Español'
+type SupportedLanguage = 'en' | 'de' | 'es'
 type ViewMode = 'speaker' | 'side-by-side'
 interface BackendPersona {
   id: string
@@ -31,10 +31,10 @@ const FALLBACK_PERSONAS: BackendPersona[] = [
   { id: 'dante', name: 'DANTE', role: 'Philosopher & Ethics Advisor' },
 ]
 
-const LANGUAGES: Array<{ label: SupportedLanguage; accent: string }> = [
-  { label: 'English', accent: 'from-cyan-400/70 to-sky-500/80' },
-  { label: 'Deutsch', accent: 'from-emerald-400/70 to-teal-500/80' },
-  { label: 'Español', accent: 'from-amber-400/75 to-orange-500/80' },
+const LANGUAGES: Array<{ code: SupportedLanguage; label: string; accent: string }> = [
+  { code: 'en', label: 'English', accent: 'from-cyan-400/70 to-sky-500/80' },
+  { code: 'de', label: 'Deutsch', accent: 'from-emerald-400/70 to-teal-500/80' },
+  { code: 'es', label: 'Español', accent: 'from-amber-400/75 to-orange-500/80' },
 ]
 
 function buildUserName(user: ReturnType<typeof useAuth>['user'], conversation: ConversationData | null) {
@@ -112,7 +112,7 @@ export default function VideoCall() {
   const [loadingConversation, setLoadingConversation] = useState(true)
   const [personas, setPersonas] = useState<BackendPersona[]>(FALLBACK_PERSONAS)
   const [loadingPersonas, setLoadingPersonas] = useState(true)
-  const [language, setLanguage] = useState<SupportedLanguage>('English')
+  const [language, setLanguage] = useState<SupportedLanguage>('en')
   const [selectedPersona, setSelectedPersona] = useState('MAXIM')
   const [viewMode, setViewMode] = useState<ViewMode>('speaker')
   const [phase, setPhase] = useState<CallPhase>('setup')
@@ -560,53 +560,7 @@ export default function VideoCall() {
   const selectedPersonaDetails = personas.find((persona) => persona.name === selectedPersona) ?? null
   const showRemoteVideo = Boolean(remoteParticipant && getParticipantTrack(remoteParticipant, 'video'))
   const showLocalVideo = Boolean(localParticipant && getParticipantTrack(localParticipant, 'video') && isCameraEnabled)
-  const remoteTile = (
-    <>
-      {showRemoteVideo ? (
-        <video
-          ref={remoteVideoRef}
-          autoPlay
-          playsInline
-          className="h-full w-full object-cover transition-opacity duration-500"
-        />
-      ) : (
-        <div className="flex h-full w-full max-w-md flex-col items-center justify-center px-6 text-center">
-          <div className="relative">
-            <img
-              src={resolveAvatarUrl(personaName)}
-              alt={personaName}
-              className="h-24 w-24 rounded-full object-cover ring-1 ring-white/10 sm:h-36 sm:w-36"
-            />
-            <span className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full border-4 border-[#08111a] bg-[#70f0de]" />
-          </div>
-          <p className="mt-6 text-2xl font-semibold tracking-[-0.03em] text-white sm:text-3xl">
-            {personaName}
-          </p>
-          <p className="mt-3 text-sm leading-6 text-white/62 sm:text-base">
-            {phase === 'setup' ? 'Choose a language and start the room.' : statusText}
-          </p>
-        </div>
-      )}
-    </>
-  )
-  const localTile = (
-    <>
-      {showLocalVideo ? (
-        <video
-          ref={localVideoRef}
-          autoPlay
-          muted
-          playsInline
-          className="h-full w-full object-cover"
-          style={{ transform: 'scaleX(-1)' }}
-        />
-      ) : (
-        <div className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.08),transparent_45%),linear-gradient(180deg,rgba(14,19,30,0.98),rgba(7,10,18,0.98))] px-3 text-center text-xs text-white/50">
-          Camera off
-        </div>
-      )}
-    </>
-  )
+  const selectedLanguage = LANGUAGES.find((item) => item.code === language)
 
   return (
     <div className="relative h-[100dvh] min-h-[100dvh] overflow-hidden bg-[radial-gradient(circle_at_top,rgba(0,195,170,0.16),transparent_30%),radial-gradient(circle_at_85%_20%,rgba(53,127,255,0.16),transparent_24%),linear-gradient(180deg,#03060b_0%,#07111a_48%,#02050a_100%)] text-white supports-[-webkit-touch-callout:none]:min-h-[-webkit-fill-available]">
@@ -647,40 +601,77 @@ export default function VideoCall() {
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(112,240,222,0.13),transparent_32%)]" />
 
             <div className="relative flex h-full w-full items-center justify-center">
-              {callReady && viewMode === 'side-by-side' ? (
-                <div className="grid h-full w-full grid-cols-2 gap-[1px] bg-white/6">
-                  <div className="relative min-h-0 overflow-hidden bg-black/20">
-                    {remoteTile}
-                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-4 py-3 text-sm font-semibold text-white/88">
-                      {personaName}
+              <div className="relative h-full w-full">
+                <div
+                  className={`absolute inset-0 overflow-hidden bg-black/20 transition-all duration-300 ${
+                    callReady && viewMode === 'side-by-side' ? 'right-1/2 border-r border-white/10' : 'right-0'
+                  }`}
+                >
+                  {showRemoteVideo ? (
+                    <video
+                      ref={remoteVideoRef}
+                      autoPlay
+                      playsInline
+                      className="h-full w-full object-cover transition-opacity duration-500"
+                    />
+                  ) : (
+                    <div className="flex h-full w-full max-w-md flex-col items-center justify-center px-6 text-center">
+                      <div className="relative">
+                        <img
+                          src={resolveAvatarUrl(personaName)}
+                          alt={personaName}
+                          className="h-24 w-24 rounded-full object-cover ring-1 ring-white/10 sm:h-36 sm:w-36"
+                        />
+                        <span className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full border-4 border-[#08111a] bg-[#70f0de]" />
+                      </div>
+                      <p className="mt-6 text-2xl font-semibold tracking-[-0.03em] text-white sm:text-3xl">
+                        {personaName}
+                      </p>
+                      <p className="mt-3 text-sm leading-6 text-white/62 sm:text-base">
+                        {phase === 'setup' ? 'Choose a language and start the room.' : statusText}
+                      </p>
                     </div>
-                  </div>
-                  <div className="relative min-h-0 overflow-hidden bg-black/20">
-                    {localTile}
-                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-4 py-3 text-sm font-semibold text-white/88">
-                      You
-                    </div>
+                  )}
+                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-4 py-3 text-sm font-semibold text-white/88">
+                    {personaName}
                   </div>
                 </div>
-              ) : (
-                remoteTile
-              )}
+
+                <div
+                  className={`absolute overflow-hidden bg-[linear-gradient(180deg,rgba(22,31,45,0.95),rgba(10,16,27,0.98))] transition-all duration-300 ${
+                    callReady && viewMode === 'side-by-side'
+                      ? 'inset-y-0 right-0 w-1/2 rounded-none border-l border-white/10'
+                      : 'bottom-4 left-4 h-32 w-[5.5rem] rounded-[22px] border border-white/12 shadow-[0_18px_60px_rgba(0,0,0,0.35)] sm:bottom-5 sm:left-5 sm:h-44 sm:w-32 sm:rounded-[24px]'
+                  }`}
+                >
+                  {showLocalVideo ? (
+                    <video
+                      ref={localVideoRef}
+                      autoPlay
+                      muted
+                      playsInline
+                      className="h-full w-full object-cover"
+                      style={{ transform: 'scaleX(-1)' }}
+                    />
+                  ) : (
+                    <div className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.08),transparent_45%),linear-gradient(180deg,rgba(14,19,30,0.98),rgba(7,10,18,0.98))] px-3 text-center text-xs text-white/50">
+                      Camera off
+                    </div>
+                  )}
+                  <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/72 to-transparent px-3 py-2 text-[11px] text-white/80">
+                    <span>You</span>
+                    {callReady && viewMode === 'speaker' ? (
+                      <span className={`h-2.5 w-2.5 rounded-full ${isMicEnabled ? 'bg-[#70f0de]' : 'bg-red-400'}`} />
+                    ) : null}
+                  </div>
+                </div>
+              </div>
 
               <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-center px-3 pt-4 sm:px-4 sm:pt-5">
                 <div className="rounded-full border border-white/10 bg-black/28 px-3 py-2 text-[11px] font-medium tracking-[0.22em] text-white/78 backdrop-blur-xl sm:px-4 sm:text-xs">
                   {statusText}
                 </div>
               </div>
-
-              {viewMode === 'speaker' ? (
-                <div className="absolute bottom-4 left-4 h-32 w-[5.5rem] overflow-hidden rounded-[22px] border border-white/12 bg-[linear-gradient(180deg,rgba(22,31,45,0.95),rgba(10,16,27,0.98))] shadow-[0_18px_60px_rgba(0,0,0,0.35)] sm:bottom-5 sm:left-5 sm:h-44 sm:w-32 sm:rounded-[24px]">
-                  {localTile}
-                  <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/72 to-transparent px-3 py-2 text-[11px] text-white/80">
-                    <span>You</span>
-                    <span className={`h-2.5 w-2.5 rounded-full ${isMicEnabled ? 'bg-[#70f0de]' : 'bg-red-400'}`} />
-                  </div>
-                </div>
-              ) : null}
 
               {phase === 'setup' ? (
                 <div className="absolute inset-x-0 bottom-24 flex justify-center px-3 sm:bottom-28 sm:px-4">
@@ -706,12 +697,12 @@ export default function VideoCall() {
                     <p className="mt-4 text-xs uppercase tracking-[0.26em] text-white/45">Session language</p>
                     <div className="mt-4 grid gap-3 sm:grid-cols-3">
                       {LANGUAGES.map((item) => {
-                        const active = language === item.label
+                        const active = language === item.code
                         return (
                           <button
-                            key={item.label}
+                            key={item.code}
                             type="button"
-                            onClick={() => setLanguage(item.label)}
+                            onClick={() => setLanguage(item.code)}
                             className={`rounded-[20px] border px-4 py-4 text-left transition ${
                               active
                                 ? `border-white/20 bg-gradient-to-br ${item.accent} text-[#041018]`
@@ -735,7 +726,7 @@ export default function VideoCall() {
                       Start live call
                     </button>
                     <p className="mt-3 text-center text-[11px] text-white/42">
-                      Owner avatar: {owner.display_name || 'Unconfigured'} · Session persona: {selectedPersona} · Replica: {replicaId}
+                      Owner avatar: {owner.display_name || 'Unconfigured'} · Session persona: {selectedPersona} · Language: {selectedLanguage?.label ?? 'English'} · Replica: {replicaId}
                     </p>
                   </div>
                 </div>
