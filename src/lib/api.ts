@@ -102,6 +102,21 @@ export async function findContactByEmail(email: string) {
   return data
 }
 
+export async function findContactByEmailForOwner(ownerId: string, email: string) {
+  const normalizedOwnerId = ownerId.trim()
+  const normalizedEmail = email.trim()
+  if (!normalizedOwnerId || !normalizedEmail) return null
+
+  const { data } = await supabase
+    .from('wa_contacts')
+    .select('id, owner_id, display_name, email')
+    .eq('owner_id', normalizedOwnerId)
+    .eq('email', normalizedEmail)
+    .limit(1)
+    .maybeSingle()
+  return data
+}
+
 export async function getOwnerByUserId(userId: string) {
   const { data, error } = await supabase
     .from('wa_owners')

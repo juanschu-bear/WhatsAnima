@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { listAllOwners, findContactByEmail, findOrCreateConversation, createContactForOwner } from '../lib/api'
+import { listAllOwners, findContactByEmailForOwner, findOrCreateConversation, createContactForOwner } from '../lib/api'
 import { resolveAvatarUrl } from '../lib/avatars'
 import { getStoredLocale, t } from '../lib/i18n'
 
@@ -56,7 +56,7 @@ export default function AvatarSelect() {
     setError(null)
 
     try {
-      const contact = await findContactByEmail(user.email)
+      const contact = await findContactByEmailForOwner(owner.id, user.email)
       if (!contact) {
         // No contact profile — show inline form to create one
         setFormOwner(owner)

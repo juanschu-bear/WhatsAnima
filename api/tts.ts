@@ -1,5 +1,9 @@
 const TTS_MAX_RETRIES = 3
 const TTS_RETRY_BASE_MS = 2000
+const DEFAULT_TTS_VOICE_ID =
+  process.env.DEFAULT_ELEVENLABS_VOICE_ID ||
+  process.env.ELEVENLABS_DEFAULT_VOICE_ID ||
+  ''
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -14,7 +18,12 @@ export default async function handler(req: any, res: any) {
       return res.status(500).json({ error: 'Missing ELEVENLABS_API_KEY env var' });
     }
 
-    const voice = voiceId || 'lx8LAX2EUAKftVz0Dk5z';
+    const voice = typeof voiceId === 'string' && voiceId.trim()
+      ? voiceId.trim()
+      : DEFAULT_TTS_VOICE_ID;
+    if (!voice) {
+      return res.status(400).json({ error: 'Missing voiceId (and no default voice configured)' });
+    }
     const url = `https://api.elevenlabs.io/v1/text-to-speech/${voice}`;
     const payload = JSON.stringify({
       text,
