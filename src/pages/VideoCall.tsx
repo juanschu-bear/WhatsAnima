@@ -63,6 +63,24 @@ function buildUserName(user: ReturnType<typeof useAuth>['user'], conversation: C
   )
 }
 
+function resolveConversationId(
+  paramConversationId: string | undefined,
+  conversation: ConversationData | null,
+): string {
+  const byParam = (paramConversationId || '').trim()
+  if (byParam) return byParam
+
+  const byConversation = String((conversation as { id?: string } | null)?.id || '').trim()
+  if (byConversation) return byConversation
+
+  if (typeof window !== 'undefined') {
+    const match = window.location.pathname.match(/\/video-call\/([^/?#]+)/i)
+    if (match?.[1]) return decodeURIComponent(match[1]).trim()
+  }
+
+  return ''
+}
+
 function getParticipantTrack(participant: any, kind: 'video' | 'audio') {
   const source = participant?.tracks?.[kind]
   const candidate = source?.track || source?.persistentTrack
@@ -421,7 +439,14 @@ export default function VideoCall() {
   }
 
   async function startCall() {
-    if (!conversation || !conversationId) return
+    if (!conversation) return
+    const resolvedConversationId = resolveConversationId(conversationId, conversation)
+    if (!resolvedConversationId) {
+      setPhase('error')
+      setStatusText('Connection failed')
+      setError('Missing conversation ID. Reopen the call from the chat camera icon.')
+      return
+    }
     const owner = conversation.wa_owners
     const personaName = personaOverrideEnabled ? selectedPersona : owner.display_name || selectedPersona
     const replicaId = owner.tavus_replica_id?.trim() || FALLBACK_REPLICA_ID
@@ -448,7 +473,7 @@ export default function VideoCall() {
         replica_id: replicaId,
         language: languageCode,
         user_name: buildUserName(user, conversation),
-        conversation_id: conversationId,
+        conversation_id: resolvedConversationId,
         owner_id: owner.id || conversation.owner_id || null,
         contact_name: conversation.wa_contacts?.display_name || null,
       }
