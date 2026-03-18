@@ -52,6 +52,22 @@ interface StageState {
   progress: number
 }
 
+interface OpmNormalizedResponse {
+  transcript: string
+  perception: Record<string, any>
+  interpretation: Record<string, any>
+  session: any
+  analysisType: 'echo' | 'standard' | 'legacy'
+  fired_rules: any[]
+  duration_sec?: number | null
+  processing_ms?: number | null
+  skipped_reason?: string | null
+  prosodic_summary?: Record<string, any> | null
+  behavioral_summary?: string | null
+  conversation_hooks?: any[] | null
+  recommended_tone?: string | null
+}
+
 interface UseVideoRecordingOptions {
   conversationId: string | undefined
   conversation: ConversationRef | null
@@ -79,7 +95,7 @@ function formatDuration(totalSeconds: number) {
   return `${mins}:${secs < 10 ? '0' : ''}${secs}`
 }
 
-function normalizeOpmResponse(raw: any) {
+function normalizeOpmResponse(raw: any): OpmNormalizedResponse {
   const unwrapped = raw?.result || raw?.data || raw || {}
   const echoAnalysis = unwrapped?.echo_analysis || null
   const standardAnalysis = unwrapped?.standard_analysis || null
@@ -105,6 +121,11 @@ function normalizeOpmResponse(raw: any) {
 
     return {
       transcript,
+      behavioral_summary: lucidText || null,
+      conversation_hooks: sessionPatterns.map((pattern: any) =>
+        typeof pattern === 'string' ? pattern : pattern?.pattern || pattern?.description || JSON.stringify(pattern)
+      ),
+      recommended_tone: analysis?.recommended_tone || sessionObj?.lucid_interpretation?.recommended_tone || null,
       perception: {
         primary_emotion: audioFeatures?.primary_emotion || null,
         secondary_emotion: audioFeatures?.secondary_emotion || null,
@@ -141,6 +162,9 @@ function normalizeOpmResponse(raw: any) {
       unwrapped?.transcript,
       raw?.transcript,
     ]),
+    behavioral_summary: null,
+    conversation_hooks: null,
+    recommended_tone: null,
     perception: unwrapped?.perception || {},
     interpretation: unwrapped?.interpretation || {},
     session: unwrapped?.session || null,
