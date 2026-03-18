@@ -20,6 +20,7 @@ interface BackendPersona {
 const LIVE_CALL_API_BASE =
   (import.meta.env.VITE_LIVE_CALL_API_BASE as string | undefined) || 'https://anima.onioko.com'
 const FALLBACK_REPLICA_ID = 'r987f6e6f73c'
+const HEARTBEAT_INTERVAL_MS = 15_000
 const FALLBACK_PERSONAS: BackendPersona[] = [
   { id: 'aria', name: 'ARIA', role: 'Executive Coach' },
   { id: 'marcus', name: 'MARCUS', role: 'Technical Interviewer' },
@@ -323,6 +324,28 @@ export default function VideoCall() {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [conversation, conversationId, language, selectedPersona])
+
+  useEffect(() => {
+    if (!sessionId || (phase !== 'joining' && phase !== 'connected')) return
+
+    const endpoint = `${LIVE_CALL_API_BASE.replace(/\/$/, '')}/api/sessions/${encodeURIComponent(sessionId)}/heartbeat`
+    const sendHeartbeat = async () => {
+      try {
+        await fetch(endpoint, { method: 'POST' })
+      } catch (error) {
+        console.warn('[VideoCall] heartbeat failed', error)
+      }
+    }
+
+    void sendHeartbeat()
+    const interval = window.setInterval(() => {
+      void sendHeartbeat()
+    }, HEARTBEAT_INTERVAL_MS)
+
+    return () => {
+      window.clearInterval(interval)
+    }
+  }, [phase, sessionId])
 
   function syncParticipants(callObject: ReturnType<typeof DailyIframe.createCallObject>, eventName?: string) {
     const participants = Object.values(callObject.participants() || {}) as any[]
