@@ -21,6 +21,7 @@ const LIVE_CALL_API_BASE =
   (import.meta.env.VITE_LIVE_CALL_API_BASE as string | undefined) || 'https://anima.onioko.com'
 const FALLBACK_REPLICA_ID = 'r987f6e6f73c'
 const HEARTBEAT_INTERVAL_MS = 15_000
+const UNLIMITED_DURATION_EMAILS = new Set(['aicallyu.global@gmail.com'])
 const FALLBACK_PERSONAS: BackendPersona[] = [
   { id: 'aria', name: 'ARIA', role: 'Executive Coach' },
   { id: 'marcus', name: 'MARCUS', role: 'Technical Interviewer' },
@@ -472,12 +473,13 @@ export default function VideoCall() {
 
     try {
       const languageCode = normalizeLanguageCode(languageRef.current)
+      const isUnlimitedDurationUser = UNLIMITED_DURATION_EMAILS.has(String(user?.email || '').toLowerCase())
       const requestBody = {
         persona_name: personaName,
         persona: personaName,
         replica_id: replicaId,
         language: languageCode,
-        max_call_duration: 120,
+        ...(isUnlimitedDurationUser ? {} : { max_call_duration: 120 }),
         user_name: buildUserName(user, conversation),
         conversation_id: resolvedConversationId,
         owner_id: owner.id || conversation.owner_id || null,
