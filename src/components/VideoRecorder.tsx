@@ -1,143 +1,187 @@
 import type { RefObject } from 'react'
 
-interface StageState {
-  emoji: string
-  text: string
-  progress: number
-}
+const PLAY_SVG = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+    <polygon points="5 3 19 12 5 21 5 3" />
+  </svg>
+)
+
+const PAUSE_SVG = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+    <rect x="6" y="4" width="4" height="16" />
+    <rect x="14" y="4" width="4" height="16" />
+  </svg>
+)
 
 interface VideoRecorderProps {
   open: boolean
   recordingMode: 'idle' | 'recording' | 'stopping'
   recordingSeconds: number
-  previewUrl: string | null
+  progressRingOffset: number
+  timeWarning: boolean
+  videoHint: string
+  videoStatusText: string
+  validationText: string
+  validationType: '' | 'warning' | 'error' | 'success'
+  canRecord: boolean
+  previewMode: boolean
   previewDuration: number
-  processingStage: StageState | null
-  liveVideoRef: RefObject<HTMLVideoElement | null>
-  previewVideoRef: RefObject<HTMLVideoElement | null>
+  previewCurrentTime: number
+  previewProgress: number
+  previewPlaying: boolean
+  videoPreviewRef: RefObject<HTMLVideoElement | null>
   onClose: () => void
-  onStartRecording: () => Promise<void>
-  onStopRecording: () => Promise<void>
-  onRetake: () => Promise<void>
+  onRecordClick: () => Promise<void>
+  onRotate: () => void
   onSend: () => Promise<void>
-  sending: boolean
+  onTogglePreviewPlayback: () => void
+  onSeekPreview: (ratio: number) => void
 }
 
-function formatClock(totalSeconds: number) {
-  const safeSeconds = Number.isFinite(totalSeconds) ? Math.max(0, totalSeconds) : 0
-  const minutes = Math.floor(safeSeconds / 60)
-  const seconds = Math.floor(safeSeconds % 60)
-  return `${minutes}:${seconds.toString().padStart(2, '0')}`
+function formatDuration(totalSeconds: number) {
+  const seconds = Math.max(0, Math.floor(totalSeconds || 0))
+  const mins = Math.floor(seconds / 60)
+  const secs = seconds % 60
+  return `${mins}:${secs < 10 ? '0' : ''}${secs}`
 }
 
 export function VideoRecorder({
   open,
   recordingMode,
   recordingSeconds,
-  previewUrl,
+  progressRingOffset,
+  timeWarning,
+  videoHint,
+  videoStatusText,
+  validationText,
+  validationType,
+  canRecord,
+  previewMode,
   previewDuration,
-  processingStage,
-  liveVideoRef,
-  previewVideoRef,
+  previewCurrentTime,
+  previewProgress,
+  previewPlaying,
+  videoPreviewRef,
   onClose,
-  onStartRecording,
-  onStopRecording,
-  onRetake,
+  onRecordClick,
+  onRotate,
   onSend,
-  sending,
+  onTogglePreviewPlayback,
+  onSeekPreview,
 }: VideoRecorderProps) {
   if (!open) return null
 
-  const hasPreview = Boolean(previewUrl)
-
   return (
-    <div className="absolute inset-0 z-30 flex items-end bg-[#02060dd9] p-4 sm:items-center sm:justify-center">
-      <div className="w-full max-w-md rounded-[32px] border border-white/10 bg-[linear-gradient(180deg,rgba(17,29,44,0.96),rgba(10,20,33,0.98))] p-5 shadow-[0_28px_100px_rgba(0,0,0,0.45)] backdrop-blur-2xl">
-        <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold text-white">Video message</h2>
-          <button type="button" onClick={onClose} className="text-sm text-white/60">Cancel</button>
-        </div>
+    <div className={`video-overlay active ${recordingMode === 'recording' ? 'recording' : ''} ${timeWarning ? 'time-warning' : ''} ${previewMode ? 'preview' : ''}`}>
+      <div className="video-overlay-header">
+        <button className="video-cancel-btn" type="button" onClick={onClose}>Cancel</button>
+        <span className="video-timer">{formatDuration(recordingMode === 'recording' ? recordingSeconds : previewMode ? previewDuration : 0)}</span>
+        <span className="video-status-text">{videoStatusText}</span>
+      </div>
 
-        <div className="mt-4 overflow-hidden rounded-[24px] border border-white/10 bg-black/30">
-          {hasPreview ? (
-            <video
-              ref={previewVideoRef}
-              className="aspect-square w-full object-cover"
-              controls
-              playsInline
-              preload="metadata"
-            />
-          ) : (
-            <video
-              ref={liveVideoRef}
-              className="aspect-square w-full object-cover"
-              muted
-              playsInline
-              autoPlay
-            />
-          )}
+      <div className="video-circle-container">
+        <svg className="video-progress-ring" viewBox="0 0 260 260">
+          <circle className="progress-ring-bg" cx="130" cy="130" r="124" fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="6" />
+          <circle
+            className="progress-ring-fill"
+            cx="130"
+            cy="130"
+            r="124"
+            fill="none"
+            stroke={timeWarning ? '#ff3b30' : '#34c759'}
+            strokeWidth="6"
+            strokeLinecap="round"
+            strokeDasharray="779.4"
+            strokeDashoffset={progressRingOffset}
+            transform="rotate(-90 130 130)"
+          />
+        </svg>
+        <div className="video-circle">
+          <video ref={videoPreviewRef} autoPlay muted playsInline />
         </div>
+      </div>
 
-        <div className="mt-3 flex items-center justify-between text-sm text-white/70">
-          <span>
-            {hasPreview
-              ? `Preview ${formatClock(previewDuration)}`
-              : recordingMode === 'recording'
-                ? 'Recording...'
-                : 'Tap record to start'}
-          </span>
-          <span className="font-medium">{formatClock(hasPreview ? previewDuration : recordingSeconds)}</span>
-        </div>
+      <div className="video-validation-below">
+        <span className={`validation-msg${validationType ? ` ${validationType}` : ''}`}>{validationText}</span>
+      </div>
 
-        {processingStage ? (
-          <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-white/80">
-            <div className="inline-processing-stage">
-              <span>{processingStage.emoji}</span>
-              <span>{processingStage.text}</span>
+      <div className="video-controls">
+        {previewMode ? (
+          <div
+            style={{
+              display: 'flex',
+              width: 'min(320px, calc(100vw - 40px))',
+              alignItems: 'center',
+              gap: '10px',
+              padding: '10px 12px',
+              borderRadius: '18px',
+              background: 'rgba(0, 0, 0, 0.42)',
+              backdropFilter: 'blur(14px)',
+              WebkitBackdropFilter: 'blur(14px)',
+              marginBottom: '8px',
+            }}
+          >
+            <button
+              type="button"
+              aria-label="Play preview"
+              onClick={onTogglePreviewPlayback}
+              style={{
+                width: '36px',
+                height: '36px',
+                borderRadius: '999px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: 'rgba(255, 255, 255, 0.16)',
+                color: '#fff',
+                flexShrink: '0',
+              }}
+            >
+              {previewPlaying ? PAUSE_SVG : PLAY_SVG}
+            </button>
+            <span style={{ fontSize: '13px', color: 'rgba(255, 255, 255, 0.86)', fontVariantNumeric: 'tabular-nums', minWidth: '34px' }}>
+              {formatDuration(previewCurrentTime)}
+            </span>
+            <div
+              role="slider"
+              tabIndex={0}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.round(previewProgress * 100)}
+              style={{ position: 'relative', flex: '1', height: '18px', display: 'flex', alignItems: 'center', touchAction: 'none', cursor: 'pointer' }}
+              onClick={(event) => {
+                const rect = (event.currentTarget as HTMLDivElement).getBoundingClientRect()
+                const ratio = (event.clientX - rect.left) / rect.width
+                onSeekPreview(ratio)
+              }}
+            >
+              <div style={{ position: 'absolute', left: 0, right: 0, height: '4px', borderRadius: '999px', background: 'rgba(255, 255, 255, 0.22)' }}>
+                <div style={{ height: '100%', width: `${Math.max(0, Math.min(100, previewProgress * 100))}%`, borderRadius: '999px', background: '#00d4ff' }} />
+              </div>
+              <div style={{ position: 'absolute', top: '50%', left: `${Math.max(0, Math.min(100, previewProgress * 100))}%`, width: '12px', height: '12px', borderRadius: '999px', background: '#fff', boxShadow: '0 0 8px rgba(0, 212, 255, 0.45)', transform: 'translate(-50%, -50%)' }} />
             </div>
+            <span style={{ fontSize: '13px', color: 'rgba(255, 255, 255, 0.86)', fontVariantNumeric: 'tabular-nums', minWidth: '34px', textAlign: 'right' }}>
+              {formatDuration(previewDuration)}
+            </span>
           </div>
         ) : null}
 
-        <div className="mt-5 flex items-center justify-between gap-3">
-          {!hasPreview ? (
-            recordingMode === 'recording' ? (
-              <button
-                type="button"
-                onClick={() => void onStopRecording()}
-                className="flex-1 rounded-full bg-gradient-to-r from-[#ff6b7f] to-[#e63d62] px-4 py-3 text-sm font-semibold text-white"
-              >
-                Stop recording
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => void onStartRecording()}
-                className="flex-1 rounded-full bg-gradient-to-r from-[#11c2a0] to-[#38a9ff] px-4 py-3 text-sm font-semibold text-white"
-              >
-                Record video
-              </button>
-            )
-          ) : (
-            <>
-              <button
-                type="button"
-                onClick={() => void onRetake()}
-                disabled={sending}
-                className="flex-1 rounded-full border border-white/10 px-4 py-3 text-sm font-semibold text-white/80 disabled:opacity-40"
-              >
-                Retake
-              </button>
-              <button
-                type="button"
-                onClick={() => void onSend()}
-                disabled={sending}
-                className="flex-1 rounded-full bg-gradient-to-r from-[#11c2a0] to-[#38a9ff] px-4 py-3 text-sm font-semibold text-white disabled:opacity-40"
-              >
-                Send
-              </button>
-            </>
-          )}
-        </div>
+        <button className="video-record-btn" type="button" disabled={!canRecord && recordingMode !== 'recording'} onClick={() => void onRecordClick()}>
+          <span className="record-dot" />
+        </button>
+
+        <button className="video-rotate-btn" type="button" title="Rotate 90°" onClick={onRotate}>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="1 4 1 10 7 10" />
+            <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+          </svg>
+        </button>
+
+        <button className="video-send-btn" type="button" onClick={() => void onSend()}>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" /></svg>
+        </button>
+
+        <div className="video-hint">{videoHint}</div>
       </div>
     </div>
   )

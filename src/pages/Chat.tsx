@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type MouseEvent,
 } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { getConversation, listMessages, listPerceptionLogs, sendMessage, listAllOwners, findContactByEmail, findOrCreateConversation, createContactForOwner } from '../lib/api'
@@ -1000,8 +1001,90 @@ const MediaMessageBubble = memo(function MediaMessageBubble({
     )
   }
 
-  const videoDuration = Number.isFinite(message.duration_sec) ? Math.max(0, Number(message.duration_sec)) : 0
-  const videoDurationLabel = videoDuration > 0 ? formatClock(videoDuration) : 'Video'
+  return (
+    <div
+      className={`relative overflow-hidden rounded-[20px] border shadow-[0_2px_8px_rgba(0,0,0,0.12)] ${
+        isContact
+          ? 'rounded-tr-[6px] border-[#00a884]/15 bg-[#005c4b]'
+          : 'rounded-tl-[6px] border-white/[0.06] bg-[#1a2332]'
+      }`}
+    >
+      <img src={message.media_url} alt="Shared image" className="max-h-80 w-full object-cover" />
+      {!isPlaceholderContent(message) ? (
+        <div className="px-4 pt-2 text-[14px] text-white/90">{message.content}</div>
+      ) : null}
+      <div className="px-4 pb-2 pt-1">{commonMeta}</div>
+    </div>
+  )
+})
+
+const VideoMessageBubble = memo(function VideoMessageBubble({
+  isContact,
+  message,
+  transcript,
+  isRead,
+  isProcessing,
+}: {
+  isContact: boolean
+  message: Message
+  transcript?: string
+  isRead?: boolean
+  isProcessing?: boolean
+}) {
+  const [isTranscriptOpen, setIsTranscriptOpen] = useState(false)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+    const onLoaded = () => {
+      if (video.currentTime === 0) video.currentTime = 0.001
+    }
+    const onEnded = () => setIsPlaying(false)
+    const onPause = () => setIsPlaying(false)
+    const onPlay = () => setIsPlaying(true)
+    video.addEventListener('loadeddata', onLoaded)
+    video.addEventListener('ended', onEnded)
+    video.addEventListener('pause', onPause)
+    video.addEventListener('play', onPlay)
+    return () => {
+      video.removeEventListener('loadeddata', onLoaded)
+      video.removeEventListener('ended', onEnded)
+      video.removeEventListener('pause', onPause)
+      video.removeEventListener('play', onPlay)
+    }
+  }, [message.media_url])
+
+  const hasTranscript = Boolean(transcript && transcript.trim())
+  const durationSec = Math.max(0, Number(message.duration_sec || 0))
+  const durationLabel = durationSec > 0 ? formatClock(durationSec) : '0:00'
+
+  const checkmark = isContact ? (
+    <span className="ml-1.5 inline-flex items-center gap-[3px]">
+      <svg className={`h-3.5 w-3.5 transition-colors duration-500 ${isRead ? 'text-[#53bdeb]' : 'text-white/35'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+      </svg>
+      <svg className={`h-4 w-4 transition-colors duration-500 ${isRead ? 'text-[#53bdeb]' : 'text-white/25'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+        <circle cx="12" cy="12" r="3" fill={isRead ? 'currentColor' : 'none'} />
+      </svg>
+    </span>
+  ) : null
+
+  function togglePlay(event: MouseEvent<HTMLDivElement>) {
+    event.stopPropagation()
+    const video = videoRef.current
+    if (!video) return
+    if (video.paused) {
+      video.removeAttribute('muted')
+      video.muted = false
+      video.loop = false
+      void video.play()
+    } else {
+      video.pause()
+    }
+  }
 
   return (
     <div className={`relative rounded-[20px] border px-3 py-3 shadow-[0_2px_8px_rgba(0,0,0,0.12)] ${
@@ -1010,21 +1093,50 @@ const MediaMessageBubble = memo(function MediaMessageBubble({
         : 'rounded-tl-[6px] border-white/[0.06] bg-[#1a2332]'
     }`}>
       <div className="video-bubble">
-        <div className="video-bubble-circle selfie processed relative h-44 w-44 overflow-hidden rounded-full bg-black/30">
-          <video
-            src={message.media_url}
-            className="h-full w-full object-cover"
-            playsInline
-            controls
-            preload="metadata"
-          />
+        <div className={`video-bubble-circle selfie ${isProcessing ? 'processing' : 'processed'}`} onClick={togglePlay}>
+          {message.media_url ? (
+            <video ref={videoRef} src={message.media_url} playsInline muted loop preload="metadata" />
+          ) : (
+            <div className="video-bubble-placeholder"><svg viewBox="0 0 24 24" width="32" height="32" fill="rgba(255,255,255,0.6)"><path d="M17 10.5V7a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h12a1 1 0 001-1v-3.5l4 4v-11l-4 4z" /></svg></div>
+          )}
+          <div className={`video-bubble-play ${isPlaying ? 'hidden' : ''}`}>
+            <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3" /></svg>
+          </div>
         </div>
-        <div className="video-bubble-duration mt-2 text-center text-[11px] text-white/70">{videoDurationLabel}</div>
+        <div className="video-bubble-duration">{durationLabel}</div>
       </div>
-      {!isPlaceholderContent(message) ? (
-        <div className="px-1 pt-2 text-[14px] text-white/90">{message.content}</div>
+
+      <div className="mt-2 flex items-center gap-2">
+        {message.media_url ? (
+          <a
+            href={message.media_url}
+            download={`video-${message.id.slice(0, 8)}.mp4`}
+            className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-medium text-white/80 transition hover:border-white/25"
+          >
+            Download
+          </a>
+        ) : null}
+        {hasTranscript ? (
+          <button
+            type="button"
+            onClick={() => setIsTranscriptOpen((current) => !current)}
+            className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-medium text-white/80 transition hover:border-white/25"
+          >
+            {isTranscriptOpen ? 'Hide transcript' : 'Transcribe'}
+          </button>
+        ) : null}
+      </div>
+
+      {hasTranscript && isTranscriptOpen ? (
+        <div className="mt-2 rounded-2xl bg-black/15 px-3 py-2.5 text-[13px] leading-[1.55] text-white/80">
+          {transcript}
+        </div>
       ) : null}
-      <div className="px-1 pb-0.5 pt-1">{commonMeta}</div>
+
+      <span className={`mt-1 flex items-center justify-end gap-0.5 text-[10px] ${isContact ? 'text-white/40' : 'text-white/30'}`}>
+        {formatMessageTime(message.created_at)}
+        {checkmark}
+      </span>
     </div>
   )
 })
@@ -1111,16 +1223,28 @@ export default function Chat() {
     videoOverlayOpen,
     recordingMode: videoRecordingMode,
     recordingSeconds: videoRecordingSeconds,
-    previewUrl: videoPreviewUrl,
+    progressRingOffset,
+    timeWarning,
+    videoHint,
+    videoStatusText,
+    validationText,
+    validationType,
+    canRecord,
+    previewMode,
     previewDuration: videoPreviewDuration,
+    previewCurrentTime,
+    previewProgress,
+    previewPlaying,
     processingStage: videoProcessingStage,
-    liveVideoRef,
-    previewVideoRef,
+    processingMessageId: videoProcessingMessageId,
+    videoPreviewRef,
     openVideoOverlay,
     closeVideoOverlay,
     startVideoRecording,
     stopVideoRecording,
-    retakeVideo,
+    rotatePreview,
+    togglePreviewPlayback,
+    seekPreviewToRatio,
     sendVideoBlob,
   } = useVideoRecording({
     conversationId,
@@ -1664,6 +1788,14 @@ export default function Chat() {
     openCaptionDraft(file)
   }
 
+  async function handleVideoRecordButton() {
+    if (videoRecordingMode === 'recording') {
+      await stopVideoRecording()
+      return
+    }
+    await startVideoRecording()
+  }
+
   if (loading) {
     return (
       <div className="flex h-dvh items-center justify-center bg-[#0b141a]">
@@ -1859,7 +1991,15 @@ export default function Chat() {
                     <LessonBubble message={message} isRead={isRead} />
                   ) : message.type === 'fillin' ? (
                     <FillInBubble message={message} isRead={isRead} />
-                  ) : message.type === 'image' || message.type === 'video' ? (
+                  ) : message.type === 'video' ? (
+                    <VideoMessageBubble
+                      isContact={isContact}
+                      message={message}
+                      transcript={transcriptMap[message.id] || (!isPlaceholderContent(message) ? message.content || '' : '')}
+                      isRead={isRead}
+                      isProcessing={Boolean(message._pending && videoProcessingMessageId && videoProcessingMessageId === message.id)}
+                    />
+                  ) : message.type === 'image' ? (
                     <MediaMessageBubble
                       isContact={isContact}
                       message={message}
@@ -1912,6 +2052,18 @@ export default function Chat() {
               </div>
             )
           })}
+
+          {videoProcessingStage ? (
+            <div className="message-row outgoing inline-processing-row flex">
+              <div className="inline-processing">
+                <div className="inline-processing-spinner" />
+                <div className="inline-processing-stage">
+                  <span className="inline-processing-emoji">{videoProcessingStage.emoji}</span>
+                  <span className="inline-processing-text">{videoProcessingStage.text}</span>
+                </div>
+              </div>
+            </div>
+          ) : null}
 
           {/* Avatar away status (fun delay before reading) */}
           {avatarAwayStatus && !avatarStatus ? (
@@ -2166,17 +2318,25 @@ export default function Chat() {
         open={videoOverlayOpen}
         recordingMode={videoRecordingMode}
         recordingSeconds={videoRecordingSeconds}
-        previewUrl={videoPreviewUrl}
+        progressRingOffset={progressRingOffset}
+        timeWarning={timeWarning}
+        videoHint={videoHint}
+        videoStatusText={videoStatusText}
+        validationText={validationText}
+        validationType={validationType}
+        canRecord={canRecord}
+        previewMode={previewMode}
         previewDuration={videoPreviewDuration}
-        processingStage={videoProcessingStage}
-        liveVideoRef={liveVideoRef}
-        previewVideoRef={previewVideoRef}
+        previewCurrentTime={previewCurrentTime}
+        previewProgress={previewProgress}
+        previewPlaying={previewPlaying}
+        videoPreviewRef={videoPreviewRef}
         onClose={closeVideoOverlay}
-        onStartRecording={startVideoRecording}
-        onStopRecording={stopVideoRecording}
-        onRetake={retakeVideo}
+        onRecordClick={handleVideoRecordButton}
+        onRotate={rotatePreview}
         onSend={sendVideoBlob}
-        sending={sending}
+        onTogglePreviewPlayback={togglePreviewPlayback}
+        onSeekPreview={seekPreviewToRatio}
       />
 
       {captionDraft ? (
