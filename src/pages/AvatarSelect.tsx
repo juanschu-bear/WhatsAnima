@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { listAllOwners, findContactByEmail, findOrCreateConversation, createContactForOwner } from '../lib/api'
 import { resolveAvatarUrl } from '../lib/avatars'
@@ -13,6 +13,7 @@ interface OwnerOption {
 export default function AvatarSelect() {
   const { user, signOut } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
   const locale = getStoredLocale()
   const [owners, setOwners] = useState<OwnerOption[]>([])
   const [loading, setLoading] = useState(true)
@@ -43,6 +44,12 @@ export default function AvatarSelect() {
     loadOwners()
   }, [])
 
+  useEffect(() => {
+    // Clear transient loading states whenever this route is entered again.
+    setNavigating(null)
+    setSubmitting(false)
+  }, [location.key])
+
   async function selectAvatar(owner: OwnerOption) {
     if (!user?.email || navigating) return
     setNavigating(owner.id)
@@ -59,6 +66,7 @@ export default function AvatarSelect() {
       }
 
       const conversationId = await findOrCreateConversation(owner.id, contact.id)
+      setNavigating(null)
       navigate(`/chat/${conversationId}`)
     } catch (err) {
       console.error('Failed to start conversation:', err)
@@ -85,6 +93,7 @@ export default function AvatarSelect() {
     } catch (err) {
       console.error('Failed to create contact:', err)
       setError(err instanceof Error ? err.message : 'Unable to create profile.')
+    } finally {
       setSubmitting(false)
     }
   }
