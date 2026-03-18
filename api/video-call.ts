@@ -29,6 +29,7 @@ export default async function handler(req: any, res: any) {
   const requestBody: Record<string, unknown> = {
     persona_name: body.persona_name,
     persona: body.persona,
+    persona_id: body.persona_id,
     replica_id: body.replica_id,
     language: body.language,
     user_name: body.user_name,

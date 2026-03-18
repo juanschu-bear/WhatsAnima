@@ -462,6 +462,10 @@ export default function VideoCall() {
     const owner = conversation.wa_owners
     const personaName = personaOverrideEnabled ? selectedPersona : owner.display_name || selectedPersona
     const replicaId = owner.tavus_replica_id?.trim() || FALLBACK_REPLICA_ID
+    const ownerSettings = (owner as { settings?: Record<string, unknown> | null })?.settings
+    const personaIdFromOwner = typeof ownerSettings?.tavus_persona_id === 'string'
+      ? ownerSettings.tavus_persona_id.trim()
+      : ''
 
     const existingCall = callObjectRef.current
     if (existingCall) {
@@ -483,6 +487,7 @@ export default function VideoCall() {
       const requestBody = {
         persona_name: personaName,
         persona: personaName,
+        persona_id: personaIdFromOwner || undefined,
         replica_id: replicaId,
         language: languageCode,
         ...(isUnlimitedDurationUser ? {} : { max_call_duration: 120 }),

@@ -503,7 +503,7 @@ export async function getConversation(conversationId: string) {
   const [{ data: owner }, { data: contact }] = await Promise.all([
     supabase
       .from('wa_owners')
-      .select('id, display_name, voice_id, tavus_replica_id, system_prompt')
+      .select('id, display_name, voice_id, tavus_replica_id, system_prompt, settings')
       .eq('id', conversation.owner_id)
       .is('deleted_at', null)
       .maybeSingle(),
@@ -522,6 +522,7 @@ export async function getConversation(conversationId: string) {
       voice_id: null,
       tavus_replica_id: null,
       system_prompt: null,
+      settings: null,
     },
     wa_contacts: contact ?? {
       id: conversation.contact_id,
