@@ -29,7 +29,6 @@ const FALLBACK_PERSONAS: BackendPersona[] = [
   { id: 'victoria', name: 'VICTORIA', role: 'Venture Capital Partner' },
   { id: 'dr_chen', name: 'DR_CHEN', role: 'Clinical Psychologist' },
   { id: 'elena', name: 'ELENA', role: 'Creative Director' },
-  { id: 'maxim', name: 'MAXIM', role: 'Sales Strategist' },
   { id: 'konstantin', name: 'KONSTANTIN', role: 'Geopolitical Analyst' },
   { id: 'dante', name: 'DANTE', role: 'Philosopher & Ethics Advisor' },
 ]
@@ -142,7 +141,7 @@ export default function VideoCall() {
   const [personas, setPersonas] = useState<BackendPersona[]>(FALLBACK_PERSONAS)
   const [loadingPersonas, setLoadingPersonas] = useState(true)
   const [language, setLanguage] = useState<SupportedLanguage>('en')
-  const [selectedPersona, setSelectedPersona] = useState('MAXIM')
+  const [selectedPersona, setSelectedPersona] = useState(FALLBACK_PERSONAS[0]?.name ?? 'ARIA')
   const [viewMode, setViewMode] = useState<ViewMode>('speaker')
   const [phase, setPhase] = useState<CallPhase>('setup')
   const [statusText, setStatusText] = useState('Ready to join')
@@ -199,7 +198,7 @@ export default function VideoCall() {
       sessionId: currentSessionId,
       conversationId,
       ownerId: conversation?.owner_id ?? conversation?.wa_owners?.id ?? null,
-      personaName: personaOverrideEnabled ? selectedPersona : conversation?.wa_owners?.display_name || 'MAXIM',
+      personaName: personaOverrideEnabled ? selectedPersona : conversation?.wa_owners?.display_name || 'Avatar',
       replicaId: conversation?.wa_owners?.tavus_replica_id?.trim() || FALLBACK_REPLICA_ID,
       language: normalizeLanguageCode(languageRef.current),
       reason,
@@ -228,7 +227,7 @@ export default function VideoCall() {
           sessionId: currentSessionId,
           conversationId,
           ownerId: conversation?.owner_id ?? conversation?.wa_owners?.id ?? null,
-          personaName: personaOverrideEnabled ? selectedPersona : conversation?.wa_owners?.display_name || 'MAXIM',
+          personaName: personaOverrideEnabled ? selectedPersona : conversation?.wa_owners?.display_name || 'Avatar',
           replicaId: conversation?.wa_owners?.tavus_replica_id?.trim() || FALLBACK_REPLICA_ID,
           language: normalizeLanguageCode(languageRef.current),
           reason,
@@ -470,11 +469,9 @@ export default function VideoCall() {
       : ''
     const ownerEmail = String((owner as { email?: string | null })?.email || '').trim().toLowerCase()
     const ownerDisplayName = String(owner.display_name || '').trim().toLowerCase()
-    const enableGlueForJuan =
+    const enableGlueForExtendedJuan =
       ownerEmail === 'mwg.jmschubert@gmail.com' ||
-      ownerEmail === 'aicallyu.global@gmail.com' ||
-      ownerDisplayName === 'juan schubert (extended)' ||
-      ownerDisplayName === 'juan schubert'
+      ownerDisplayName === 'juan schubert (extended)'
 
     const existingCall = callObjectRef.current
     if (existingCall) {
@@ -499,7 +496,7 @@ export default function VideoCall() {
         persona_id: personaIdFromOwner || undefined,
         replica_id: replicaId,
         language: languageCode,
-        glue_enabled: enableGlueForJuan,
+        glue_enabled: enableGlueForExtendedJuan,
         ...(isUnlimitedDurationUser ? {} : { max_call_duration: 120 }),
         user_name: buildUserName(user, conversation),
         conversation_id: resolvedConversationId,
