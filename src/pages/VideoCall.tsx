@@ -38,6 +38,13 @@ const LANGUAGES: Array<{ code: SupportedLanguage; label: string; accent: string 
   { code: 'es', label: 'Español', accent: 'from-amber-400/75 to-orange-500/80' },
 ]
 
+function normalizeLanguageCode(value: string | null | undefined): SupportedLanguage {
+  const candidate = (value || '').trim().toLowerCase()
+  if (candidate.startsWith('de')) return 'de'
+  if (candidate.startsWith('es')) return 'es'
+  return 'en'
+}
+
 function buildUserName(user: ReturnType<typeof useAuth>['user'], conversation: ConversationData | null) {
   const fullName = [
     user?.user_metadata?.first_name as string | undefined,
@@ -129,12 +136,17 @@ export default function VideoCall() {
   const localVideoRef = useRef<HTMLVideoElement | null>(null)
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null)
   const sessionIdRef = useRef<string | null>(null)
+  const languageRef = useRef<SupportedLanguage>('en')
   const endingSessionRef = useRef(false)
   const hiddenTimeoutRef = useRef<number | null>(null)
 
   useEffect(() => {
     sessionIdRef.current = sessionId
   }, [sessionId])
+
+  useEffect(() => {
+    languageRef.current = normalizeLanguageCode(language)
+  }, [language])
 
   async function notifySessionStart(nextSessionId: string, joinUrl: string, personaName: string, replicaId: string) {
     try {
@@ -147,7 +159,7 @@ export default function VideoCall() {
           ownerId: conversation?.owner_id ?? conversation?.wa_owners?.id ?? null,
           personaName,
           replicaId,
-          language,
+          language: normalizeLanguageCode(languageRef.current),
           joinUrl,
           backendBaseUrl: LIVE_CALL_API_BASE,
         }),
@@ -167,7 +179,7 @@ export default function VideoCall() {
       ownerId: conversation?.owner_id ?? conversation?.wa_owners?.id ?? null,
       personaName: selectedPersona,
       replicaId: conversation?.wa_owners?.tavus_replica_id?.trim() || FALLBACK_REPLICA_ID,
-      language,
+      language: normalizeLanguageCode(languageRef.current),
       reason,
     })
     if (navigator.sendBeacon) {
@@ -196,7 +208,7 @@ export default function VideoCall() {
           ownerId: conversation?.owner_id ?? conversation?.wa_owners?.id ?? null,
           personaName: selectedPersona,
           replicaId: conversation?.wa_owners?.tavus_replica_id?.trim() || FALLBACK_REPLICA_ID,
-          language,
+          language: normalizeLanguageCode(languageRef.current),
           reason,
         }),
         keepalive: true,
@@ -414,11 +426,12 @@ export default function VideoCall() {
     setStatusText('Connecting...')
 
     try {
+      const languageCode = normalizeLanguageCode(languageRef.current)
       const requestBody = {
         persona_name: personaName,
         persona: personaName,
         replica_id: replicaId,
-        language,
+        language: languageCode,
         user_name: buildUserName(user, conversation),
       }
       console.log('[VideoCall] startSession request', requestBody)
@@ -725,7 +738,10 @@ export default function VideoCall() {
                           <button
                             key={item.code}
                             type="button"
-                            onClick={() => setLanguage(item.code)}
+                            onClick={() => {
+                              languageRef.current = normalizeLanguageCode(item.code)
+                              setLanguage(item.code)
+                            }}
                             className={`rounded-[20px] border px-4 py-4 text-left transition ${
                               active
                                 ? `border-white/20 bg-gradient-to-br ${item.accent} text-[#041018]`
