@@ -1,7 +1,13 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { listAllOwners, findContactByEmailForOwner, findOrCreateConversation, createContactForOwner } from '../lib/api'
+import {
+  listAllOwners,
+  findContactByEmailForOwner,
+  findLatestConversationForOwnerAndEmail,
+  findOrCreateConversation,
+  createContactForOwner,
+} from '../lib/api'
 import { resolveAvatarUrl } from '../lib/avatars'
 import { getStoredLocale, t } from '../lib/i18n'
 
@@ -56,12 +62,29 @@ export default function AvatarSelect() {
     setError(null)
 
     try {
+      const existingConversationId = await findLatestConversationForOwnerAndEmail(owner.id, user.email)
+      if (existingConversationId) {
+        setNavigating(null)
+        navigate(`/chat/${existingConversationId}`)
+        return
+      }
+
       const contact = await findContactByEmailForOwner(owner.id, user.email)
       if (!contact) {
-        // No contact profile — show inline form to create one
-        setFormOwner(owner)
-        setShowForm(true)
+        const rawFirstName = String(user.user_metadata?.first_name || '').trim()
+        const rawLastName = String(user.user_metadata?.last_name || '').trim()
+        const [fallbackFirst, ...fallbackLastParts] = user.email.split('@')[0].split(/[._-]+/).filter(Boolean)
+        const firstNameValue = rawFirstName || fallbackFirst || 'User'
+        const lastNameValue = rawLastName || fallbackLastParts.join(' ') || 'Contact'
+        const created = await createContactForOwner({
+          ownerId: owner.id,
+          firstName: firstNameValue,
+          lastName: lastNameValue,
+          email: user.email,
+        })
+        const conversationId = await findOrCreateConversation(owner.id, created.id)
         setNavigating(null)
+        navigate(`/chat/${conversationId}`)
         return
       }
 

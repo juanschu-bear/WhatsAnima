@@ -117,6 +117,34 @@ export async function findContactByEmailForOwner(ownerId: string, email: string)
   return data
 }
 
+export async function findLatestConversationForOwnerAndEmail(ownerId: string, email: string) {
+  const normalizedOwnerId = ownerId.trim()
+  const normalizedEmail = email.trim()
+  if (!normalizedOwnerId || !normalizedEmail) return null
+
+  const { data: contacts, error: contactsError } = await supabase
+    .from('wa_contacts')
+    .select('id')
+    .eq('email', normalizedEmail)
+    .limit(200)
+
+  if (contactsError) throw contactsError
+  const contactIds = (contacts ?? []).map((row) => row.id).filter(Boolean)
+  if (contactIds.length === 0) return null
+
+  const { data: conversation, error: conversationError } = await supabase
+    .from('wa_conversations')
+    .select('id')
+    .eq('owner_id', normalizedOwnerId)
+    .in('contact_id', contactIds)
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (conversationError) throw conversationError
+  return conversation?.id ?? null
+}
+
 export async function getOwnerByUserId(userId: string) {
   const { data, error } = await supabase
     .from('wa_owners')

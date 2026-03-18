@@ -21,6 +21,7 @@ const LIVE_CALL_API_BASE =
   (import.meta.env.VITE_LIVE_CALL_API_BASE as string | undefined) || 'https://anima.onioko.com'
 const FALLBACK_REPLICA_ID = 'r987f6e6f73c'
 const HEARTBEAT_INTERVAL_MS = 15_000
+const ENABLE_LIVE_SESSION_HEARTBEAT = false
 const UNLIMITED_DURATION_EMAILS = new Set(['aicallyu.global@gmail.com'])
 const FALLBACK_PERSONAS: BackendPersona[] = [
   { id: 'aria', name: 'ARIA', role: 'Executive Coach' },
@@ -372,6 +373,7 @@ export default function VideoCall() {
   }, [conversation, conversationId, language, personaOverrideEnabled, selectedPersona])
 
   useEffect(() => {
+    if (!ENABLE_LIVE_SESSION_HEARTBEAT) return
     if (!sessionId || (phase !== 'joining' && phase !== 'connected')) return
 
     const sendHeartbeat = async () => {

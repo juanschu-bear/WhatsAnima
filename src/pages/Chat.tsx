@@ -1860,8 +1860,8 @@ export default function Chat() {
           </>
         ) : (
           <>
-            <div className="relative">
-              <img src={resolveAvatarUrl(owner.display_name)} alt={owner.display_name} className="h-10 w-10 rounded-full object-cover ring-1 ring-white/10" />
+            <div className="relative shrink-0">
+              <img src={resolveAvatarUrl(owner.display_name)} alt={owner.display_name} className="h-10 w-10 shrink-0 rounded-full object-cover ring-1 ring-white/10" />
               <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-[#0a1420] bg-[#00d4a1]" />
             </div>
             <div className="min-w-0 flex-1">
