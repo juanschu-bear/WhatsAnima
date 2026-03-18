@@ -492,10 +492,13 @@ export default function VideoCall() {
         contact_name: conversation.wa_contacts?.display_name || null,
       }
       console.log('[VideoCall] startSession request', requestBody)
-      const response = await fetch(`${LIVE_CALL_API_BASE}/api/sessions/start`, {
+      const response = await fetch('/api/video-call', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody),
+        body: JSON.stringify({
+          ...requestBody,
+          backendBaseUrl: LIVE_CALL_API_BASE,
+        }),
       })
 
       if (!response.ok) {
