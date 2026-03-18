@@ -374,10 +374,16 @@ export default function VideoCall() {
   useEffect(() => {
     if (!sessionId || (phase !== 'joining' && phase !== 'connected')) return
 
-    const endpoint = `${LIVE_CALL_API_BASE.replace(/\/$/, '')}/api/sessions/${encodeURIComponent(sessionId)}/heartbeat`
     const sendHeartbeat = async () => {
       try {
-        await fetch(endpoint, { method: 'POST' })
+        await fetch('/api/live-session-heartbeat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sessionId,
+            backendBaseUrl: LIVE_CALL_API_BASE,
+          }),
+        })
       } catch (error) {
         console.warn('[VideoCall] heartbeat failed', error)
       }
