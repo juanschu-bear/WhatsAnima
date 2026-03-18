@@ -1,4 +1,4 @@
-import type { RefObject } from 'react'
+import { useState, type RefObject } from 'react'
 
 const PLAY_SVG = (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
@@ -69,7 +69,19 @@ export function VideoRecorder({
   onTogglePreviewPlayback,
   onSeekPreview,
 }: VideoRecorderProps) {
+  const [isSending, setIsSending] = useState(false)
+
   if (!open) return null
+
+  async function handleSendClick() {
+    if (isSending) return
+    setIsSending(true)
+    try {
+      await onSend()
+    } finally {
+      setIsSending(false)
+    }
+  }
 
   return (
     <div className={`video-overlay active ${recordingMode === 'recording' ? 'recording' : ''} ${timeWarning ? 'time-warning' : ''} ${previewMode ? 'preview' : ''}`}>
@@ -177,8 +189,15 @@ export function VideoRecorder({
           </svg>
         </button>
 
-        <button className="video-send-btn" type="button" onClick={() => void onSend()}>
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" /></svg>
+        <button className="video-send-btn" type="button" onClick={() => void handleSendClick()} disabled={isSending}>
+          {isSending ? (
+            <span className="inline-flex items-center gap-2 text-sm font-semibold">
+              <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+              Sending...
+            </span>
+          ) : (
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" /></svg>
+          )}
         </button>
 
         <div className="video-hint">{videoHint}</div>

@@ -1087,11 +1087,7 @@ const VideoMessageBubble = memo(function VideoMessageBubble({
   }
 
   return (
-    <div className={`relative rounded-[20px] border px-3 py-3 shadow-[0_2px_8px_rgba(0,0,0,0.12)] ${
-      isContact
-        ? 'rounded-tr-[6px] border-[#00a884]/15 bg-[#005c4b]'
-        : 'rounded-tl-[6px] border-white/[0.06] bg-[#1a2332]'
-    }`}>
+    <div className="relative px-1 py-1">
       <div className="video-bubble">
         <div className={`video-bubble-circle selfie ${isProcessing ? 'processing' : 'processed'}`} onClick={togglePlay}>
           {message.media_url ? (
@@ -1111,7 +1107,11 @@ const VideoMessageBubble = memo(function VideoMessageBubble({
           <a
             href={message.media_url}
             download={`video-${message.id.slice(0, 8)}.mp4`}
-            className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-medium text-white/80 transition hover:border-white/25"
+            className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[11px] font-medium transition ${
+              isContact
+                ? 'border-white/20 bg-black/15 text-white/85 hover:border-white/35'
+                : 'border-white/10 bg-white/5 text-white/80 hover:border-white/25'
+            }`}
           >
             Download
           </a>
@@ -1120,7 +1120,11 @@ const VideoMessageBubble = memo(function VideoMessageBubble({
           <button
             type="button"
             onClick={() => setIsTranscriptOpen((current) => !current)}
-            className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-medium text-white/80 transition hover:border-white/25"
+            className={`rounded-full border px-3 py-1 text-[11px] font-medium transition ${
+              isContact
+                ? 'border-white/20 bg-black/15 text-white/85 hover:border-white/35'
+                : 'border-white/10 bg-white/5 text-white/80 hover:border-white/25'
+            }`}
           >
             {isTranscriptOpen ? 'Hide transcript' : 'Transcribe'}
           </button>
