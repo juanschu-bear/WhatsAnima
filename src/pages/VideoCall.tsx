@@ -1,6 +1,6 @@
 import DailyIframe from '@daily-co/daily-js'
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { resolveAvatarUrl } from '../lib/avatars'
 import { getConversation } from '../lib/api'
@@ -114,6 +114,7 @@ function pickAvatarParticipant(participants: any[]) {
 export default function VideoCall() {
   const navigate = useNavigate()
   const { conversationId } = useParams<{ conversationId: string }>()
+  const [searchParams] = useSearchParams()
   const { user } = useAuth()
 
   const [conversation, setConversation] = useState<ConversationData | null>(null)
@@ -139,6 +140,7 @@ export default function VideoCall() {
   const languageRef = useRef<SupportedLanguage>('en')
   const endingSessionRef = useRef(false)
   const hiddenTimeoutRef = useRef<number | null>(null)
+  const personaOverrideEnabled = searchParams.get('personaOverride') === '1'
 
   useEffect(() => {
     sessionIdRef.current = sessionId
@@ -177,7 +179,7 @@ export default function VideoCall() {
       sessionId: currentSessionId,
       conversationId,
       ownerId: conversation?.owner_id ?? conversation?.wa_owners?.id ?? null,
-      personaName: selectedPersona,
+      personaName: personaOverrideEnabled ? selectedPersona : conversation?.wa_owners?.display_name || 'MAXIM',
       replicaId: conversation?.wa_owners?.tavus_replica_id?.trim() || FALLBACK_REPLICA_ID,
       language: normalizeLanguageCode(languageRef.current),
       reason,
@@ -206,7 +208,7 @@ export default function VideoCall() {
           sessionId: currentSessionId,
           conversationId,
           ownerId: conversation?.owner_id ?? conversation?.wa_owners?.id ?? null,
-          personaName: selectedPersona,
+          personaName: personaOverrideEnabled ? selectedPersona : conversation?.wa_owners?.display_name || 'MAXIM',
           replicaId: conversation?.wa_owners?.tavus_replica_id?.trim() || FALLBACK_REPLICA_ID,
           language: normalizeLanguageCode(languageRef.current),
           reason,
@@ -253,6 +255,13 @@ export default function VideoCall() {
   useEffect(() => {
     let cancelled = false
 
+    if (!personaOverrideEnabled) {
+      setLoadingPersonas(false)
+      return () => {
+        cancelled = true
+      }
+    }
+
     fetch(`${LIVE_CALL_API_BASE}/api/personas`)
       .then(async (response) => {
         if (!response.ok) throw new Error(`Persona fetch failed (${response.status})`)
@@ -275,7 +284,13 @@ export default function VideoCall() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [personaOverrideEnabled, selectedPersona])
+
+  useEffect(() => {
+    if (personaOverrideEnabled) return
+    const ownerName = conversation?.wa_owners?.display_name?.trim()
+    if (ownerName) setSelectedPersona(ownerName)
+  }, [conversation?.wa_owners?.display_name, personaOverrideEnabled])
 
   useEffect(() => {
     return () => {
@@ -335,7 +350,7 @@ export default function VideoCall() {
       window.removeEventListener('pagehide', handleBeforeUnload)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [conversation, conversationId, language, selectedPersona])
+  }, [conversation, conversationId, language, personaOverrideEnabled, selectedPersona])
 
   useEffect(() => {
     if (!sessionId || (phase !== 'joining' && phase !== 'connected')) return
@@ -408,7 +423,7 @@ export default function VideoCall() {
   async function startCall() {
     if (!conversation || !conversationId) return
     const owner = conversation.wa_owners
-    const personaName = selectedPersona
+    const personaName = personaOverrideEnabled ? selectedPersona : owner.display_name || selectedPersona
     const replicaId = owner.tavus_replica_id?.trim() || FALLBACK_REPLICA_ID
 
     const existingCall = callObjectRef.current
@@ -433,6 +448,9 @@ export default function VideoCall() {
         replica_id: replicaId,
         language: languageCode,
         user_name: buildUserName(user, conversation),
+        conversation_id: conversationId,
+        owner_id: owner.id || conversation.owner_id || null,
+        contact_name: conversation.wa_contacts?.display_name || null,
       }
       console.log('[VideoCall] startSession request', requestBody)
       const response = await fetch(`${LIVE_CALL_API_BASE}/api/sessions/start`, {
@@ -591,7 +609,7 @@ export default function VideoCall() {
 
   const owner = conversation.wa_owners
   const callReady = phase === 'connected'
-  const personaName = selectedPersona
+  const personaName = personaOverrideEnabled ? selectedPersona : owner.display_name || selectedPersona
   const replicaId = owner.tavus_replica_id?.trim() || FALLBACK_REPLICA_ID
   const selectedPersonaDetails = personas.find((persona) => persona.name === selectedPersona) ?? null
   const showRemoteVideo = Boolean(remoteParticipant && getParticipantTrack(remoteParticipant, 'video'))
@@ -712,22 +730,30 @@ export default function VideoCall() {
               {phase === 'setup' ? (
                 <div className="absolute inset-x-0 bottom-24 flex justify-center px-3 sm:bottom-28 sm:px-4">
                   <div className="w-full max-w-xl rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(6,14,24,0.95),rgba(6,10,18,0.98))] p-4 shadow-[0_28px_90px_rgba(0,0,0,0.45)] backdrop-blur-2xl sm:rounded-[28px] sm:p-5">
-                    <p className="text-xs uppercase tracking-[0.26em] text-white/45">Persona</p>
-                    <label className="mt-3 block">
-                      <select
-                        value={selectedPersona}
-                        onChange={(event) => setSelectedPersona(event.target.value)}
-                        className="min-h-12 w-full appearance-none rounded-[20px] border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-medium text-white outline-none transition focus:border-[#79f5e4]/40"
-                        disabled={loadingPersonas}
-                      >
-                        {personas.map((persona) => (
-                          <option key={persona.id || persona.name} value={persona.name} className="bg-[#0b1520] text-white">
-                            {persona.name} {persona.role ? `- ${persona.role}` : ''}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    {selectedPersonaDetails?.role ? (
+                    <p className="text-xs uppercase tracking-[0.26em] text-white/45">
+                      {personaOverrideEnabled ? 'Persona override (testing)' : 'Avatar identity'}
+                    </p>
+                    {personaOverrideEnabled ? (
+                      <label className="mt-3 block">
+                        <select
+                          value={selectedPersona}
+                          onChange={(event) => setSelectedPersona(event.target.value)}
+                          className="min-h-12 w-full appearance-none rounded-[20px] border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-medium text-white outline-none transition focus:border-[#79f5e4]/40"
+                          disabled={loadingPersonas}
+                        >
+                          {personas.map((persona) => (
+                            <option key={persona.id || persona.name} value={persona.name} className="bg-[#0b1520] text-white">
+                              {persona.name} {persona.role ? `- ${persona.role}` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : (
+                      <div className="mt-3 rounded-[20px] border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-medium text-white/92">
+                        {owner.display_name || 'Owner avatar'}
+                      </div>
+                    )}
+                    {personaOverrideEnabled && selectedPersonaDetails?.role ? (
                       <p className="mt-2 text-sm text-white/60">{selectedPersonaDetails.role}</p>
                     ) : null}
                     <p className="mt-4 text-xs uppercase tracking-[0.26em] text-white/45">Session language</p>
@@ -765,7 +791,7 @@ export default function VideoCall() {
                       Start live call
                     </button>
                     <p className="mt-3 text-center text-[11px] text-white/42">
-                      Owner avatar: {owner.display_name || 'Unconfigured'} · Session persona: {selectedPersona} · Language: {selectedLanguage?.label ?? 'English'} · Replica: {replicaId}
+                      Owner avatar: {owner.display_name || 'Unconfigured'} · Session persona: {personaName} · Language: {selectedLanguage?.label ?? 'English'} · Replica: {replicaId}
                     </p>
                   </div>
                 </div>
