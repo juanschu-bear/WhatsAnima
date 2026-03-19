@@ -1355,17 +1355,24 @@ export default async function handler(req: any, res: any) {
     let responseVideoSuggestions: YouTubeVideoSuggestion[] | null = null
     if (hasYouTubeProfile && shouldUseVideoFlow) {
       const lang = resolveReplyLanguage(message, priorMessages)
+      const fallbackClosestVideo = closestYouTubeVideo?.video ?? candidateVideos[0] ?? youtubeVideos[0] ?? null
       if (forcedYouTubeVideo?.url) {
         content = buildForcedVideoReply(lang, forcedYouTubeVideo, youtubeProfile!)
       } else if (isFollowUpRequest) {
         content = buildTopicSelectionPrompt(lang, youtubeProfile!)
         responseVideoTopics = topicChips
-      } else if (clarifyingAlreadyAsked) {
+      } else if (clarifyingAlreadyAsked && fallbackClosestVideo) {
         content = buildForcedVideoReply(
           lang,
-          (closestYouTubeVideo?.video ?? (candidateVideos[0] || youtubeVideos[0])),
+          fallbackClosestVideo,
           youtubeProfile!
         )
+      } else if (clarifyingAlreadyAsked) {
+        content = lang === 'es'
+          ? 'Ahora mismo no tengo un video indexado para ese tema. Te comparto uno apenas lo tenga cargado.'
+          : lang === 'de'
+            ? 'Aktuell habe ich dafür kein indexiertes Video. Ich teile dir sofort eines, sobald es geladen ist.'
+            : 'I do not have an indexed video for that topic right now. I will share one as soon as it is available.'
       } else {
         content = buildClarifyingQuestion(lang, youtubeProfile!)
       }
