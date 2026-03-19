@@ -81,6 +81,11 @@ interface CaptionDraft {
 const WAVEFORM_BARS = Array.from({ length: 15 }, (_, index) => index)
 const HTTPS_URL_REGEX = /https:\/\/[^\s]+/gi
 
+interface YouTubePreviewItem {
+  url: string
+  videoId: string
+}
+
 function formatClock(totalSeconds: number) {
   const safeSeconds = Number.isFinite(totalSeconds) ? Math.max(0, totalSeconds) : 0
   const minutes = Math.floor(safeSeconds / 60)
@@ -138,6 +143,61 @@ function renderMessageTextWithLinks(content: string | null | undefined) {
   }
 
   return parts.length > 0 ? parts : text
+}
+
+function extractCleanHttpsUrls(content: string | null | undefined): string[] {
+  const text = content || ''
+  if (!text) return []
+  const urls: string[] = []
+  for (const match of text.matchAll(HTTPS_URL_REGEX)) {
+    const rawUrl = match[0]
+    const trailingMatch = rawUrl.match(/[),.!?;:]+$/)
+    const trailing = trailingMatch ? trailingMatch[0] : ''
+    const cleanUrl = trailing ? rawUrl.slice(0, -trailing.length) : rawUrl
+    if (cleanUrl.length > 'https://'.length) urls.push(cleanUrl)
+  }
+  return urls
+}
+
+function parseYouTubeVideoId(url: string): string | null {
+  try {
+    const parsed = new URL(url)
+    const host = parsed.hostname.toLowerCase()
+    if (host === 'youtu.be') {
+      const shortId = parsed.pathname.replace('/', '').trim()
+      return shortId || null
+    }
+    if (host === 'www.youtube.com' || host === 'youtube.com' || host === 'm.youtube.com') {
+      if (parsed.pathname === '/watch') {
+        const watchId = parsed.searchParams.get('v')
+        return watchId ? watchId.trim() : null
+      }
+      if (parsed.pathname.startsWith('/shorts/')) {
+        const shortId = parsed.pathname.split('/')[2]?.trim()
+        return shortId || null
+      }
+      if (parsed.pathname.startsWith('/embed/')) {
+        const embedId = parsed.pathname.split('/')[2]?.trim()
+        return embedId || null
+      }
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+function extractYouTubePreviews(content: string | null | undefined): YouTubePreviewItem[] {
+  const urls = extractCleanHttpsUrls(content)
+  const seen = new Set<string>()
+  const previews: YouTubePreviewItem[] = []
+  for (const url of urls) {
+    const videoId = parseYouTubeVideoId(url)
+    if (!videoId || seen.has(videoId)) continue
+    seen.add(videoId)
+    previews.push({ url, videoId })
+  }
+  return previews
 }
 
 function dateKey(dateStr: string) {
@@ -2073,9 +2133,10 @@ export default function Chat() {
             const message = item.message
             const isContact = message.sender === 'contact'
             const isSelected = selectedIds.has(message.id)
-            const reactions = reactionsMap[message.id]
-            const hasReaction = reactions?.contact || reactions?.avatar
-            const isRead = Boolean(readAtMap[message.id])
+	            const reactions = reactionsMap[message.id]
+	            const hasReaction = reactions?.contact || reactions?.avatar
+	            const isRead = Boolean(readAtMap[message.id])
+	            const youtubePreviews = extractYouTubePreviews(message.content)
 
             // Read receipt: single check (sent) + eye icon (grey=unread, colored=read)
             const ReadReceipt = isContact ? (
@@ -2150,8 +2211,30 @@ export default function Chat() {
                           : 'rounded-tl-[6px] border-white/[0.06] bg-[#1a2332] text-white/[0.92]'
                       }`}
                     >
-                      <span>{renderMessageTextWithLinks(message.content)}</span>
-                      <span className={`mt-1 flex items-center justify-end gap-0.5 text-[10px] ${isContact ? 'text-white/40' : 'text-white/30'}`}>
+	                      <span>{renderMessageTextWithLinks(message.content)}</span>
+                      {youtubePreviews.length > 0 && (
+                        <div className="mt-3 space-y-2">
+                          {youtubePreviews.map((preview) => (
+                            <a
+                              key={`${message.id}-${preview.videoId}`}
+                              href={preview.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(event) => event.stopPropagation()}
+                              className="block overflow-hidden rounded-xl border border-white/12 bg-black/20 transition hover:border-[#00a884]/45"
+                            >
+                              <img
+                                src={`https://img.youtube.com/vi/${preview.videoId}/hqdefault.jpg`}
+                                alt="YouTube preview"
+                                className="h-auto w-full object-cover"
+                                loading="lazy"
+                              />
+                              <div className="px-3 py-2 text-[12px] text-[#9af8ea]">Open YouTube video</div>
+                            </a>
+                          ))}
+                        </div>
+                      )}
+	                      <span className={`mt-1 flex items-center justify-end gap-0.5 text-[10px] ${isContact ? 'text-white/40' : 'text-white/30'}`}>
                         {formatMessageTime(message.created_at)}
                         {ReadReceipt}
                       </span>
