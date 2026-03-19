@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 
 export const DEFAULT_SYSTEM_PROMPT = 'You are a helpful assistant.'
 const ADRI_KASTEL_OWNER_ID = '19fa8767-952a-4533-899b-96f66ee85516'
+const ADRI_FALLBACK_VIDEO_URL = 'https://www.youtube.com/watch?v=ocTcUxyRgpE'
 export const LANGUAGE_INSTRUCTION =
   `CRITICAL LANGUAGE RULE — THIS OVERRIDES CONVERSATION HISTORY:
 Your response language is determined SOLELY by the user's LAST message. Ignore all previous messages when deciding which language to use. It does not matter if the conversation history is 99% Spanish — if the last message is in English, you respond in English. If the last message is in German, you respond in German. The last message is the ONLY input for language selection, period.
@@ -305,6 +306,14 @@ function isAdriKastelContext(ownerId: string | null | undefined, ownerName: stri
   if (name.includes('adri') && name.includes('kastel')) return true
   const prompt = (ownerPrompt || '').toLowerCase()
   return prompt.includes('adri kastel')
+}
+
+function adriFallbackVideo(): YouTubeVideoIndexItem {
+  return {
+    title: 'Cómo Ganar Seguidores y Clientes en Instagram en 2024 | Guía Completa',
+    url: ADRI_FALLBACK_VIDEO_URL,
+    keywords: ['ofertas', 'clientes', 'instagram', 'marketing'],
+  }
 }
 
 export async function loadOwnerPromptAndMemory(conversationId: string | undefined): Promise<{ ownerPrompt: string; memory: string; stylePrompt: string; behavioralMemory: string; ownerId: string | null; ownerName: string; youtubeVideos: YouTubeVideoIndexItem[] }> {
@@ -676,6 +685,8 @@ export default async function handler(req: any, res: any) {
   let {
     message,
     conversationId,
+    ownerId: ownerIdHint,
+    ownerName: ownerNameHint,
     history,
     image_url,
     isImage,
@@ -686,6 +697,8 @@ export default async function handler(req: any, res: any) {
   }: {
     message?: string
     conversationId?: string
+    ownerId?: string | null
+    ownerName?: string | null
     history?: ChatMessage[]
     image_url?: string
     isImage?: boolean
@@ -774,7 +787,9 @@ export default async function handler(req: any, res: any) {
 
   try {
     const { ownerPrompt, memory, stylePrompt, behavioralMemory, ownerId, ownerName, youtubeVideos } = await loadOwnerPromptAndMemory(conversationId)
-    const isAdriContext = isAdriKastelContext(ownerId, ownerName, ownerPrompt)
+    const effectiveOwnerId = ownerId || (typeof ownerIdHint === 'string' ? ownerIdHint : null)
+    const effectiveOwnerName = ownerName || (typeof ownerNameHint === 'string' ? ownerNameHint : 'Avatar')
+    const isAdriContext = isAdriKastelContext(effectiveOwnerId, effectiveOwnerName, ownerPrompt)
     const contextForVideoMatch = [
       ...priorMessages.filter((entry) => entry.role === 'user').slice(-3).map((entry) => entry.content),
       message,
@@ -791,10 +806,10 @@ export default async function handler(req: any, res: any) {
       stylePrompt,
       behavioralMemory,
       perception,
-      ownerId,
-      ownerName,
+      effectiveOwnerId,
+      effectiveOwnerName,
       youtubeVideos,
-      forcedAdriVideo,
+      forcedAdriVideo ?? (isAdriContext ? adriFallbackVideo() : null),
       isAdriContext,
     )
     if (isAdriContext) {
@@ -805,8 +820,8 @@ export default async function handler(req: any, res: any) {
       console.log(
         '[chat][adri_youtube_prompt]',
         JSON.stringify({
-          ownerId: ownerId || null,
-          ownerName,
+          ownerId: effectiveOwnerId || null,
+          ownerName: effectiveOwnerName,
           isAdriContext,
           youtubeVideosCount: youtubeVideos.length,
           matchedVideo: matchedYouTubeVideo?.video?.url || null,
@@ -838,13 +853,14 @@ export default async function handler(req: any, res: any) {
     if (!content) {
       return res.status(502).json({ error: 'Empty response from AI' })
     }
-    if (isAdriContext && forcedAdriVideo?.url && !content.includes(forcedAdriVideo.url)) {
+    const ensuredVideo = forcedAdriVideo ?? (isAdriContext ? adriFallbackVideo() : null)
+    if (isAdriContext && ensuredVideo?.url && !content.includes(ensuredVideo.url)) {
       const lang = detectLanguage(message)
       const forcedLine = lang === 'es'
-        ? `Te recomiendo este video puntual: ${forcedAdriVideo.url}`
+        ? `Te recomiendo este video puntual: ${ensuredVideo.url}`
         : lang === 'de'
-          ? `Ich empfehle dir dieses konkrete Video: ${forcedAdriVideo.url}`
-          : `I recommend this specific video: ${forcedAdriVideo.url}`
+          ? `Ich empfehle dir dieses konkrete Video: ${ensuredVideo.url}`
+          : `I recommend this specific video: ${ensuredVideo.url}`
       content = `${content.trim()}\n\n${forcedLine}`
     }
 

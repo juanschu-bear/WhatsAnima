@@ -1548,6 +1548,8 @@ export default function Chat() {
         body: JSON.stringify({
           message: userMessage,
           conversationId,
+          ownerId: conversation?.owner_id || conversation?.wa_owners?.id || null,
+          ownerName: conversation?.wa_owners?.display_name || null,
           history,
           image_url: imageUrl,
           isImage,
