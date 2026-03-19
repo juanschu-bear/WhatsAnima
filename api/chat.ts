@@ -96,6 +96,12 @@ type YouTubeVideoIndexItem = {
   keywords: string[]
 }
 
+type YouTubeVideoMatch = {
+  video: YouTubeVideoIndexItem
+  score: number
+  matchedKeywords: string[]
+}
+
 /** Extract string label from an emotion value that may be a plain string, a JSON-encoded string, or an OPM v4 object like {label, score}. */
 function emotionLabel(val: any): string {
   const normalize = (raw: string) => {
@@ -245,6 +251,42 @@ function normalizeYouTubeVideoIndex(value: any): YouTubeVideoIndexItem[] {
       return { title, url, keywords }
     })
     .filter((item: YouTubeVideoIndexItem | null): item is YouTubeVideoIndexItem => Boolean(item))
+}
+
+function tokenizeForVideoMatch(text: string): string[] {
+  const stopwords = new Set([
+    'de', 'del', 'la', 'el', 'los', 'las', 'y', 'en', 'con', 'por', 'para', 'un', 'una', 'unos', 'unas', 'que', 'como', 'al', 'a', 'o', 'u',
+    'es', 'se', 'tu', 'sus', 'mi', 'mis', 'te', 'lo', 'le', 'les', 'the', 'and', 'for', 'with', 'from', 'to', 'of', 'in', 'on', 'at', 'is',
+    'are', 'an', 'this', 'that', 'these', 'those', 'how', 'what', 'your', 'you', 'while',
+  ])
+  return text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((token) => token.length >= 3 && !stopwords.has(token))
+}
+
+function findBestYouTubeVideoMatch(contextText: string, videos: YouTubeVideoIndexItem[]): YouTubeVideoMatch | null {
+  if (!contextText.trim() || videos.length === 0) return null
+  const contextTokens = tokenizeForVideoMatch(contextText)
+  if (contextTokens.length === 0) return null
+  const contextTokenSet = new Set(contextTokens)
+  let best: YouTubeVideoMatch | null = null
+
+  for (const video of videos) {
+    const matchedKeywords = video.keywords.filter((keyword) => contextTokenSet.has(keyword))
+    const titleTokens = tokenizeForVideoMatch(video.title)
+    const titleOverlap = titleTokens.filter((token) => contextTokenSet.has(token))
+    const score = matchedKeywords.length * 4 + Math.min(8, titleOverlap.length)
+    if (!best || score > best.score) {
+      best = { video, score, matchedKeywords }
+    }
+  }
+
+  return best && best.score >= 4 ? best : null
 }
 
 export async function loadOwnerPromptAndMemory(conversationId: string | undefined): Promise<{ ownerPrompt: string; memory: string; stylePrompt: string; behavioralMemory: string; ownerId: string | null; ownerName: string; youtubeVideos: YouTubeVideoIndexItem[] }> {
@@ -526,6 +568,7 @@ export function buildSystemPrompt(
   ownerId?: string | null,
   profileName?: string,
   youtubeVideos: YouTubeVideoIndexItem[] = [],
+  matchedYouTubeVideo: YouTubeVideoIndexItem | null = null,
 ): string {
   const nameMatch = ownerPrompt.match(/(?:^#.*?—\s*(.+)|^I am (.+?)[.\n])/m)
   const ownerName = profileName?.trim() || nameMatch?.[1]?.trim() || nameMatch?.[2]?.trim() || 'the person described below'
@@ -545,8 +588,17 @@ You have access to your own YouTube catalog. When the user topic matches, recomm
 VIDEO INDEX:
 ${youtubeVideos.map((video) => `- ${video.title} | ${video.url} | keywords: ${video.keywords.join(', ')}`).join('\n')}`
       : ''
+  const forcedMatchedVideoInstruction =
+    ownerId === ADRI_KASTEL_OWNER_ID && matchedYouTubeVideo
+      ? `\n\n[MATCHED VIDEO FOR CURRENT USER TOPIC — MUST SHARE]
+This user message clearly matches this video from your own catalog:
+- ${matchedYouTubeVideo.title}
+- ${matchedYouTubeVideo.url}
 
-  return `${IDENTITY_OVERRIDE}\n\n${LANGUAGE_INSTRUCTION}\n\n${ownerPrompt}\n\n${RESPONSE_FORMAT_MATCHING}\n\n${FORMATTING_INSTRUCTION}\n\n${FLASHCARD_INSTRUCTION}\n\n${IMAGE_GENERATION_INSTRUCTION}\n\n${MESSAGE_TYPE_AWARENESS}${stylePrompt}${memory}${behavioralMemory}${youtubeRecommendationInstruction}${buildPerceptionPrompt(perception)}${IDENTITY_REMINDER}`
+You MUST include this exact URL in your response. Mention it naturally, but do not omit it.`
+      : ''
+
+  return `${IDENTITY_OVERRIDE}\n\n${LANGUAGE_INSTRUCTION}\n\n${ownerPrompt}\n\n${RESPONSE_FORMAT_MATCHING}\n\n${FORMATTING_INSTRUCTION}\n\n${FLASHCARD_INSTRUCTION}\n\n${IMAGE_GENERATION_INSTRUCTION}\n\n${MESSAGE_TYPE_AWARENESS}${stylePrompt}${memory}${behavioralMemory}${youtubeRecommendationInstruction}${forcedMatchedVideoInstruction}${buildPerceptionPrompt(perception)}${IDENTITY_REMINDER}`
 }
 
 /** Prepare the messages array for the Claude API, including language switch detection. */
@@ -701,7 +753,24 @@ export default async function handler(req: any, res: any) {
 
   try {
     const { ownerPrompt, memory, stylePrompt, behavioralMemory, ownerId, ownerName, youtubeVideos } = await loadOwnerPromptAndMemory(conversationId)
-    const systemPrompt = buildSystemPrompt(ownerPrompt, memory, stylePrompt, behavioralMemory, perception, ownerId, ownerName, youtubeVideos)
+    const contextForVideoMatch = [
+      ...priorMessages.filter((entry) => entry.role === 'user').slice(-3).map((entry) => entry.content),
+      message,
+    ].join('\n')
+    const matchedYouTubeVideo = ownerId === ADRI_KASTEL_OWNER_ID
+      ? findBestYouTubeVideoMatch(contextForVideoMatch, youtubeVideos)
+      : null
+    const systemPrompt = buildSystemPrompt(
+      ownerPrompt,
+      memory,
+      stylePrompt,
+      behavioralMemory,
+      perception,
+      ownerId,
+      ownerName,
+      youtubeVideos,
+      matchedYouTubeVideo?.video ?? null,
+    )
     if (ownerId === ADRI_KASTEL_OWNER_ID) {
       const youtubeBlockStart = systemPrompt.indexOf('[YOUTUBE VIDEO INDEX')
       const injectedSnippet = youtubeBlockStart >= 0
@@ -713,6 +782,9 @@ export default async function handler(req: any, res: any) {
           ownerId,
           ownerName,
           youtubeVideosCount: youtubeVideos.length,
+          matchedVideo: matchedYouTubeVideo?.video?.url || null,
+          matchedScore: matchedYouTubeVideo?.score || 0,
+          matchedKeywords: matchedYouTubeVideo?.matchedKeywords || [],
           injectedSnippet,
         })
       )
@@ -737,6 +809,15 @@ export default async function handler(req: any, res: any) {
     }
     if (!content) {
       return res.status(502).json({ error: 'Empty response from AI' })
+    }
+    if (ownerId === ADRI_KASTEL_OWNER_ID && matchedYouTubeVideo?.video?.url && !content.includes(matchedYouTubeVideo.video.url)) {
+      const lang = detectLanguage(message)
+      const forcedLine = lang === 'es'
+        ? `Te recomiendo este video puntual: ${matchedYouTubeVideo.video.url}`
+        : lang === 'de'
+          ? `Ich empfehle dir dieses konkrete Video: ${matchedYouTubeVideo.video.url}`
+          : `I recommend this specific video: ${matchedYouTubeVideo.video.url}`
+      content = `${content.trim()}\n\n${forcedLine}`
     }
 
     // Check for generate_image block and generate image server-side
