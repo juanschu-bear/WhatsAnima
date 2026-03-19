@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 
 export const DEFAULT_SYSTEM_PROMPT = 'You are a helpful assistant.'
 const ADRI_KASTEL_OWNER_ID = '19fa8767-952a-4533-899b-96f66ee85516'
-const ADRI_FALLBACK_VIDEO_URL = 'https://www.youtube.com/watch?v=ocTcUxyRgpE'
+const ADRI_STRONG_MATCH_MIN_SCORE = 10
 export const LANGUAGE_INSTRUCTION =
   `CRITICAL LANGUAGE RULE — THIS OVERRIDES CONVERSATION HISTORY:
 Your response language is determined SOLELY by the user's LAST message. Ignore all previous messages when deciding which language to use. It does not matter if the conversation history is 99% Spanish — if the last message is in English, you respond in English. If the last message is in German, you respond in German. The last message is the ONLY input for language selection, period.
@@ -287,17 +287,7 @@ function findBestYouTubeVideoMatch(contextText: string, videos: YouTubeVideoInde
     }
   }
 
-  return best && best.score >= 4 ? best : null
-}
-
-function selectFallbackAdriVideo(videos: YouTubeVideoIndexItem[]): YouTubeVideoIndexItem | null {
-  if (videos.length === 0) return null
-  const priorityTerms = ['oferta', 'ofertas', 'instagram', 'clientes', 'growth', 'marketing', 'lanzamiento', 'ventas']
-  for (const video of videos) {
-    const haystack = `${video.title} ${video.keywords.join(' ')}`.toLowerCase()
-    if (priorityTerms.some((term) => haystack.includes(term))) return video
-  }
-  return videos[0]
+  return best && best.score >= ADRI_STRONG_MATCH_MIN_SCORE ? best : null
 }
 
 function isAdriKastelContext(ownerId: string | null | undefined, ownerName: string | null | undefined, ownerPrompt: string | null | undefined) {
@@ -308,28 +298,48 @@ function isAdriKastelContext(ownerId: string | null | undefined, ownerName: stri
   return prompt.includes('adri kastel')
 }
 
-function adriFallbackVideo(): YouTubeVideoIndexItem {
-  return {
-    title: 'Cómo Ganar Seguidores y Clientes en Instagram en 2024 | Guía Completa',
-    url: ADRI_FALLBACK_VIDEO_URL,
-    keywords: ['ofertas', 'clientes', 'instagram', 'marketing'],
-  }
-}
-
-function containsAdriVideoDenial(text: string): boolean {
-  const denialPattern = /no\s+tengo\s+videos|no\s+tengo\s+canal|no\s+puedo\s+acceder\s+a\s+internet|soy\s+un\s+avatar\s+digital|i\s+don'?t\s+have\s+videos|i\s+can'?t\s+access\s+the\s+internet|ich\s+habe\s+keine\s+videos/iu
-  return denialPattern.test(text)
-}
-
 function buildForcedAdriVideoReply(lang: string, video: YouTubeVideoIndexItem): string {
   const cleanedTitle = (video.title || 'Video recomendado').trim()
   if (lang === 'es') {
-    return `Perfecto hermano, aquí tienes un video mío que te ayuda con ese tema:\n${cleanedTitle}\n${video.url}\n\nSi quieres, te lo desgloso en pasos aplicados a tu oferta actual.`
+    return `${cleanedTitle}\n${video.url}\nTe lo recomiendo porque encaja directo con lo que me estás pidiendo.`
   }
   if (lang === 'de') {
-    return `Perfekt, hier ist ein passendes Video von mir zu deinem Thema:\n${cleanedTitle}\n${video.url}\n\nWenn du willst, breche ich es direkt in konkrete Schritte für dein aktuelles Angebot herunter.`
+    return `${cleanedTitle}\n${video.url}\nDas passt direkt zu dem, was du gerade fragst.`
   }
-  return `Perfect, here is a relevant video from me for your topic:\n${cleanedTitle}\n${video.url}\n\nIf you want, I can break it down into concrete steps for your current offer.`
+  return `${cleanedTitle}\n${video.url}\nI recommend this because it directly matches what you're asking.`
+}
+
+function buildAdriClarifyingQuestion(lang: string): string {
+  if (lang === 'es') {
+    return 'Para recomendarte el video exacto, ¿en qué parte quieres enfocarte: objeciones, cierre, pricing o estructura de oferta?'
+  }
+  if (lang === 'de') {
+    return 'Damit ich dir das exakte Video empfehle: Worum geht es dir konkret - Einwandbehandlung, Closing, Pricing oder Angebotsstruktur?'
+  }
+  return 'To recommend the exact video, what should I focus on: objections, closing, pricing, or offer structure?'
+}
+
+function isVideoRecommendationRequest(text: string): boolean {
+  const normalized = text.toLowerCase()
+  const videoTerms = [
+    'video',
+    'videos',
+    'youtube',
+    'yt',
+    'link',
+    'links',
+    'recomienda',
+    'recomendar',
+    'recomendame',
+    'recommend',
+    'recommended',
+    'empfiehl',
+    'empfehlen',
+    'vídeo',
+    'canal',
+    'canales',
+  ]
+  return videoTerms.some((term) => normalized.includes(term))
 }
 
 export async function loadOwnerPromptAndMemory(conversationId: string | undefined): Promise<{ ownerPrompt: string; memory: string; stylePrompt: string; behavioralMemory: string; ownerId: string | null; ownerName: string; youtubeVideos: YouTubeVideoIndexItem[] }> {
@@ -627,21 +637,21 @@ When greeting or introducing yourself, use the name ${ownerName}. First-person s
   const youtubeRecommendationInstruction =
     forceAdriRules && youtubeVideos.length > 0
       ? `\n\n[YOUTUBE VIDEO INDEX — ${ownerName}]
-You have access to your own YouTube catalog. When the user topic matches, recommend the most relevant single video URL naturally (only when helpful, never forced). Do not dump multiple links unless explicitly asked.
-Never claim that you cannot share videos or that you have no access to your own videos.
-If the user asks for videos from you, you MUST provide 1-3 direct YouTube URLs from this index.
+You have access to your own YouTube catalog.
+Only recommend one of your videos when you are confident it directly addresses what the person is asking. If unsure, ask a short clarifying question first.
+When you share a video, keep the reply to 2-3 short lines maximum: title, URL, one-sentence reason.
 
 VIDEO INDEX:
 ${youtubeVideos.map((video) => `- ${video.title} | ${video.url} | keywords: ${video.keywords.join(', ')}`).join('\n')}`
       : ''
   const forcedMatchedVideoInstruction =
     forceAdriRules && matchedYouTubeVideo
-      ? `\n\n[MATCHED VIDEO FOR CURRENT USER TOPIC — MUST SHARE]
-This user message clearly matches this video from your own catalog:
+      ? `\n\n[STRONG VIDEO MATCH FOR CURRENT USER TOPIC]
+This user message strongly matches this video from your own catalog:
 - ${matchedYouTubeVideo.title}
 - ${matchedYouTubeVideo.url}
 
-You MUST include this exact URL in your response. Mention it naturally, but do not omit it.`
+Keep your reply short (2-3 lines): title, URL, and one sentence why it is relevant.`
       : ''
 
   return `${IDENTITY_OVERRIDE}\n\n${LANGUAGE_INSTRUCTION}\n\n${ownerPrompt}\n\n${RESPONSE_FORMAT_MATCHING}\n\n${FORMATTING_INSTRUCTION}\n\n${FLASHCARD_INSTRUCTION}\n\n${IMAGE_GENERATION_INSTRUCTION}\n\n${MESSAGE_TYPE_AWARENESS}${stylePrompt}${memory}${behavioralMemory}${youtubeRecommendationInstruction}${forcedMatchedVideoInstruction}${buildPerceptionPrompt(perception)}${IDENTITY_REMINDER}`
@@ -822,9 +832,8 @@ export default async function handler(req: any, res: any) {
     const matchedYouTubeVideo = isAdriContext
       ? findBestYouTubeVideoMatch(contextForVideoMatch, youtubeVideos)
       : null
-    const forcedAdriVideo = isAdriContext
-      ? (matchedYouTubeVideo?.video ?? selectFallbackAdriVideo(youtubeVideos))
-      : null
+    const forcedAdriVideo = isAdriContext ? (matchedYouTubeVideo?.video ?? null) : null
+    const userAskedForVideo = isAdriContext ? isVideoRecommendationRequest(message) : false
     const systemPrompt = buildSystemPrompt(
       ownerPrompt,
       memory,
@@ -834,7 +843,7 @@ export default async function handler(req: any, res: any) {
       effectiveOwnerId,
       effectiveOwnerName,
       youtubeVideos,
-      forcedAdriVideo ?? (isAdriContext ? adriFallbackVideo() : null),
+      forcedAdriVideo,
       isAdriContext,
     )
     if (isAdriContext) {
@@ -853,6 +862,7 @@ export default async function handler(req: any, res: any) {
           forcedVideo: forcedAdriVideo?.url || null,
           matchedScore: matchedYouTubeVideo?.score || 0,
           matchedKeywords: matchedYouTubeVideo?.matchedKeywords || [],
+          askedForVideo: userAskedForVideo,
           injectedSnippet,
         })
       )
@@ -878,19 +888,11 @@ export default async function handler(req: any, res: any) {
     if (!content) {
       return res.status(502).json({ error: 'Empty response from AI' })
     }
-    const ensuredVideo = forcedAdriVideo ?? (isAdriContext ? adriFallbackVideo() : null)
-    if (isAdriContext && ensuredVideo?.url) {
+    if (isAdriContext && userAskedForVideo) {
       const lang = detectLanguage(message)
-      if (containsAdriVideoDenial(content)) {
-        content = buildForcedAdriVideoReply(lang, ensuredVideo)
-      } else if (!content.includes(ensuredVideo.url)) {
-        const forcedLine = lang === 'es'
-          ? `Te recomiendo este video puntual: ${ensuredVideo.url}`
-          : lang === 'de'
-            ? `Ich empfehle dir dieses konkrete Video: ${ensuredVideo.url}`
-            : `I recommend this specific video: ${ensuredVideo.url}`
-        content = `${content.trim()}\n\n${forcedLine}`
-      }
+      content = forcedAdriVideo?.url
+        ? buildForcedAdriVideoReply(lang, forcedAdriVideo)
+        : buildAdriClarifyingQuestion(lang)
     }
 
     // Check for generate_image block and generate image server-side
