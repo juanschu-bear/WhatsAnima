@@ -40,6 +40,10 @@ interface Message {
   type: MessageType
   content: string | null
   media_url: string | null
+  videoBlobUrl?: string | null
+  isGalleryVideo?: boolean
+  videoNeedsRotation?: boolean
+  videoRotationScale?: number
   thumbnail_url?: string | null
   poster_url?: string | null
   preview_url?: string | null
@@ -1058,7 +1062,15 @@ const VideoMessageBubble = memo(function VideoMessageBubble({
 
   const hasTranscript = Boolean(transcript && transcript.trim())
   const durationSec = Math.max(0, Number(message.duration_sec || 0))
-  const durationLabel = durationSec > 0 ? formatClock(durationSec) : '0:00'
+  const durationLabel = durationSec > 0 ? `0:${durationSec < 10 ? '0' : ''}${Math.round(durationSec)}` : ''
+  const videoSrc = message.videoBlobUrl || message.media_url || ''
+  const hasVideo = Boolean(videoSrc)
+  const isGallery = Boolean(message.isGalleryVideo)
+  const needsRotation = Boolean(message.videoNeedsRotation)
+  const rotationScale = Number(message.videoRotationScale) > 1 ? Number(message.videoRotationScale) : 1.35
+  const videoTransform = needsRotation
+    ? 'scaleX(-1) rotate(-90deg) scale(' + rotationScale.toFixed(2) + ')'
+    : undefined
 
   const checkmark = isContact ? (
     <span className="ml-1.5 inline-flex items-center gap-[3px]">
@@ -1089,23 +1101,34 @@ const VideoMessageBubble = memo(function VideoMessageBubble({
   return (
     <div className="relative px-1 py-1">
       <div className="video-bubble">
-        <div className={`video-bubble-circle selfie ${isProcessing ? 'processing' : 'processed'}`} onClick={togglePlay}>
-          {message.media_url ? (
-            <video ref={videoRef} src={message.media_url} playsInline muted loop preload="metadata" />
-          ) : (
-            <div className="video-bubble-placeholder"><svg viewBox="0 0 24 24" width="32" height="32" fill="rgba(255,255,255,0.6)"><path d="M17 10.5V7a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h12a1 1 0 001-1v-3.5l4 4v-11l-4 4z" /></svg></div>
-          )}
-          <div className={`video-bubble-play ${isPlaying ? 'hidden' : ''}`}>
-            <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3" /></svg>
+        {isGallery && hasVideo ? (
+          <div className={`video-bubble-rect-container ${isProcessing ? 'processing' : 'processed'}`} onClick={togglePlay}>
+            <video ref={videoRef} src={videoSrc} playsInline muted loop preload="metadata" style={videoTransform ? { transform: videoTransform } : undefined} />
+            <div className={`video-bubble-play ${isPlaying ? 'hidden' : ''}`}>
+              <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3" /></svg>
+            </div>
           </div>
-        </div>
-        <div className="video-bubble-duration">{durationLabel}</div>
+        ) : (
+          <div className={`video-bubble-circle ${hasVideo && !isGallery ? 'selfie' : ''} ${hasVideo ? '' : 'no-video'} ${isProcessing ? 'processing' : 'processed'}`} onClick={togglePlay}>
+            {hasVideo ? (
+              <video ref={videoRef} src={videoSrc} playsInline muted loop preload="metadata" style={videoTransform ? { transform: videoTransform } : undefined} />
+            ) : (
+              <div className="video-bubble-placeholder"><svg viewBox="0 0 24 24" width="32" height="32" fill="rgba(255,255,255,0.6)"><path d="M17 10.5V7a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h12a1 1 0 001-1v-3.5l4 4v-11l-4 4z" /></svg></div>
+            )}
+            {hasVideo ? (
+              <div className={`video-bubble-play ${isPlaying ? 'hidden' : ''}`}>
+                <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3" /></svg>
+              </div>
+            ) : null}
+          </div>
+        )}
+        <div className="video-bubble-duration">{hasVideo ? durationLabel : 'Video from another device'}</div>
       </div>
 
       <div className="mt-2 flex items-center gap-2">
-        {message.media_url ? (
+        {hasVideo ? (
           <a
-            href={message.media_url}
+            href={videoSrc}
             download={`video-${message.id.slice(0, 8)}.mp4`}
             className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[11px] font-medium transition ${
               isContact

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPerceptionLog, sendMessage } from '../lib/api'
-import { blobToBase64, delay, getFileExtension } from '../lib/mediaUtils'
+import { delay, uploadMediaToStorage } from '../lib/mediaUtils'
 
 const VIDEO_MAX_SECONDS = 300
 const PROGRESS_RING_CIRCUMFERENCE = 779.4
@@ -31,6 +31,9 @@ interface Message {
   media_url: string | null
   duration_sec: number | null
   created_at: string
+  isGalleryVideo?: boolean
+  videoNeedsRotation?: boolean
+  videoRotationScale?: number
   _pending?: boolean
   _failed?: boolean
   _errorMessage?: string
@@ -96,80 +99,163 @@ function formatDuration(totalSeconds: number) {
 }
 
 function normalizeOpmResponse(raw: any): OpmNormalizedResponse {
+  console.log('[OPM Normalize] Top-level keys:', Object.keys(raw || {}))
+
   const unwrapped = raw?.result || raw?.data || raw || {}
-  const echoAnalysis = unwrapped?.echo_analysis || null
-  const standardAnalysis = unwrapped?.standard_analysis || null
+  const echoAnalysis = unwrapped.echo_analysis || null
+  const standardAnalysis = unwrapped.standard_analysis || null
 
   if (echoAnalysis || standardAnalysis) {
+    const isEcho = !!echoAnalysis
     const analysis = echoAnalysis || standardAnalysis
-    const audioFeatures = analysis?.audio_features || {}
-    const firedRules = analysis?.fired_rules || []
+    const analysisType: 'echo' | 'standard' = isEcho ? 'echo' : 'standard'
+
+    console.log('[OPM Normalize] NEW structure detected, analysisType:', analysisType)
+
+    const audioFeatures = analysis.audio_features || {}
+    const firedRules = analysis.fired_rules || []
     const transcript = firstNonEmptyString([
-      unwrapped?.layers?.cygnus?.audio?.transcript?.text,
-      raw?.layers?.cygnus?.audio?.transcript?.text,
-      audioFeatures?.transcript,
-      analysis?.transcript,
-      unwrapped?.transcript,
+      audioFeatures.transcript,
+      analysis.transcript,
+      unwrapped.transcript,
       raw?.transcript,
     ])
-    const sessionObj = unwrapped?.session || null
+    const skippedReason = analysis.skipped_reason || null
+
+    console.log(
+      '[OPM Normalize] fired_rules:',
+      firedRules.length,
+      '| transcript length:',
+      transcript.length,
+      '| skipped_reason:',
+      skippedReason
+    )
+
+    const sessionObj = unwrapped.session || null
     const lucidText =
-      sessionObj?.lucid_interpretation?.interpretation
-      || sessionObj?.session_interpretation?.interpretation
-      || ''
+      sessionObj?.lucid_interpretation?.interpretation ||
+      sessionObj?.session_interpretation?.interpretation ||
+      ''
     const sessionPatterns = sessionObj?.session_analysis?.session_patterns || []
 
-    return {
-      transcript,
+    const perception = {
+      primary_emotion: audioFeatures.primary_emotion || null,
+      secondary_emotion: audioFeatures.secondary_emotion || null,
+      valence: audioFeatures.valence != null ? audioFeatures.valence : null,
+      arousal: audioFeatures.arousal != null ? audioFeatures.arousal : null,
+      confidence: audioFeatures.confidence != null ? audioFeatures.confidence : null,
       behavioral_summary: lucidText || null,
-      conversation_hooks: sessionPatterns.map((pattern: any) =>
-        typeof pattern === 'string' ? pattern : pattern?.pattern || pattern?.description || JSON.stringify(pattern)
-      ),
-      recommended_tone: analysis?.recommended_tone || sessionObj?.lucid_interpretation?.recommended_tone || null,
-      perception: {
-        primary_emotion: audioFeatures?.primary_emotion || null,
-        secondary_emotion: audioFeatures?.secondary_emotion || null,
-        valence: audioFeatures?.valence ?? null,
-        arousal: audioFeatures?.arousal ?? null,
-        confidence: audioFeatures?.confidence ?? null,
-        behavioral_summary: lucidText || null,
-        recommended_tone: analysis?.recommended_tone || sessionObj?.lucid_interpretation?.recommended_tone || null,
-        session_patterns: sessionPatterns,
-        transcript,
-      },
-      interpretation: {
-        behavioral_summary: lucidText || '',
+      session_patterns: sessionPatterns,
+      transcript,
+    }
+
+    let interpretation: Record<string, any>
+    if (lucidText) {
+      interpretation = {
+        behavioral_summary: lucidText,
         conversation_hooks: sessionPatterns.map((pattern: any) =>
           typeof pattern === 'string' ? pattern : pattern?.pattern || pattern?.description || JSON.stringify(pattern)
         ),
-        recommended_tone: analysis?.recommended_tone || sessionObj?.lucid_interpretation?.recommended_tone || null,
-        lucid_raw: Boolean(lucidText),
-      },
-      session: sessionObj,
-      analysisType: echoAnalysis ? 'echo' : 'standard',
-      duration_sec: analysis?.duration_sec || null,
-      processing_ms: analysis?.processing_ms || null,
-      skipped_reason: analysis?.skipped_reason || null,
-      prosodic_summary: audioFeatures?.prosodic_summary || null,
-      fired_rules: firedRules,
+        lucid_raw: true,
+      }
+    } else {
+      interpretation = {
+        behavioral_summary: '',
+        conversation_hooks: [],
+      }
     }
+
+    const mergedSession = sessionObj ? { ...sessionObj } : { session_analysis: {} as Record<string, any> }
+    if (!mergedSession.session_analysis) mergedSession.session_analysis = {}
+    if (isEcho) {
+      mergedSession.session_analysis.echo_rules = { fired_rules: firedRules }
+    } else {
+      mergedSession.session_analysis.cross_modal_rules = { fired_rules: firedRules }
+    }
+
+    const normalized: OpmNormalizedResponse = {
+      transcript,
+      perception,
+      interpretation,
+      session: mergedSession,
+      analysisType,
+      duration_sec: analysis.duration_sec || null,
+      processing_ms: analysis.processing_ms || null,
+      skipped_reason: skippedReason,
+      prosodic_summary: audioFeatures.prosodic_summary || null,
+      fired_rules: firedRules,
+      behavioral_summary: interpretation.behavioral_summary || null,
+      conversation_hooks: interpretation.conversation_hooks || [],
+      recommended_tone: null,
+    }
+
+    console.log(
+      '[OPM Normalize] FINAL (new) — analysisType:',
+      analysisType,
+      '| fired_rules:',
+      firedRules.length,
+      '| lucid_raw:',
+      !!interpretation.lucid_raw,
+      '| skipped_reason:',
+      skippedReason,
+      '| duration_sec:',
+      normalized.duration_sec
+    )
+
+    return normalized
+  }
+
+  console.log('[OPM Normalize] OLD/legacy structure detected')
+  const sessionObj = unwrapped.session || raw?.session || null
+  const lucidText =
+    sessionObj?.lucid_interpretation?.interpretation ||
+    sessionObj?.session_interpretation?.interpretation ||
+    unwrapped?.session_interpretation?.interpretation ||
+    raw?.session_interpretation?.interpretation ||
+    unwrapped?.interpretation?.interpretation ||
+    ''
+  const sessionPatterns =
+    sessionObj?.session_analysis?.session_patterns ||
+    unwrapped?.session_analysis?.session_patterns ||
+    raw?.session_analysis?.session_patterns ||
+    []
+  const transcript = firstNonEmptyString([
+    unwrapped?.transcript,
+    raw?.transcript,
+    unwrapped?.layers?.cygnus?.audio?.transcript?.text,
+    raw?.layers?.cygnus?.audio?.transcript?.text,
+  ])
+
+  let perception: Record<string, any>
+  let interpretation: Record<string, any>
+  if (lucidText) {
+    perception = {
+      behavioral_summary: lucidText,
+      session_patterns: sessionPatterns,
+      transcript,
+    }
+    interpretation = {
+      behavioral_summary: lucidText,
+      conversation_hooks: sessionPatterns.map((pattern: any) =>
+        typeof pattern === 'string' ? pattern : pattern?.pattern || pattern?.description || JSON.stringify(pattern)
+      ),
+      lucid_raw: true,
+    }
+  } else {
+    perception = unwrapped?.perception || raw?.perception || {}
+    interpretation = unwrapped?.interpretation || raw?.interpretation || {}
   }
 
   return {
-    transcript: firstNonEmptyString([
-      unwrapped?.layers?.cygnus?.audio?.transcript?.text,
-      raw?.layers?.cygnus?.audio?.transcript?.text,
-      unwrapped?.transcript,
-      raw?.transcript,
-    ]),
-    behavioral_summary: null,
-    conversation_hooks: null,
-    recommended_tone: null,
-    perception: unwrapped?.perception || {},
-    interpretation: unwrapped?.interpretation || {},
-    session: unwrapped?.session || null,
+    transcript,
+    perception,
+    interpretation,
+    session: sessionObj || null,
     analysisType: 'legacy',
     fired_rules: [],
+    behavioral_summary: interpretation.behavioral_summary || null,
+    conversation_hooks: interpretation.conversation_hooks || [],
+    recommended_tone: interpretation.recommended_tone || null,
   }
 }
 
@@ -236,10 +322,6 @@ export function useVideoRecording({
   const isIOSSafari =
     typeof navigator !== 'undefined'
     && /iPad|iPhone|iPod/.test(navigator.userAgent)
-
-  const isMobileDevice =
-    typeof navigator !== 'undefined'
-    && /iPad|iPhone|iPod|Android/i.test(navigator.userAgent)
 
   function isPortraitViewport() {
     if (window.matchMedia) {
@@ -526,13 +608,180 @@ export function useVideoRecording({
     }
   }
 
-  function correctVideoOrientation(blob: Blob, _force = false): Promise<Blob> {
+  function detectVideoRotation(blob: Blob): Promise<'landscape' | 'quicktime_portrait' | 'portrait' | 'unknown'> {
     return new Promise((resolve) => {
-      if (isMobileDevice) {
-        resolve(blob)
-        return
+      const video = document.createElement('video')
+      video.muted = true
+      video.playsInline = true
+      video.preload = 'auto'
+
+      const blobUrl = URL.createObjectURL(blob)
+      video.src = blobUrl
+
+      const cleanup = () => {
+        URL.revokeObjectURL(blobUrl)
+        video.remove()
       }
-      resolve(blob)
+
+      video.onloadeddata = () => {
+        const vw = video.videoWidth
+        const vh = video.videoHeight
+        console.log('[RotationDetect] videoWidth:', vw, 'videoHeight:', vh)
+
+        const isQuicktime =
+          blob.type === 'video/quicktime' ||
+          (blob instanceof File && ((blob.name || '').toLowerCase().endsWith('.mov')))
+
+        if (vw > vh) {
+          console.log('[RotationDetect] Landscape frames detected, needs rotation')
+          cleanup()
+          resolve('landscape')
+        } else if (isQuicktime) {
+          console.log('[RotationDetect] QuickTime/MOV from iPhone, re-encoding to bake rotation')
+          cleanup()
+          resolve('quicktime_portrait')
+        } else {
+          console.log('[RotationDetect] Already portrait, no correction needed')
+          cleanup()
+          resolve('portrait')
+        }
+      }
+
+      video.onerror = () => {
+        cleanup()
+        resolve('unknown')
+      }
+
+      window.setTimeout(() => {
+        cleanup()
+        resolve('unknown')
+      }, 5000)
+    })
+  }
+
+  function correctVideoOrientation(blob: Blob, force = false): Promise<Blob> {
+    return new Promise((resolve, reject) => {
+      const testVideo = document.createElement('video')
+      testVideo.muted = true
+      testVideo.playsInline = true
+      testVideo.preload = 'metadata'
+
+      const blobUrl = URL.createObjectURL(blob)
+      testVideo.src = blobUrl
+
+      testVideo.onloadedmetadata = () => {
+        const vw = testVideo.videoWidth
+        const vh = testVideo.videoHeight
+        console.log('[VideoRotation] Raw dimensions:', vw, 'x', vh, 'force:', force)
+
+        if (vw <= vh && !force) {
+          URL.revokeObjectURL(blobUrl)
+          testVideo.remove()
+          console.log('[VideoRotation] Already portrait, no correction needed')
+          resolve(blob)
+          return
+        }
+
+        const needsRotation = vw > vh
+        console.log(
+          '[VideoRotation]',
+          needsRotation
+            ? 'Landscape detected, re-encoding with 90° CW rotation'
+            : 'Forced re-encode to bake in rotation metadata'
+        )
+
+        const canvas = document.createElement('canvas')
+        if (needsRotation) {
+          canvas.width = vh
+          canvas.height = vw
+        } else {
+          canvas.width = vw
+          canvas.height = vh
+        }
+        const ctx = canvas.getContext('2d')
+        if (!ctx) {
+          URL.revokeObjectURL(blobUrl)
+          reject(new Error('Failed to create canvas context'))
+          return
+        }
+
+        const canvasStream = canvas.captureStream(30)
+        const mimeType = pickVideoMimeType()
+
+        const origVideo = document.createElement('video')
+        origVideo.muted = false
+        origVideo.playsInline = true
+        origVideo.src = blobUrl
+
+        origVideo.onloadedmetadata = () => {
+          try {
+            const origStream = origVideo.captureStream ? origVideo.captureStream() : null
+            const audioTracks = origStream ? origStream.getAudioTracks() : []
+            if (audioTracks.length > 0) {
+              audioTracks.forEach((track) => canvasStream.addTrack(track))
+              console.log('[VideoRotation] Audio track attached')
+            }
+          } catch (error: any) {
+            console.warn('[VideoRotation] Could not capture audio:', error.message)
+          }
+
+          const chunks: BlobPart[] = []
+          const recorder = new MediaRecorder(canvasStream, mimeType ? { mimeType } : undefined)
+          recorder.ondataavailable = (event) => {
+            if (event.data.size > 0) chunks.push(event.data)
+          }
+
+          recorder.onstop = () => {
+            URL.revokeObjectURL(blobUrl)
+            testVideo.remove()
+            origVideo.remove()
+            canvas.remove()
+            if (chunks.length === 0) {
+              reject(new Error('No frames captured'))
+              return
+            }
+            const correctedBlob = new Blob(chunks, { type: recorder.mimeType || mimeType || '' })
+            console.log('[VideoRotation] Re-encoded blob size:', correctedBlob.size)
+            resolve(correctedBlob)
+          }
+
+          recorder.start(100)
+          origVideo.currentTime = 0
+          origVideo.play().catch(() => {})
+
+          const drawFrame = () => {
+            if (origVideo.paused || origVideo.ended) {
+              if (recorder.state === 'recording') recorder.stop()
+              return
+            }
+            if (needsRotation) {
+              ctx.save()
+              ctx.translate(canvas.width / 2, canvas.height / 2)
+              ctx.rotate(Math.PI / 2)
+              ctx.drawImage(origVideo, -vw / 2, -vh / 2, vw, vh)
+              ctx.restore()
+            } else {
+              ctx.drawImage(origVideo, 0, 0, canvas.width, canvas.height)
+            }
+            requestAnimationFrame(drawFrame)
+          }
+
+          origVideo.onplay = drawFrame
+          origVideo.onended = () => {
+            if (recorder.state === 'recording') recorder.stop()
+          }
+        }
+
+        origVideo.onerror = () => {
+          URL.revokeObjectURL(blobUrl)
+          reject(new Error('Failed to load video for re-encoding'))
+        }
+      }
+
+      testVideo.onerror = () => {
+        URL.revokeObjectURL(blobUrl)
+        reject(new Error('Failed to load video metadata'))
+      }
     })
   }
 
@@ -647,11 +896,21 @@ export function useVideoRecording({
 
     if (!rawBlob) return
 
-    const correctedBlob = await correctVideoOrientation(rawBlob).catch(() => rawBlob)
-    videoBlobRef.current = correctedBlob
+    let finalBlob: Blob
+    if (isIOSSafari && videoStreamIsLandscapeRef.current) {
+      console.log('[VideoRotation] iOS Safari + landscape stream: skipping re-encode, using CSS rotation for preview')
+      finalBlob = rawBlob
+    } else {
+      const correctedBlob = await correctVideoOrientation(rawBlob).catch((err) => {
+        console.warn('[VideoRotation] Correction failed, using raw blob:', err?.message || err)
+        return rawBlob
+      })
+      finalBlob = correctedBlob
+    }
+    videoBlobRef.current = finalBlob
     pendingVideoDurationRef.current = Math.max(1, Math.round((Date.now() - startTimeRef.current) / 1000))
     setPreviewDuration(pendingVideoDurationRef.current)
-    enterVideoPreview(correctedBlob)
+    enterVideoPreview(finalBlob)
   }
 
   function seekPreviewToRatio(ratio: number) {
@@ -675,50 +934,6 @@ export function useVideoRecording({
     }
   }
 
-  async function uploadVideoToStorage(targetConversation: ConversationRef, videoBlob: Blob, mimeType: string) {
-    const cleanType = (mimeType || 'video/webm').split(';')[0]
-    const ext = getFileExtension(
-      videoBlob as Blob & { name?: string; type: string },
-      cleanType === 'video/mp4' ? 'mp4' : cleanType === 'video/quicktime' ? 'mov' : 'webm'
-    )
-    const filename = `video-${Date.now()}.${ext}`
-    const storagePath = `${targetConversation.id}/${filename}`
-    const bucket = 'video-messages'
-
-    try {
-      const { supabase } = await import('../lib/supabase')
-      const { data, error } = await supabase.storage
-        .from(bucket)
-        .upload(storagePath, videoBlob, { contentType: cleanType, upsert: true })
-
-      if (!error) {
-        const storedPath = data?.path || storagePath
-        const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(storedPath)
-        return urlData.publicUrl
-      }
-    } catch {
-      // fallback below
-    }
-
-    const base64Media = await blobToBase64(videoBlob)
-    const res = await fetch('/api/upload-media', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        media: base64Media,
-        conversationId: targetConversation.id,
-        owner_id: targetConversation.owner_id,
-        mime_type: cleanType,
-        media_type: 'video',
-        bucket,
-      }),
-    })
-
-    const data = await res.json().catch(() => ({}))
-    if (res.ok && data.url) return data.url as string
-    throw new Error('Upload failed: ' + (data.error || `HTTP ${res.status}`))
-  }
-
   async function callOpmApi(
     mediaBlob: Blob,
     onStage: (emoji: string, text: string, progress: number) => void,
@@ -729,12 +944,10 @@ export function useVideoRecording({
 
     const config = await getOpmConfig()
     const opmUrl = config.opm_api_url
-    if (!opmUrl) throw new Error('OPM API URL not configured')
-
     const firstName = (conversation.wa_owners?.display_name || 'Avatar').split(' ')[0]
     const isAudio = mediaType === 'audio'
     const uploadLabel = isAudio ? 'Uploading voice...' : 'Uploading video...'
-    const watchingLabel = isAudio ? `${firstName} is listening...` : `${firstName} is watching your video...`
+    const watchingLabel = isAudio ? `${firstName} is listening...` : `${firstName} is watching your message...`
     const preset = isAudio ? 'echo' : (config.opm_preset || 'celebrity_ceo')
 
     const blobType = (mediaBlob.type || '').toLowerCase()
@@ -747,6 +960,42 @@ export function useVideoRecording({
 
     const fileName = `capture.${ext}`
 
+    if (!opmUrl) {
+      console.log('[OPM] Mock mode - no OPM_API_URL')
+      onStage('\uD83D\uDCE1', uploadLabel, 10)
+
+      const submitRes = await fetch('/api/perception', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: conversation.contact_id || conversation.id }),
+      })
+      const submitData = await submitRes.json().catch(() => ({}))
+      if (submitData.error) throw new Error(submitData.error)
+
+      onStage('\uD83D\uDD2C', watchingLabel, 40)
+      await delay(1200)
+      onStage('\uD83E\uDDE0', `${firstName} is reading your expressions...`, 70)
+      await delay(1000)
+      onStage('\uD83D\uDCAC', `${firstName} is composing a response...`, 95)
+      await delay(600)
+
+      const resultsRes = await fetch(`/api/perception?action=results&job_id=${submitData.job_id}`)
+      const mockResults = await resultsRes.json().catch(() => ({}))
+      return normalizeOpmResponse(mockResults)
+    }
+
+    const useProxy = !!opts.orientation
+    const uploadUrl = useProxy ? '/api/ingest-video' : `${opmUrl}/analyze`
+    console.log(
+      '[OPM]',
+      useProxy ? 'Proxy upload via /api/ingest-video' : 'Direct upload to OPM',
+      'url:',
+      uploadUrl,
+      'mediaType:',
+      mediaType,
+      'preset:',
+      preset
+    )
     onStage('\uD83D\uDCE1', uploadLabel, 10)
 
     const formData = new FormData()
@@ -758,31 +1007,35 @@ export function useVideoRecording({
     }
     if (opts.orientation) {
       formData.append('orientation', String(opts.orientation))
+      console.log('[OPM] Sending orientation metadata:', opts.orientation)
     }
 
-    const submitRes = await fetch(`${opmUrl}/analyze`, {
-      method: 'POST',
-      body: formData,
-    })
-
+    console.log('[OPM] Uploading, size:', mediaBlob.size, 'type:', mediaBlob.type)
+    const submitRes = await fetch(uploadUrl, { method: 'POST', body: formData })
     if (!submitRes.ok) {
       const errData = await submitRes.json().catch(() => ({}))
-      throw new Error(errData.error || 'opm_submit_failed')
+      console.error('[OPM] Submit error:', submitRes.status, JSON.stringify(errData))
+      throw new Error(errData.error || 'processing_error')
     }
 
     const submitData = await submitRes.json()
     const jobId = submitData.job_id
-    const startTime = Date.now()
-    let jobComplete = false
+    console.log('[OPM] Job submitted, id:', jobId)
 
     onStage('\uD83D\uDD2C', watchingLabel, 25)
+    const startTime = Date.now()
+    let jobComplete = false
 
     while (Date.now() - startTime < OPM_CLIENT_TIMEOUT_MS) {
       await delay(OPM_CLIENT_POLL_INTERVAL_MS)
       const statusRes = await fetch(`${opmUrl}/status/${jobId}`)
-      if (!statusRes.ok) continue
+      if (!statusRes.ok) {
+        console.error('[OPM] Status poll HTTP error:', statusRes.status)
+        continue
+      }
 
       const statusData = await statusRes.json()
+      console.log('[OPM] Polling status:', JSON.stringify(statusData))
       const jobStatus = String(statusData.status || '').toLowerCase()
       const stage = String(statusData.stage || '').toLowerCase()
 
@@ -810,27 +1063,46 @@ export function useVideoRecording({
     }
 
     if (!jobComplete) {
+      console.error('[OPM] Polling timed out after', Math.round((Date.now() - startTime) / 1000), 'seconds')
       throw new Error('processing_timeout')
     }
 
     onStage('\uD83D\uDCAC', `${firstName} is composing a response...`, 95)
+    console.log('[OPM] Job complete, fetching results...')
     const resultsRes = await fetch(`${opmUrl}/results/${jobId}`)
     if (!resultsRes.ok) {
-      throw new Error('opm_results_failed')
+      console.error('[OPM] Results fetch error:', resultsRes.status)
+      throw new Error('processing_error')
     }
 
     const rawResults = await resultsRes.json()
-    return normalizeOpmResponse(rawResults)
+    console.log('[OPM] FULL RAW:', JSON.stringify(rawResults))
+    if (rawResults.error) throw new Error(rawResults.error)
+    const resultsData = normalizeOpmResponse(rawResults)
+    console.log('[OPM] Normalized transcript:', resultsData.transcript)
+    console.log('[OPM] Normalized interpretation:', JSON.stringify(resultsData.interpretation).substring(0, 200))
+    console.log('[OPM] Normalized perception:', JSON.stringify(resultsData.perception).substring(0, 200))
+    return resultsData
   }
 
-  async function sendVideoBlob() {
-    if (!conversationId || !conversation || !videoBlobRef.current) return
+  function getImmersiveError(errorType: string, ceoName: string) {
+    const errors: Record<string, string> = {
+      processing_timeout: `${ceoName} is in a meeting right now. They'll watch your video as soon as possible.`,
+      api_down: `${ceoName} is currently unavailable. Try again in a moment.`,
+      no_face_detected: `${ceoName} couldn't see your face clearly. Try recording again with better lighting.`,
+      processing_error: `${ceoName} had trouble reading your message. Want to send it again?`,
+      no_transcript: `${ceoName} watched your video but the audio was unclear. Responding based on what they could see.`,
+      video_too_long: `That was a bit long! Keep it under 5 minutes so ${ceoName} can focus.`,
+    }
+    return errors[errorType] || `${ceoName} had trouble reading your message. Want to send it again?`
+  }
 
-    const blob = videoBlobRef.current
-    const durationSeconds = pendingVideoDurationRef.current || previewDuration || Math.max(1, recordingSeconds)
+  async function processVideoMessage(videoBlob: Blob, durationSeconds: number, opts: { orientation?: number } = {}) {
+    if (!conversationId || !conversation) return
+
+    const ceoName = conversation.wa_owners?.display_name || 'Avatar'
+    const localBlobUrl = URL.createObjectURL(videoBlob)
     const tempId = `temp-video-${Date.now()}`
-    const localBlobUrl = URL.createObjectURL(blob)
-
     const optimisticMessage: Message = {
       id: tempId,
       sender: 'contact',
@@ -841,6 +1113,9 @@ export function useVideoRecording({
       created_at: new Date().toISOString(),
       _pending: true,
       _localBlobUrl: localBlobUrl,
+      isGalleryVideo: false,
+      videoNeedsRotation: !!opts.orientation,
+      videoRotationScale: Number(videoStreamRotationScaleRef.current) > 1 ? Number(videoStreamRotationScaleRef.current) : 1.35,
     }
 
     onMessageSent(optimisticMessage)
@@ -849,98 +1124,101 @@ export function useVideoRecording({
     setProcessingStage({ emoji: '\uD83D\uDCE1', text: 'Uploading video...', progress: 10 })
     setProcessingMessageId(tempId)
 
-    const doSend = async () => {
-      onMessageUpdate(tempId, { _pending: true, _failed: false, _errorMessage: undefined, _retryFn: undefined })
-      onSending(true)
-      try {
-        const contentType = blob.type || 'video/webm'
-        const [mediaUrl, opmResponse] = await Promise.all([
-          uploadVideoToStorage(conversation, blob, contentType),
-          callOpmApi(blob, (emoji, text, progress) => {
-            setProcessingStage({ emoji, text, progress })
-          }, 'video').catch((error) => {
-            console.error('[Video] OPM analysis failed:', error)
-            return null
-          }),
-        ])
-
-        if (!mediaUrl) throw new Error('upload failed')
-
-        const transcript = opmResponse?.transcript?.trim() || '[Video message]'
-
-        const message = (await sendMessage(
-          conversationId,
-          'contact',
+    try {
+      const [mediaUrl, opmResponse] = await Promise.all([
+        uploadMediaToStorage(conversation, videoBlob as File, 'video'),
+        callOpmApi(
+          videoBlob,
+          (emoji, text, progress) => setProcessingStage({ emoji, text, progress }),
           'video',
-          transcript,
-          mediaUrl,
-          durationSeconds
-        )) as Message
+          opts
+        ),
+      ])
 
-        onMessageUpdate(tempId, {
-          id: message.id,
-          content: transcript,
-          media_url: mediaUrl,
-          duration_sec: durationSeconds,
-          _pending: false,
-          _failed: false,
-          _localBlobUrl: localBlobUrl,
-        })
-        setProcessingMessageId(String(message.id))
+      if (!mediaUrl) throw new Error('upload failed')
 
-        simulateAvatarRead(message.id)
+      const transcript = opmResponse.transcript?.trim() || '[Video message]'
+      const message = (await sendMessage(
+        conversationId,
+        'contact',
+        'video',
+        transcript,
+        mediaUrl,
+        durationSeconds
+      )) as Message
 
-        createPerceptionLog({
-          messageId: message.id,
-          conversationId: conversation.id,
-          contactId: conversation.contact_id,
-          ownerId: conversation.owner_id,
-          transcript: transcript !== '[Video message]' ? transcript : null,
-          primaryEmotion: opmResponse?.perception?.primary_emotion ?? null,
-          secondaryEmotion: opmResponse?.perception?.secondary_emotion ?? null,
-          firedRules: opmResponse?.fired_rules ?? null,
-          behavioralSummary: opmResponse?.behavioral_summary ?? opmResponse?.perception?.behavioral_summary ?? opmResponse?.interpretation?.behavioral_summary ?? null,
-          conversationHooks: opmResponse?.conversation_hooks ?? opmResponse?.interpretation?.conversation_hooks ?? null,
-          recommendedTone: opmResponse?.recommended_tone ?? opmResponse?.perception?.recommended_tone ?? opmResponse?.interpretation?.recommended_tone ?? null,
-          prosodicSummary: opmResponse?.prosodic_summary ?? null,
-          facialAnalysis: opmResponse?.perception?.facial_analysis ?? null,
-          bodyLanguage: opmResponse?.perception?.body_language ?? null,
-          mediaType: 'video',
-          videoDurationSec: durationSeconds,
-        }).catch((logErr) => console.warn('[perception-log]', logErr.message))
+      onMessageUpdate(tempId, {
+        id: message.id,
+        content: transcript,
+        media_url: mediaUrl,
+        duration_sec: durationSeconds,
+        _pending: false,
+        _failed: false,
+        _localBlobUrl: localBlobUrl,
+        videoNeedsRotation: !!opts.orientation,
+        videoRotationScale: Number(videoStreamRotationScaleRef.current) > 1 ? Number(videoStreamRotationScaleRef.current) : 1.35,
+      })
+      setProcessingMessageId(String(message.id))
+      simulateAvatarRead(message.id)
 
-        if (transcript && transcript !== '[Video message]') {
-          onTranscript(message.id, transcript)
-        }
+      createPerceptionLog({
+        messageId: message.id,
+        conversationId: conversation.id,
+        contactId: conversation.contact_id,
+        ownerId: conversation.owner_id,
+        transcript: transcript !== '[Video message]' ? transcript : null,
+        primaryEmotion: opmResponse?.perception?.primary_emotion ?? null,
+        secondaryEmotion: opmResponse?.perception?.secondary_emotion ?? null,
+        firedRules: opmResponse?.fired_rules ?? null,
+        behavioralSummary: opmResponse?.behavioral_summary ?? opmResponse?.perception?.behavioral_summary ?? opmResponse?.interpretation?.behavioral_summary ?? null,
+        conversationHooks: opmResponse?.conversation_hooks ?? opmResponse?.interpretation?.conversation_hooks ?? null,
+        recommendedTone: opmResponse?.recommended_tone ?? opmResponse?.perception?.recommended_tone ?? opmResponse?.interpretation?.recommended_tone ?? null,
+        prosodicSummary: opmResponse?.prosodic_summary ?? null,
+        facialAnalysis: opmResponse?.perception?.facial_analysis ?? null,
+        bodyLanguage: opmResponse?.perception?.body_language ?? null,
+        mediaType: 'video',
+        videoDurationSec: durationSeconds,
+      }).catch((logErr) => console.warn('[perception-log]', logErr.message))
 
-        const seedText = transcript !== '[Video message]' ? transcript : 'The user sent a video message.'
-        const videoReplied = await sendAvatarReply(seedText, {
-          isVideo: true,
-          videoDurationSec: durationSeconds,
-          perception: opmResponse,
-          userMessageId: message.id,
-        })
-
-        if (videoReplied) maybeAvatarReact(message.id)
-      } catch (sendError: any) {
-        console.error('[sendVideoBlob]', sendError)
-        onMessageUpdate(tempId, {
-          _pending: false,
-          _failed: true,
-          _errorMessage: sendError?.message || 'Unable to send this video.',
-          _retryFn: () => {
-            onMessageUpdate(tempId, { _pending: true, _failed: false, _errorMessage: undefined, _retryFn: undefined })
-            void doSend()
-          },
-        })
-      } finally {
-        onSending(false)
-        setProcessingStage(null)
-        setProcessingMessageId(null)
+      if (transcript && transcript !== '[Video message]') {
+        onTranscript(message.id, transcript)
       }
-    }
 
-    await doSend()
+      const seedText = transcript !== '[Video message]' ? transcript : 'The user sent a video message.'
+      const videoReplied = await sendAvatarReply(seedText, {
+        isVideo: true,
+        videoDurationSec: durationSeconds,
+        perception: opmResponse,
+        userMessageId: message.id,
+      })
+      if (videoReplied) maybeAvatarReact(message.id)
+    } catch (error: any) {
+      console.error('[Video] processVideoMessage failed:', error?.message, error?.stack)
+      onMessageUpdate(tempId, {
+        _pending: false,
+        _failed: true,
+        _errorMessage: getImmersiveError(error?.message || 'processing_error', ceoName),
+        _retryFn: () => void processVideoMessage(videoBlob, durationSeconds, opts),
+      })
+    } finally {
+      onSending(false)
+      setProcessingStage(null)
+      setProcessingMessageId(null)
+    }
+  }
+
+  async function sendVideoBlob() {
+    if (!conversationId || !conversation || !videoBlobRef.current) return
+
+    const blob = videoBlobRef.current
+    const durationSeconds = pendingVideoDurationRef.current || previewDuration || Math.max(1, recordingSeconds)
+    let opmOpts: { orientation?: number } = {}
+
+    const rotation = await detectVideoRotation(blob)
+    if (rotation === 'landscape') opmOpts = { orientation: 90 }
+    else if (rotation === 'quicktime_portrait') opmOpts = { orientation: 90 }
+
+    await processVideoMessage(blob, durationSeconds, opmOpts)
     closeVideoOverlay()
   }
 

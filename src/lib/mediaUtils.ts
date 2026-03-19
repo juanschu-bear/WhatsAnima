@@ -95,26 +95,69 @@ export async function uploadAudioToStorage(conversation: ConversationRef, audioB
 
 export async function uploadMediaToStorage(
   conversation: ConversationRef,
-  file: File
+  file: Blob & { name?: string; type: string },
+  mediaType: 'image' | 'video' = 'image'
 ) {
-  const ext = file.name?.split('.').pop() || 'jpg'
-  const rawType = (file.type || '').split(';')[0] || 'image/jpeg'
-  const filename = `image-${Date.now()}.${ext}`
-  const bucket = 'image-uploads'
+  const preferredBucket = mediaType === 'image' ? 'image-uploads' : 'video-messages'
+  const fallbackBucket = 'video-messages'
+  const bucketsToTry =
+    preferredBucket === fallbackBucket ? [preferredBucket] : [preferredBucket, fallbackBucket]
+
+  const extMap: Record<string, string> = {
+    'image/jpeg': 'jpg',
+    'image/jpg': 'jpg',
+    'image/png': 'png',
+    'image/gif': 'gif',
+    'image/webp': 'webp',
+    'image/heic': 'heic',
+    'video/mp4': 'mp4',
+    'video/webm': 'webm',
+    'video/quicktime': 'mov',
+  }
+  const ext = extMap[file.type] || (mediaType === 'video' ? 'mp4' : 'jpg')
+  const rand = Math.random().toString(36).slice(2, 10)
+
   const { supabase } = await import('./supabase')
-  const storagePath = `${conversation.id}/${filename}`
+  for (const bucket of bucketsToTry) {
+    const prefix = bucket === fallbackBucket && mediaType === 'image' ? 'images/' : ''
+    const filePath = `${prefix}${conversation.owner_id}/${conversation.id}/${Date.now()}-${rand}.${ext}`
 
-  const { error } = await supabase.storage
-    .from(bucket)
-    .upload(storagePath, file, { contentType: rawType, upsert: true })
+    console.log('[MediaUpload] SDK trying bucket:', bucket, 'path:', filePath, 'size:', file.size)
+    const { data, error } = await supabase.storage
+      .from(bucket)
+      .upload(filePath, file, { contentType: file.type, upsert: false })
 
-  if (error) {
-    console.error('[uploadMedia] Supabase storage error:', error.message)
-    throw new Error('Upload failed: ' + error.message)
+    if (error) {
+      console.warn('[MediaUpload] SDK upload failed on', bucket, ':', error.message)
+      continue
+    }
+
+    const storedPath = data?.path || filePath
+    const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(storedPath)
+    console.log('[MediaUpload] SDK success on', bucket, ':', urlData.publicUrl)
+    return urlData.publicUrl
   }
 
-  const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(storagePath)
-  return urlData.publicUrl
+  console.warn('[MediaUpload] All SDK bucket attempts failed, trying API endpoint')
+  const base64 = await blobToBase64(file)
+  const res = await fetch('/api/upload-media', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      media_base64: base64,
+      user_id: conversation.owner_id,
+      ceo_id: conversation.contact_id,
+      mime_type: file.type,
+      media_type: mediaType,
+    }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (data.url) {
+    console.log('[MediaUpload] API success:', data.url)
+    return data.url
+  }
+  console.warn('[MediaUpload] API failed:', data.error)
+  return null
 }
 
 export async function getOpmConfig() {
