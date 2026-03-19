@@ -299,6 +299,14 @@ function selectFallbackAdriVideo(videos: YouTubeVideoIndexItem[]): YouTubeVideoI
   return videos[0]
 }
 
+function isAdriKastelContext(ownerId: string | null | undefined, ownerName: string | null | undefined, ownerPrompt: string | null | undefined) {
+  if (ownerId === ADRI_KASTEL_OWNER_ID) return true
+  const name = (ownerName || '').toLowerCase()
+  if (name.includes('adri') && name.includes('kastel')) return true
+  const prompt = (ownerPrompt || '').toLowerCase()
+  return prompt.includes('adri kastel')
+}
+
 export async function loadOwnerPromptAndMemory(conversationId: string | undefined): Promise<{ ownerPrompt: string; memory: string; stylePrompt: string; behavioralMemory: string; ownerId: string | null; ownerName: string; youtubeVideos: YouTubeVideoIndexItem[] }> {
   if (!conversationId) return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '', stylePrompt: '', behavioralMemory: '', ownerId: null, ownerName: 'Avatar', youtubeVideos: [] }
   const databaseUrl = getDatabaseUrl()
@@ -579,6 +587,7 @@ export function buildSystemPrompt(
   profileName?: string,
   youtubeVideos: YouTubeVideoIndexItem[] = [],
   matchedYouTubeVideo: YouTubeVideoIndexItem | null = null,
+  forceAdriRules = false,
 ): string {
   const nameMatch = ownerPrompt.match(/(?:^#.*?—\s*(.+)|^I am (.+?)[.\n])/m)
   const ownerName = profileName?.trim() || nameMatch?.[1]?.trim() || nameMatch?.[2]?.trim() || 'the person described below'
@@ -591,15 +600,17 @@ When greeting or introducing yourself, use the name ${ownerName}. First-person s
 
   const IDENTITY_REMINDER = `\n\nREMINDER: You are ${ownerName}. Never identify as Claude or as an AI. Respond only as ${ownerName}.`
   const youtubeRecommendationInstruction =
-    ownerId === ADRI_KASTEL_OWNER_ID && youtubeVideos.length > 0
+    forceAdriRules && youtubeVideos.length > 0
       ? `\n\n[YOUTUBE VIDEO INDEX — ${ownerName}]
 You have access to your own YouTube catalog. When the user topic matches, recommend the most relevant single video URL naturally (only when helpful, never forced). Do not dump multiple links unless explicitly asked.
+Never claim that you cannot share videos or that you have no access to your own videos.
+If the user asks for videos from you, you MUST provide 1-3 direct YouTube URLs from this index.
 
 VIDEO INDEX:
 ${youtubeVideos.map((video) => `- ${video.title} | ${video.url} | keywords: ${video.keywords.join(', ')}`).join('\n')}`
       : ''
   const forcedMatchedVideoInstruction =
-    ownerId === ADRI_KASTEL_OWNER_ID && matchedYouTubeVideo
+    forceAdriRules && matchedYouTubeVideo
       ? `\n\n[MATCHED VIDEO FOR CURRENT USER TOPIC — MUST SHARE]
 This user message clearly matches this video from your own catalog:
 - ${matchedYouTubeVideo.title}
@@ -763,14 +774,15 @@ export default async function handler(req: any, res: any) {
 
   try {
     const { ownerPrompt, memory, stylePrompt, behavioralMemory, ownerId, ownerName, youtubeVideos } = await loadOwnerPromptAndMemory(conversationId)
+    const isAdriContext = isAdriKastelContext(ownerId, ownerName, ownerPrompt)
     const contextForVideoMatch = [
       ...priorMessages.filter((entry) => entry.role === 'user').slice(-3).map((entry) => entry.content),
       message,
     ].join('\n')
-    const matchedYouTubeVideo = ownerId === ADRI_KASTEL_OWNER_ID
+    const matchedYouTubeVideo = isAdriContext
       ? findBestYouTubeVideoMatch(contextForVideoMatch, youtubeVideos)
       : null
-    const forcedAdriVideo = ownerId === ADRI_KASTEL_OWNER_ID
+    const forcedAdriVideo = isAdriContext
       ? (matchedYouTubeVideo?.video ?? selectFallbackAdriVideo(youtubeVideos))
       : null
     const systemPrompt = buildSystemPrompt(
@@ -783,8 +795,9 @@ export default async function handler(req: any, res: any) {
       ownerName,
       youtubeVideos,
       forcedAdriVideo,
+      isAdriContext,
     )
-    if (ownerId === ADRI_KASTEL_OWNER_ID) {
+    if (isAdriContext) {
       const youtubeBlockStart = systemPrompt.indexOf('[YOUTUBE VIDEO INDEX')
       const injectedSnippet = youtubeBlockStart >= 0
         ? systemPrompt.slice(youtubeBlockStart, youtubeBlockStart + 200)
@@ -792,8 +805,9 @@ export default async function handler(req: any, res: any) {
       console.log(
         '[chat][adri_youtube_prompt]',
         JSON.stringify({
-          ownerId,
+          ownerId: ownerId || null,
           ownerName,
+          isAdriContext,
           youtubeVideosCount: youtubeVideos.length,
           matchedVideo: matchedYouTubeVideo?.video?.url || null,
           forcedVideo: forcedAdriVideo?.url || null,
@@ -824,7 +838,7 @@ export default async function handler(req: any, res: any) {
     if (!content) {
       return res.status(502).json({ error: 'Empty response from AI' })
     }
-    if (ownerId === ADRI_KASTEL_OWNER_ID && forcedAdriVideo?.url && !content.includes(forcedAdriVideo.url)) {
+    if (isAdriContext && forcedAdriVideo?.url && !content.includes(forcedAdriVideo.url)) {
       const lang = detectLanguage(message)
       const forcedLine = lang === 'es'
         ? `Te recomiendo este video puntual: ${forcedAdriVideo.url}`
