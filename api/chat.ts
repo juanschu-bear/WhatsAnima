@@ -321,10 +321,7 @@ function containsAdriVideoDenial(text: string): boolean {
   return denialPattern.test(text)
 }
 
-function buildForcedAdriVideoReply(
-  lang: 'es' | 'de' | 'en',
-  video: YouTubeVideoIndexItem
-): string {
+function buildForcedAdriVideoReply(lang: string, video: YouTubeVideoIndexItem): string {
   const cleanedTitle = (video.title || 'Video recomendado').trim()
   if (lang === 'es') {
     return `Perfecto hermano, aquí tienes un video mío que te ayuda con ese tema:\n${cleanedTitle}\n${video.url}\n\nSi quieres, te lo desgloso en pasos aplicados a tu oferta actual.`
