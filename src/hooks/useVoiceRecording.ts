@@ -141,10 +141,20 @@ export function useVoiceRecording({
         ])
         if (!mediaUrl) throw new Error('upload failed')
 
-        const finalTranscript = serverTranscript
+        if (!opmResponse) {
+          throw new Error('Voice perception processing failed. Please resend.')
+        }
+
+        const finalTranscript = (
+          serverTranscript
           || opmResponse?.transcript?.trim()
           || browserTranscript
-          || '[Voice message]'
+          || ''
+        ).trim()
+
+        if (!finalTranscript) {
+          throw new Error('Voice transcription failed. Please resend.')
+        }
 
         console.log('[sendVoiceMessage] transcript sources:', {
           server: serverTranscript?.slice(0, 60) || '(empty)',
@@ -178,7 +188,7 @@ export function useVoiceRecording({
           conversationId: conversation.id,
           contactId: conversation.contact_id,
           ownerId: conversation.owner_id,
-          transcript: finalTranscript !== '[Voice message]' ? finalTranscript : null,
+          transcript: finalTranscript,
           audioDurationSec: durationSeconds,
           primaryEmotion: opmResponse?.perception?.primary_emotion ?? null,
           secondaryEmotion: opmResponse?.perception?.secondary_emotion ?? null,
@@ -189,9 +199,7 @@ export function useVoiceRecording({
           prosodicSummary: opmResponse?.prosodic_summary ?? null,
           mediaType: 'audio',
         }).catch((logErr) => console.warn('[perception-log]', logErr.message))
-        if (finalTranscript && finalTranscript !== '[Voice message]') {
-          onTranscript(message.id, finalTranscript)
-        }
+        onTranscript(message.id, finalTranscript)
 
         const voiceReplied = await sendAvatarReply(finalTranscript, {
           isVoice: true,
