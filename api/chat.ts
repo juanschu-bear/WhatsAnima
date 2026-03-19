@@ -736,26 +736,84 @@ function deriveTopicChips(videos: YouTubeVideoIndexItem[], max = 8): string[] {
     .map(([topic]) => topic.charAt(0).toUpperCase() + topic.slice(1))
 }
 
-export async function loadOwnerPromptAndMemory(conversationId: string | undefined): Promise<{ ownerPrompt: string; memory: string; stylePrompt: string; behavioralMemory: string; ownerId: string | null; ownerName: string; youtubeVideos: YouTubeVideoIndexItem[] }> {
-  if (!conversationId) return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '', stylePrompt: '', behavioralMemory: '', ownerId: null, ownerName: 'Avatar', youtubeVideos: [] }
+export async function loadOwnerPromptAndMemory(
+  conversationId: string | undefined,
+  ownerIdHint?: string | null,
+  ownerNameHint?: string | null
+): Promise<{ ownerPrompt: string; memory: string; stylePrompt: string; behavioralMemory: string; ownerId: string | null; ownerName: string; youtubeVideos: YouTubeVideoIndexItem[] }> {
   const databaseUrl = getDatabaseUrl()
   if (!databaseUrl) return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '', stylePrompt: '', behavioralMemory: '', ownerId: null, ownerName: 'Avatar', youtubeVideos: [] }
 
   const client = new Client({ connectionString: databaseUrl, ssl: { rejectUnauthorized: false } })
   try {
     await client.connect()
-    const [ownerResult, memoryResult] = await Promise.all([
-      client.query(
-        `select o.id, o.display_name, o.system_prompt, o.is_self_avatar, o.communication_style, o.youtube_videos from public.wa_conversations c join public.wa_owners o on o.id = c.owner_id where c.id = $1 and o.deleted_at is null limit 1`,
-        [conversationId]
-      ),
-      client.query(
-        `select summary, key_facts, behavioral_profile from public.wa_conversation_memory where conversation_id = $1 limit 1`,
-        [conversationId]
-      ).catch(() => ({ rows: [] })),
-    ])
+    const normalizedOwnerIdHint = typeof ownerIdHint === 'string' && ownerIdHint.trim().length > 0
+      ? ownerIdHint.trim()
+      : null
+    const normalizedOwnerNameHint = typeof ownerNameHint === 'string' && ownerNameHint.trim().length > 0
+      ? ownerNameHint.trim()
+      : null
 
-    const ownerRow = ownerResult.rows[0]
+    let ownerRow: any = null
+    let memoryResult: { rows: any[] } = { rows: [] }
+
+    if (conversationId) {
+      const [ownerResultByConversation, memoryResultByConversation] = await Promise.all([
+        client.query(
+          `select o.id, o.display_name, o.system_prompt, o.is_self_avatar, o.communication_style, o.youtube_videos
+           from public.wa_conversations c
+           join public.wa_owners o on o.id = c.owner_id
+           where c.id = $1 and o.deleted_at is null
+           limit 1`,
+          [conversationId]
+        ),
+        client.query(
+          `select summary, key_facts, behavioral_profile
+           from public.wa_conversation_memory
+           where conversation_id = $1
+           limit 1`,
+          [conversationId]
+        ).catch(() => ({ rows: [] })),
+      ])
+      ownerRow = ownerResultByConversation.rows[0] ?? null
+      memoryResult = memoryResultByConversation
+    }
+
+    if (!ownerRow && normalizedOwnerIdHint) {
+      const ownerResultById = await client.query(
+        `select id, display_name, system_prompt, is_self_avatar, communication_style, youtube_videos
+         from public.wa_owners
+         where id = $1 and deleted_at is null
+         limit 1`,
+        [normalizedOwnerIdHint]
+      )
+      ownerRow = ownerResultById.rows[0] ?? null
+    }
+
+    if (!ownerRow && normalizedOwnerNameHint) {
+      const ownerResultByName = await client.query(
+        `select id, display_name, system_prompt, is_self_avatar, communication_style, youtube_videos
+         from public.wa_owners
+         where lower(display_name) = lower($1) and deleted_at is null
+         order by updated_at desc nulls last
+         limit 1`,
+        [normalizedOwnerNameHint]
+      )
+      ownerRow = ownerResultByName.rows[0] ?? null
+    }
+
+    if (!ownerRow && normalizedOwnerNameHint) {
+      const ownerResultByNameLike = await client.query(
+        `select id, display_name, system_prompt, is_self_avatar, communication_style, youtube_videos
+         from public.wa_owners
+         where lower(display_name) like lower($1) and deleted_at is null
+         order by updated_at desc nulls last
+         limit 1`,
+        [`%${normalizedOwnerNameHint}%`]
+      )
+      ownerRow = ownerResultByNameLike.rows[0] ?? null
+    }
+
     const ownerId = ownerRow?.id ? String(ownerRow.id) : null
     const ownerName = ownerRow?.display_name?.trim() || 'Avatar'
     const ownerPrompt = ownerRow?.system_prompt?.trim() || DEFAULT_SYSTEM_PROMPT
@@ -1223,7 +1281,7 @@ export default async function handler(req: any, res: any) {
     : []
 
   try {
-    const { ownerPrompt, memory, stylePrompt, behavioralMemory, ownerId, ownerName, youtubeVideos } = await loadOwnerPromptAndMemory(conversationId)
+    const { ownerPrompt, memory, stylePrompt, behavioralMemory, ownerId, ownerName, youtubeVideos } = await loadOwnerPromptAndMemory(conversationId, ownerIdHint, ownerNameHint)
     const normalizedOwnerIdHint = typeof ownerIdHint === 'string' && ownerIdHint.trim().length > 0
       ? ownerIdHint.trim()
       : null
@@ -1237,6 +1295,7 @@ export default async function handler(req: any, res: any) {
         : (normalizedOwnerNameHint || ownerName || 'Avatar')
     const youtubeProfile = getYouTubeRecommendationProfile(effectiveOwnerId, effectiveOwnerName, ownerPrompt)
     const hasYouTubeProfile = Boolean(youtubeProfile)
+    const hasIndexedYouTubeVideos = youtubeVideos.length > 0
     const contextForVideoMatch = [
       ...priorMessages.filter((entry) => entry.role === 'user').slice(-3).map((entry) => entry.content),
       message,
@@ -1267,7 +1326,7 @@ export default async function handler(req: any, res: any) {
           (videoFlowActive && (isFollowUpRequest || Boolean(selectedTopic)))
         )
       : false
-    const shouldUseVideoFlow = hasYouTubeProfile
+    const shouldUseVideoFlow = hasYouTubeProfile && hasIndexedYouTubeVideos
       ? (userAskedForVideo || contextualVideoIntent || Boolean(selectedTopic))
       : false
     const videoMatchContext = selectedTopic
@@ -1302,7 +1361,7 @@ export default async function handler(req: any, res: any) {
       effectiveOwnerName,
       youtubeVideos,
       forcedYouTubeVideo,
-      hasYouTubeProfile,
+      hasYouTubeProfile && hasIndexedYouTubeVideos,
     )
     if (hasYouTubeProfile) {
       const youtubeBlockStart = systemPrompt.indexOf('[YOUTUBE VIDEO INDEX')
@@ -1367,12 +1426,6 @@ export default async function handler(req: any, res: any) {
           fallbackClosestVideo,
           youtubeProfile!
         )
-      } else if (clarifyingAlreadyAsked) {
-        content = lang === 'es'
-          ? 'Ahora mismo no tengo un video indexado para ese tema. Te comparto uno apenas lo tenga cargado.'
-          : lang === 'de'
-            ? 'Aktuell habe ich dafür kein indexiertes Video. Ich teile dir sofort eines, sobald es geladen ist.'
-            : 'I do not have an indexed video for that topic right now. I will share one as soon as it is available.'
       } else {
         content = buildClarifyingQuestion(lang, youtubeProfile!)
       }
