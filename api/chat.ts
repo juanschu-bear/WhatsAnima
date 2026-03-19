@@ -316,6 +316,25 @@ function adriFallbackVideo(): YouTubeVideoIndexItem {
   }
 }
 
+function containsAdriVideoDenial(text: string): boolean {
+  const denialPattern = /no\s+tengo\s+videos|no\s+tengo\s+canal|no\s+puedo\s+acceder\s+a\s+internet|soy\s+un\s+avatar\s+digital|i\s+don'?t\s+have\s+videos|i\s+can'?t\s+access\s+the\s+internet|ich\s+habe\s+keine\s+videos/iu
+  return denialPattern.test(text)
+}
+
+function buildForcedAdriVideoReply(
+  lang: 'es' | 'de' | 'en',
+  video: YouTubeVideoIndexItem
+): string {
+  const cleanedTitle = (video.title || 'Video recomendado').trim()
+  if (lang === 'es') {
+    return `Perfecto hermano, aquí tienes un video mío que te ayuda con ese tema:\n${cleanedTitle}\n${video.url}\n\nSi quieres, te lo desgloso en pasos aplicados a tu oferta actual.`
+  }
+  if (lang === 'de') {
+    return `Perfekt, hier ist ein passendes Video von mir zu deinem Thema:\n${cleanedTitle}\n${video.url}\n\nWenn du willst, breche ich es direkt in konkrete Schritte für dein aktuelles Angebot herunter.`
+  }
+  return `Perfect, here is a relevant video from me for your topic:\n${cleanedTitle}\n${video.url}\n\nIf you want, I can break it down into concrete steps for your current offer.`
+}
+
 export async function loadOwnerPromptAndMemory(conversationId: string | undefined): Promise<{ ownerPrompt: string; memory: string; stylePrompt: string; behavioralMemory: string; ownerId: string | null; ownerName: string; youtubeVideos: YouTubeVideoIndexItem[] }> {
   if (!conversationId) return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '', stylePrompt: '', behavioralMemory: '', ownerId: null, ownerName: 'Avatar', youtubeVideos: [] }
   const databaseUrl = getDatabaseUrl()
@@ -863,14 +882,18 @@ export default async function handler(req: any, res: any) {
       return res.status(502).json({ error: 'Empty response from AI' })
     }
     const ensuredVideo = forcedAdriVideo ?? (isAdriContext ? adriFallbackVideo() : null)
-    if (isAdriContext && ensuredVideo?.url && !content.includes(ensuredVideo.url)) {
+    if (isAdriContext && ensuredVideo?.url) {
       const lang = detectLanguage(message)
-      const forcedLine = lang === 'es'
-        ? `Te recomiendo este video puntual: ${ensuredVideo.url}`
-        : lang === 'de'
-          ? `Ich empfehle dir dieses konkrete Video: ${ensuredVideo.url}`
-          : `I recommend this specific video: ${ensuredVideo.url}`
-      content = `${content.trim()}\n\n${forcedLine}`
+      if (containsAdriVideoDenial(content)) {
+        content = buildForcedAdriVideoReply(lang, ensuredVideo)
+      } else if (!content.includes(ensuredVideo.url)) {
+        const forcedLine = lang === 'es'
+          ? `Te recomiendo este video puntual: ${ensuredVideo.url}`
+          : lang === 'de'
+            ? `Ich empfehle dir dieses konkrete Video: ${ensuredVideo.url}`
+            : `I recommend this specific video: ${ensuredVideo.url}`
+        content = `${content.trim()}\n\n${forcedLine}`
+      }
     }
 
     // Check for generate_image block and generate image server-side
