@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS public.wa_owners (
   avatar_url TEXT,
   voice_id TEXT,
   system_prompt TEXT,
+  bio TEXT,
+  expertise TEXT,
   tavus_replica_id TEXT,
   opm_api_url TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),

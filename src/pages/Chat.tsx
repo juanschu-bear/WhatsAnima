@@ -67,6 +67,8 @@ interface ConversationData {
     voice_id: string | null
     system_prompt?: string | null
     tavus_replica_id: string | null
+    bio?: string | null
+    expertise?: string | null
   }
   wa_contacts: { display_name: string }
 }
@@ -112,6 +114,13 @@ function formatDateSeparator(dateStr: string) {
     day: 'numeric',
     year: date.getFullYear() === today.getFullYear() ? undefined : 'numeric',
   })
+}
+
+function parseProfileItems(value: string | null | undefined) {
+  return (value || '')
+    .split(/\n|,|;|\|/g)
+    .map((item) => item.trim())
+    .filter(Boolean)
 }
 
 function isPlaceholderContent(message: Message) {
@@ -1173,6 +1182,7 @@ export default function Chat() {
   const { conversationId } = useParams<{ conversationId: string }>()
   const [conversation, setConversation] = useState<ConversationData | null>(null)
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false)
+  const [profileCardOpen, setProfileCardOpen] = useState(false)
   const [messages, setMessages] = useState<Message[]>([])
   const [text, setText] = useState('')
   const [loading, setLoading] = useState(true)
@@ -1878,6 +1888,10 @@ export default function Chat() {
   }
 
   const owner = conversation.wa_owners
+  const profileSummary = (owner.bio || owner.expertise || '').trim()
+  const expertiseItems = parseProfileItems(owner.expertise)
+  const mainTopics = expertiseItems.slice(0, 5)
+  const strengths = expertiseItems.slice(5, 10).length > 0 ? expertiseItems.slice(5, 10) : expertiseItems.slice(0, 4)
 
   return (
     <div className="relative flex h-[100dvh] min-h-[100dvh] flex-col overflow-hidden bg-[linear-gradient(140deg,_#020a12_0%,_#071420_35%,_#060e1a_65%,_#030810_100%)] text-white supports-[-webkit-touch-callout:none]:min-h-[-webkit-fill-available]">
@@ -1921,14 +1935,20 @@ export default function Chat() {
           </>
         ) : (
           <>
-            <div className="relative shrink-0">
-              <img src={resolveAvatarUrl(owner.display_name)} alt={owner.display_name} className="h-10 w-10 shrink-0 rounded-full object-cover ring-1 ring-white/10" />
-              <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-[#0a1420] bg-[#00d4a1]" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em] text-white">{owner.display_name}</h1>
-              <p className="text-xs text-[#00d4a1]/80">{avatarStatus ? 'online' : 'online'}</p>
-            </div>
+            <button
+              type="button"
+              onClick={() => setProfileCardOpen(true)}
+              className="flex min-w-0 flex-1 items-center gap-3 rounded-xl text-left transition hover:bg-white/5"
+            >
+              <div className="relative shrink-0">
+                <img src={resolveAvatarUrl(owner.display_name)} alt={owner.display_name} className="h-10 w-10 shrink-0 rounded-full object-cover ring-1 ring-white/10" />
+                <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-[#0a1420] bg-[#00d4a1]" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em] text-white">{owner.display_name}</h1>
+                <p className="text-xs text-[#00d4a1]/80">{avatarStatus ? 'online' : 'online'}</p>
+              </div>
+            </button>
             {/* Video call */}
             <button
               type="button"
@@ -2172,6 +2192,77 @@ export default function Chat() {
           <div ref={messagesEndRef} />
         </div>
       </main>
+
+      {profileCardOpen ? (
+        <div className="absolute inset-0 z-50 flex items-end sm:items-center sm:justify-center">
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setProfileCardOpen(false)} />
+          <div className="relative z-10 max-h-[85dvh] w-full overflow-y-auto rounded-t-[32px] border border-white/8 bg-[linear-gradient(180deg,#0b1a28_0%,#081420_46%,#07111b_100%)] p-5 shadow-[0_-20px_80px_rgba(0,0,0,0.45)] sm:max-h-[90dvh] sm:w-[min(520px,92vw)] sm:rounded-[28px] sm:p-6">
+            <div className="mb-5 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setProfileCardOpen(false)}
+                className="flex h-10 w-10 items-center justify-center rounded-full border border-white/12 bg-white/[0.03] text-white/80 transition hover:text-white"
+                aria-label="Close profile card"
+              >
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.25" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+              <p className="text-xs uppercase tracking-[0.22em] text-white/42">Contact info</p>
+              <div className="h-10 w-10" />
+            </div>
+
+            <div className="flex flex-col items-center text-center">
+              <img
+                src={resolveAvatarUrl(owner.display_name)}
+                alt={owner.display_name}
+                className="h-28 w-28 rounded-full object-cover ring-2 ring-white/12"
+              />
+              <h2 className="mt-4 text-2xl font-semibold tracking-[-0.02em] text-white">{owner.display_name}</h2>
+              <p className="mt-2 max-w-md text-sm leading-6 text-white/72">
+                {profileSummary || 'No profile bio added yet.'}
+              </p>
+            </div>
+
+            <div className="mt-6 space-y-4">
+              <section className="rounded-[22px] border border-white/8 bg-white/[0.03] p-4">
+                <p className="text-[11px] uppercase tracking-[0.22em] text-white/42">Expertise</p>
+                <p className="mt-2 text-sm leading-6 text-white/82">{owner.expertise?.trim() || 'No expertise details added yet.'}</p>
+              </section>
+
+              <section className="rounded-[22px] border border-white/8 bg-white/[0.03] p-4">
+                <p className="text-[11px] uppercase tracking-[0.22em] text-white/42">Main Topics</p>
+                {mainTopics.length > 0 ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {mainTopics.map((topic) => (
+                      <span key={topic} className="rounded-full border border-[#75f0df]/28 bg-[#0c8a6d]/20 px-3 py-1 text-xs text-[#9af8ea]">
+                        {topic}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-sm text-white/62">No topics added yet.</p>
+                )}
+              </section>
+
+              <section className="rounded-[22px] border border-white/8 bg-white/[0.03] p-4">
+                <p className="text-[11px] uppercase tracking-[0.22em] text-white/42">Strengths</p>
+                {strengths.length > 0 ? (
+                  <ul className="mt-3 space-y-2">
+                    {strengths.map((strength) => (
+                      <li key={strength} className="rounded-2xl border border-white/8 bg-white/[0.03] px-3 py-2 text-sm text-white/82">
+                        {strength}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-2 text-sm text-white/62">No strengths added yet.</p>
+                )}
+              </section>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {error ? (
         <div className="relative z-10 border-t border-white/8 bg-[#101b28]/88 px-4 py-2 text-center text-sm text-red-300 backdrop-blur-xl">

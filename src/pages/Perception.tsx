@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { resolveAvatarUrl } from '../lib/avatars'
 
 type LanguageFilter = 'All' | 'English' | 'German' | 'Spanish'
+type MediaFilter = 'All' | 'Audio' | 'Video'
 
 interface OwnerRow {
   id: string
@@ -487,13 +488,56 @@ function PerceptionAudioPlayer({ src }: { src: string }) {
 }
 
 function topActionUnits(source: Record<string, unknown>) {
-  const actionUnits = (source.action_units || source.au_scores || source.top_action_units) as Record<string, unknown> | undefined
+  const actionUnits = (source.au_averages || source.action_units || source.au_scores || source.top_action_units) as Record<string, unknown> | undefined
   if (!actionUnits || typeof actionUnits !== 'object') return []
   return Object.entries(actionUnits)
     .map(([name, value]) => ({ name, value: toNumber(value) ?? 0 }))
     .filter((entry) => entry.value > 0)
     .sort((left, right) => right.value - left.value)
     .slice(0, 5)
+}
+
+function emotionProfile(source: Record<string, unknown>) {
+  const preferredOrder = ['happiness', 'sadness', 'surprise', 'fear', 'anger', 'neutral']
+  const map = (
+    source.emotion_profile ||
+    source.emotion_percentages ||
+    source.emotions ||
+    source.emotion_distribution
+  ) as Record<string, unknown> | undefined
+  if (!map || typeof map !== 'object') return []
+  const keyed = Object.entries(map).reduce<Record<string, number>>((accumulator, [key, raw]) => {
+    const numeric = toNumber(raw)
+    if (numeric == null || numeric < 0) return accumulator
+    const normalized = normalizeKey(key)
+    accumulator[normalized] = numeric > 1 ? numeric : numeric * 100
+    return accumulator
+  }, {})
+  return preferredOrder
+    .map((key) => ({ key, value: Math.max(0, Math.min(100, keyed[key] ?? 0)) }))
+    .filter((entry) => entry.value > 0)
+}
+
+function gazeSummary(source: Record<string, unknown>) {
+  return String(
+    source.gaze_direction ||
+    source.gaze_summary ||
+    source.gaze ||
+    source.eye_contact_summary ||
+    'Unavailable',
+  )
+}
+
+function bodyLanguageSummary(source: Record<string, unknown>) {
+  if (typeof source.summary === 'string' && source.summary.trim()) return source.summary.trim()
+  const parts = [
+    source.posture_summary || source.posture,
+    source.hand_gesture_summary || source.hand_gestures,
+    source.movement_summary || source.movement_patterns,
+  ]
+    .map((item) => (typeof item === 'string' ? item.trim() : ''))
+    .filter(Boolean)
+  return parts.length > 0 ? parts.join(' • ') : 'Unavailable'
 }
 
 export default function Perception() {
@@ -507,6 +551,7 @@ export default function Perception() {
 
   const [avatarFilter, setAvatarFilter] = useState('All')
   const [languageFilter, setLanguageFilter] = useState<LanguageFilter>('All')
+  const [mediaFilter, setMediaFilter] = useState<MediaFilter>('All')
   const [emotionFilter, setEmotionFilter] = useState('All')
   const [ruleFilter, setRuleFilter] = useState('All')
   const [dateFrom, setDateFrom] = useState('')
@@ -621,12 +666,13 @@ export default function Perception() {
     return entries.filter((entry) => {
       if (avatarFilter !== 'All' && entry.avatarName !== avatarFilter) return false
       if (languageFilter !== 'All' && entry.language !== languageFilter) return false
+      if (mediaFilter !== 'All' && normalizeKey(entry.mediaType || entry.messageType || '') !== normalizeKey(mediaFilter)) return false
       if (emotionFilter !== 'All' && entry.primaryEmotion !== emotionFilter && entry.secondaryEmotion !== emotionFilter) return false
       if (ruleFilter !== 'All' && !entry.firedRules.some((rule) => rule.name === ruleFilter || rule.category === ruleFilter)) return false
       if (!filterDate(entry.createdAt, dateFrom, dateTo)) return false
       return true
     })
-  }, [avatarFilter, dateFrom, dateTo, emotionFilter, entries, languageFilter, ruleFilter])
+  }, [avatarFilter, dateFrom, dateTo, emotionFilter, entries, languageFilter, mediaFilter, ruleFilter])
 
   useEffect(() => {
     if (filteredEntries.length === 0) {
@@ -699,7 +745,7 @@ export default function Perception() {
             </div>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
             <label className="flex flex-col gap-2 text-xs uppercase tracking-[0.18em] text-white/45">
               Avatar
               <select value={avatarFilter} onChange={(event) => setAvatarFilter(event.target.value)} className="rounded-2xl border border-white/10 bg-[#08111a] px-4 py-3 text-sm tracking-normal text-white outline-none transition focus:border-[#7cf0e1]/50">
@@ -710,6 +756,12 @@ export default function Perception() {
               Language
               <select value={languageFilter} onChange={(event) => setLanguageFilter(event.target.value as LanguageFilter)} className="rounded-2xl border border-white/10 bg-[#08111a] px-4 py-3 text-sm tracking-normal text-white outline-none transition focus:border-[#7cf0e1]/50">
                 {LANGUAGE_OPTIONS.map((option) => <option key={option}>{option}</option>)}
+              </select>
+            </label>
+            <label className="flex flex-col gap-2 text-xs uppercase tracking-[0.18em] text-white/45">
+              Media
+              <select value={mediaFilter} onChange={(event) => setMediaFilter(event.target.value as MediaFilter)} className="rounded-2xl border border-white/10 bg-[#08111a] px-4 py-3 text-sm tracking-normal text-white outline-none transition focus:border-[#7cf0e1]/50">
+                {['All', 'Audio', 'Video'].map((option) => <option key={option}>{option}</option>)}
               </select>
             </label>
             <label className="flex flex-col gap-2 text-xs uppercase tracking-[0.18em] text-white/45">
@@ -893,16 +945,24 @@ export default function Perception() {
                         <div className="mt-4 space-y-3">
                           {topActionUnits(selectedEntry.facialAnalysis).length > 0 ? (
                             topActionUnits(selectedEntry.facialAnalysis).map((unit) => (
-                              <div key={unit.name} className="flex items-center justify-between rounded-[18px] border border-white/8 bg-white/[0.04] px-4 py-3 text-sm text-white/86">
-                                <span>{titleCase(unit.name)}</span>
-                                <span className="text-fuchsia-200">{Math.round(unit.value * 100)}%</span>
+                              <div key={unit.name} className="rounded-[18px] border border-white/8 bg-white/[0.04] px-4 py-3">
+                                <div className="flex items-center justify-between text-sm text-white/86">
+                                  <span>{titleCase(unit.name)}</span>
+                                  <span className="text-fuchsia-200">{Math.round(unit.value * 100)}%</span>
+                                </div>
+                                <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10">
+                                  <div
+                                    className="h-full rounded-full bg-[linear-gradient(90deg,#ff6bd6,#ff9cf3)]"
+                                    style={{ width: `${Math.max(5, Math.round(unit.value * 100))}%` }}
+                                  />
+                                </div>
                               </div>
                             ))
                           ) : (
                             <p className="text-sm text-white/60">No facial action-unit detail recorded for this log.</p>
                           )}
                           <div className="rounded-[18px] border border-white/8 bg-white/[0.04] px-4 py-3 text-sm text-white/78">
-                            Gaze: {String(selectedEntry.facialAnalysis.gaze_direction || selectedEntry.facialAnalysis.gaze || 'Unavailable')}
+                            Gaze direction: {gazeSummary(selectedEntry.facialAnalysis)}
                           </div>
                           <div className="rounded-[18px] border border-white/8 bg-white/[0.04] px-4 py-3 text-sm text-white/78">
                             Head pose: {String(selectedEntry.facialAnalysis.head_pose || selectedEntry.facialAnalysis.pose_summary || 'Unavailable')}
@@ -925,6 +985,33 @@ export default function Perception() {
                           <div className="rounded-[18px] border border-white/8 bg-white/[0.04] px-4 py-3 text-sm text-white/78">
                             Movement patterns: {String(selectedEntry.bodyLanguage.movement_patterns || selectedEntry.bodyLanguage.movement_summary || 'Unavailable')}
                           </div>
+                          <div className="rounded-[18px] border border-white/8 bg-white/[0.04] px-4 py-3 text-sm leading-6 text-white/78">
+                            Summary: {bodyLanguageSummary(selectedEntry.bodyLanguage)}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="rounded-[28px] border border-cyan-400/16 bg-[linear-gradient(180deg,rgba(8,51,66,0.86),rgba(5,18,24,0.96))] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.25)] lg:col-span-2">
+                        <div className="text-[11px] uppercase tracking-[0.24em] text-cyan-100/50">Emotion Profile</div>
+                        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                          {emotionProfile(selectedEntry.facialAnalysis).length > 0 ? (
+                            emotionProfile(selectedEntry.facialAnalysis).map((emotion) => (
+                              <div key={emotion.key} className="rounded-[18px] border border-white/8 bg-white/[0.04] px-4 py-3">
+                                <div className="flex items-center justify-between text-sm text-white/84">
+                                  <span>{titleCase(emotion.key)}</span>
+                                  <span className="text-cyan-200">{emotion.value.toFixed(1)}%</span>
+                                </div>
+                                <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10">
+                                  <div
+                                    className="h-full rounded-full bg-[linear-gradient(90deg,#4dd7ff,#7af0df)]"
+                                    style={{ width: `${Math.max(5, Math.round(emotion.value))}%` }}
+                                  />
+                                </div>
+                              </div>
+                            ))
+                          ) : (
+                            <p className="text-sm text-white/62">No emotion profile percentages recorded for this video log.</p>
+                          )}
                         </div>
                       </div>
                     </section>
