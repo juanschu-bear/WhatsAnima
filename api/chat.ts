@@ -702,6 +702,21 @@ export default async function handler(req: any, res: any) {
   try {
     const { ownerPrompt, memory, stylePrompt, behavioralMemory, ownerId, ownerName, youtubeVideos } = await loadOwnerPromptAndMemory(conversationId)
     const systemPrompt = buildSystemPrompt(ownerPrompt, memory, stylePrompt, behavioralMemory, perception, ownerId, ownerName, youtubeVideos)
+    if (ownerId === ADRI_KASTEL_OWNER_ID) {
+      const youtubeBlockStart = systemPrompt.indexOf('[YOUTUBE VIDEO INDEX')
+      const injectedSnippet = youtubeBlockStart >= 0
+        ? systemPrompt.slice(youtubeBlockStart, youtubeBlockStart + 200)
+        : 'NO_YOUTUBE_BLOCK_IN_PROMPT'
+      console.log(
+        '[chat][adri_youtube_prompt]',
+        JSON.stringify({
+          ownerId,
+          ownerName,
+          youtubeVideosCount: youtubeVideos.length,
+          injectedSnippet,
+        })
+      )
+    }
     const messages = prepareMessages(priorMessages, message, { image_url, isImage, isVideo, isVoice })
 
     let content = ''
