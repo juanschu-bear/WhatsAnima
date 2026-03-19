@@ -257,7 +257,7 @@ function normalizeYouTubeVideoIndex(value: any): YouTubeVideoIndexItem[] {
         ? item.keywords
             .map((keyword: any) => (typeof keyword === 'string' ? keyword.trim().toLowerCase() : ''))
             .filter(Boolean)
-            .slice(0, 12)
+            .slice(0, 20)
         : []
       const source = item.source === 'external' ? 'external' : 'own'
       return { title, url, keywords, source }
@@ -957,7 +957,7 @@ export function buildSystemPrompt(
   profileName?: string,
   youtubeVideos: YouTubeVideoIndexItem[] = [],
   matchedYouTubeVideo: YouTubeVideoIndexItem | null = null,
-  forceAdriRules = false,
+  enableYouTubeRules = false,
 ): string {
   const nameMatch = ownerPrompt.match(/(?:^#.*?—\s*(.+)|^I am (.+?)[.\n])/m)
   const ownerName = profileName?.trim() || nameMatch?.[1]?.trim() || nameMatch?.[2]?.trim() || 'the person described below'
@@ -969,18 +969,25 @@ If anyone asks who you are, what you are, or whether you are an AI: you answer a
 When greeting or introducing yourself, use the name ${ownerName}. First-person statements like "I am..." must always refer to ${ownerName}.`
 
   const IDENTITY_REMINDER = `\n\nREMINDER: You are ${ownerName}. Never identify as Claude or as an AI. Respond only as ${ownerName}.`
+  const ownVideoCount = youtubeVideos.filter((video) => video.source === 'own').length
+  const externalVideoCount = youtubeVideos.filter((video) => video.source === 'external').length
   const youtubeRecommendationInstruction =
-    forceAdriRules && youtubeVideos.length > 0
+    enableYouTubeRules && youtubeVideos.length > 0
       ? `\n\n[YOUTUBE VIDEO INDEX — ${ownerName}]
-You have ${youtubeVideos.length} of your own YouTube videos available. When the user's topic DIRECTLY matches a video you have, share it — title, URL, one sentence why. When no video directly matches, ask ONE short clarifying question to understand better. Never say you cannot share videos. Never share the same video twice in one conversation.
+You have ${ownVideoCount} own YouTube videos and ${externalVideoCount} curated external videos where you appear.
+When the user's topic DIRECTLY matches a video, share title + URL + one sentence why.
+Recommendation priority: source=own first, source=external second.
+When no video directly matches, ask ONE short clarifying question to understand better.
+Never say you cannot share videos. Never share the same video twice in one conversation.
 
 VIDEO INDEX:
-${youtubeVideos.map((video) => `- ${video.title} | ${video.url} | keywords: ${video.keywords.join(', ')}`).join('\n')}`
+${youtubeVideos.map((video) => `- [${video.source}] ${video.title} | ${video.url} | keywords: ${video.keywords.join(', ')}`).join('\n')}`
       : ''
   const forcedMatchedVideoInstruction =
-    forceAdriRules && matchedYouTubeVideo
+    enableYouTubeRules && matchedYouTubeVideo
       ? `\n\n[STRONG VIDEO MATCH FOR CURRENT USER TOPIC]
-This user message strongly matches this video from your own catalog:
+This user message strongly matches this video:
+- source: ${matchedYouTubeVideo.source}
 - ${matchedYouTubeVideo.title}
 - ${matchedYouTubeVideo.url}
 
@@ -1157,7 +1164,8 @@ export default async function handler(req: any, res: any) {
       ownerName && ownerName !== 'Avatar'
         ? ownerName
         : (normalizedOwnerNameHint || ownerName || 'Avatar')
-    const isAdriContext = isAdriKastelContext(effectiveOwnerId, effectiveOwnerName, ownerPrompt)
+    const youtubeProfile = getYouTubeRecommendationProfile(effectiveOwnerId, effectiveOwnerName, ownerPrompt)
+    const hasYouTubeProfile = Boolean(youtubeProfile)
     const contextForVideoMatch = [
       ...priorMessages.filter((entry) => entry.role === 'user').slice(-3).map((entry) => entry.content),
       message,
@@ -1168,28 +1176,31 @@ export default async function handler(req: any, res: any) {
       extractUrlsFromText(entry.content).forEach((url) => previouslySharedUrls.add(url))
     }
     const candidateVideos = youtubeVideos.filter((video) => !previouslySharedUrls.has(video.url))
-    const userAskedForVideo = isAdriContext
-      ? (isVideoRecommendationRequest(message) || isTopicSelectionMessage(message))
+    const userAskedForVideo = hasYouTubeProfile
+      ? (isVideoRecommendationRequest(message) || isTopicSelectionMessage(message, youtubeProfile!))
       : false
-    const isFollowUpRequest = isAdriContext ? isFollowUpVideoRequest(message) : false
-    const multiVideoRequest = isAdriContext ? requestsMultipleVideos(message) : false
-    const topicChips = isAdriContext ? deriveTopicChips(youtubeVideos) : []
-    const selectedTopic = isAdriContext ? resolveSelectedTopicFromMessage(message, topicChips) : null
-    const videoFlowActive = isAdriContext ? hasRecentVideoContext(priorMessages, youtubeVideos) : false
-    const contextualVideoIntent = isAdriContext
-      ? (isSalesTopicRequest(message) || (videoFlowActive && (isFollowUpRequest || Boolean(selectedTopic))))
+    const isFollowUpRequest = hasYouTubeProfile ? isFollowUpVideoRequest(message) : false
+    const multiVideoRequest = hasYouTubeProfile ? requestsMultipleVideos(message) : false
+    const topicChips = hasYouTubeProfile ? deriveTopicChips(youtubeVideos) : []
+    const selectedTopic = hasYouTubeProfile ? resolveSelectedTopicFromMessage(message, topicChips) : null
+    const videoFlowActive = hasYouTubeProfile ? hasRecentVideoContext(priorMessages, youtubeVideos) : false
+    const contextualVideoIntent = hasYouTubeProfile
+      ? (
+          (youtubeProfile === 'adri' && isSalesTopicRequest(message)) ||
+          (videoFlowActive && (isFollowUpRequest || Boolean(selectedTopic)))
+        )
       : false
-    const shouldUseVideoFlow = isAdriContext
+    const shouldUseVideoFlow = hasYouTubeProfile
       ? (userAskedForVideo || contextualVideoIntent || Boolean(selectedTopic))
       : false
     const videoMatchContext = selectedTopic
       ? `${contextForVideoMatch}\n${selectedTopic}`
       : contextForVideoMatch
-    const matchedYouTubeVideo = isAdriContext
+    const matchedYouTubeVideo = hasYouTubeProfile
       ? findBestYouTubeVideoMatch(videoMatchContext, candidateVideos)
       : null
-    const forcedAdriVideo = isAdriContext ? (matchedYouTubeVideo?.video ?? null) : null
-    const shelfSuggestions = isAdriContext
+    const forcedYouTubeVideo = hasYouTubeProfile ? (matchedYouTubeVideo?.video ?? null) : null
+    const shelfSuggestions = hasYouTubeProfile
       ? findTopYouTubeVideoMatches(
           videoMatchContext,
           candidateVideos,
@@ -1207,23 +1218,23 @@ export default async function handler(req: any, res: any) {
       effectiveOwnerId,
       effectiveOwnerName,
       youtubeVideos,
-      forcedAdriVideo,
-      isAdriContext,
+      forcedYouTubeVideo,
+      hasYouTubeProfile,
     )
-    if (isAdriContext) {
+    if (hasYouTubeProfile) {
       const youtubeBlockStart = systemPrompt.indexOf('[YOUTUBE VIDEO INDEX')
       const injectedSnippet = youtubeBlockStart >= 0
         ? systemPrompt.slice(youtubeBlockStart, youtubeBlockStart + 200)
         : 'NO_YOUTUBE_BLOCK_IN_PROMPT'
       console.log(
-        '[chat][adri_youtube_prompt]',
+        '[chat][youtube_prompt]',
         JSON.stringify({
           ownerId: effectiveOwnerId || null,
           ownerName: effectiveOwnerName,
-          isAdriContext,
+          youtubeProfile,
           youtubeVideosCount: youtubeVideos.length,
           matchedVideo: matchedYouTubeVideo?.video?.url || null,
-          forcedVideo: forcedAdriVideo?.url || null,
+          forcedVideo: forcedYouTubeVideo?.url || null,
           matchedScore: matchedYouTubeVideo?.score || 0,
           matchedKeywords: matchedYouTubeVideo?.matchedKeywords || [],
           askedForVideo: userAskedForVideo,
@@ -1257,21 +1268,21 @@ export default async function handler(req: any, res: any) {
     }
     let responseVideoTopics: string[] | null = null
     let responseVideoSuggestions: YouTubeVideoSuggestion[] | null = null
-    if (isAdriContext && shouldUseVideoFlow) {
+    if (hasYouTubeProfile && shouldUseVideoFlow) {
       const lang = resolveReplyLanguage(message, priorMessages)
-      if (forcedAdriVideo?.url) {
-        content = buildForcedAdriVideoReply(lang, forcedAdriVideo)
+      if (forcedYouTubeVideo?.url) {
+        content = buildForcedVideoReply(lang, forcedYouTubeVideo, youtubeProfile!)
       } else if (isFollowUpRequest) {
-        content = buildAdriTopicSelectionPrompt(lang)
+        content = buildTopicSelectionPrompt(lang, youtubeProfile!)
         responseVideoTopics = topicChips
       } else {
-        content = buildAdriClarifyingQuestion(lang)
+        content = buildClarifyingQuestion(lang, youtubeProfile!)
       }
       if ((multiVideoRequest || Boolean(selectedTopic)) && shelfSuggestions.length >= 2) {
         responseVideoSuggestions = shelfSuggestions
       }
     }
-    if (isAdriContext) {
+    if (hasYouTubeProfile) {
       const urlsInContent = extractUrlsFromText(content)
       const hasForeignYouTubeUrl = urlsInContent.some((url) => {
         const isYouTube = /(?:youtube\.com|youtu\.be)/i.test(url)
@@ -1279,10 +1290,10 @@ export default async function handler(req: any, res: any) {
       })
       if (hasForeignYouTubeUrl) {
         const lang = resolveReplyLanguage(message, priorMessages)
-        if (forcedAdriVideo?.url) {
-          content = buildForcedAdriVideoReply(lang, forcedAdriVideo)
+        if (forcedYouTubeVideo?.url) {
+          content = buildForcedVideoReply(lang, forcedYouTubeVideo, youtubeProfile!)
         } else if (shouldUseVideoFlow) {
-          content = buildAdriClarifyingQuestion(lang)
+          content = buildClarifyingQuestion(lang, youtubeProfile!)
         } else {
           content = content.replace(/https?:\/\/[^\s)]+/g, '').replace(/\s{2,}/g, ' ').trim()
         }
