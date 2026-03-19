@@ -124,7 +124,7 @@ export default function AvatarSelect() {
   if (loading) {
     return (
       <div className="avatar-select-screen brand-scene flex min-h-[100dvh] items-center justify-center">
-        <div className="h-10 w-10 animate-spin rounded-full border-4 border-[#1f2c34] border-t-[#00a884]" />
+        <div className="h-10 w-10 rounded-full border-4 border-[#1f2c34] border-t-[#00a884]/70" />
       </div>
     )
   }
@@ -269,7 +269,7 @@ export default function AvatarSelect() {
                   </div>
                 </div>
                 {navigating === owner.id ? (
-                  <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#1f2c34] border-t-[#00a884]" />
+                  <div className="h-6 w-6 rounded-full border-2 border-[#1f2c34] border-t-[#00a884]/70" />
                 ) : (
                   <svg className="h-5 w-5 text-white/30" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
