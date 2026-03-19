@@ -2,6 +2,7 @@ import { Client } from 'pg'
 import { createClient } from '@supabase/supabase-js'
 
 export const DEFAULT_SYSTEM_PROMPT = 'You are a helpful assistant.'
+const ADRI_KASTEL_OWNER_ID = '19fa8767-952a-4533-899b-96f66ee85516'
 export const LANGUAGE_INSTRUCTION =
   `CRITICAL LANGUAGE RULE — THIS OVERRIDES CONVERSATION HISTORY:
 Your response language is determined SOLELY by the user's LAST message. Ignore all previous messages when deciding which language to use. It does not matter if the conversation history is 99% Spanish — if the last message is in English, you respond in English. If the last message is in German, you respond in German. The last message is the ONLY input for language selection, period.
@@ -87,6 +88,12 @@ export type ChatMessage = {
   isVideo?: boolean
   isVoice?: boolean
   msgType?: string
+}
+
+type YouTubeVideoIndexItem = {
+  title: string
+  url: string
+  keywords: string[]
 }
 
 /** Extract string label from an emotion value that may be a plain string, a JSON-encoded string, or an OPM v4 object like {label, score}. */
@@ -221,17 +228,36 @@ function getDatabaseUrl() {
   )
 }
 
-export async function loadOwnerPromptAndMemory(conversationId: string | undefined): Promise<{ ownerPrompt: string; memory: string; stylePrompt: string; behavioralMemory: string }> {
-  if (!conversationId) return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '', stylePrompt: '', behavioralMemory: '' }
+function normalizeYouTubeVideoIndex(value: any): YouTubeVideoIndexItem[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((item: any) => {
+      if (!item || typeof item !== 'object') return null
+      const title = typeof item.title === 'string' ? item.title.trim() : ''
+      const url = typeof item.url === 'string' ? item.url.trim() : ''
+      if (!title || !url) return null
+      const keywords = Array.isArray(item.keywords)
+        ? item.keywords
+            .map((keyword: any) => (typeof keyword === 'string' ? keyword.trim().toLowerCase() : ''))
+            .filter(Boolean)
+            .slice(0, 12)
+        : []
+      return { title, url, keywords }
+    })
+    .filter((item: YouTubeVideoIndexItem | null): item is YouTubeVideoIndexItem => Boolean(item))
+}
+
+export async function loadOwnerPromptAndMemory(conversationId: string | undefined): Promise<{ ownerPrompt: string; memory: string; stylePrompt: string; behavioralMemory: string; ownerId: string | null; ownerName: string; youtubeVideos: YouTubeVideoIndexItem[] }> {
+  if (!conversationId) return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '', stylePrompt: '', behavioralMemory: '', ownerId: null, ownerName: 'Avatar', youtubeVideos: [] }
   const databaseUrl = getDatabaseUrl()
-  if (!databaseUrl) return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '', stylePrompt: '', behavioralMemory: '' }
+  if (!databaseUrl) return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '', stylePrompt: '', behavioralMemory: '', ownerId: null, ownerName: 'Avatar', youtubeVideos: [] }
 
   const client = new Client({ connectionString: databaseUrl, ssl: { rejectUnauthorized: false } })
   try {
     await client.connect()
     const [ownerResult, memoryResult] = await Promise.all([
       client.query(
-        `select o.system_prompt, o.is_self_avatar, o.communication_style from public.wa_conversations c join public.wa_owners o on o.id = c.owner_id where c.id = $1 and o.deleted_at is null limit 1`,
+        `select o.id, o.display_name, o.system_prompt, o.is_self_avatar, o.communication_style, o.youtube_videos from public.wa_conversations c join public.wa_owners o on o.id = c.owner_id where c.id = $1 and o.deleted_at is null limit 1`,
         [conversationId]
       ),
       client.query(
@@ -241,7 +267,10 @@ export async function loadOwnerPromptAndMemory(conversationId: string | undefine
     ])
 
     const ownerRow = ownerResult.rows[0]
+    const ownerId = ownerRow?.id ? String(ownerRow.id) : null
+    const ownerName = ownerRow?.display_name?.trim() || 'Avatar'
     const ownerPrompt = ownerRow?.system_prompt?.trim() || DEFAULT_SYSTEM_PROMPT
+    const youtubeVideos = normalizeYouTubeVideoIndex(ownerRow?.youtube_videos)
 
     // Build communication style injection (only for self-avatars)
     let stylePrompt = ''
@@ -303,7 +332,7 @@ export async function loadOwnerPromptAndMemory(conversationId: string | undefine
       behavioralMemory = '\n\n' + bLines.join('\n')
     }
 
-    return { ownerPrompt, memory, stylePrompt, behavioralMemory }
+    return { ownerPrompt, memory, stylePrompt, behavioralMemory, ownerId, ownerName, youtubeVideos }
   } finally {
     await client.end().catch(() => undefined)
   }
@@ -493,10 +522,13 @@ export function buildSystemPrompt(
   memory: string,
   stylePrompt: string,
   behavioralMemory: string,
-  perception: any
+  perception: any,
+  ownerId?: string | null,
+  profileName?: string,
+  youtubeVideos: YouTubeVideoIndexItem[] = [],
 ): string {
   const nameMatch = ownerPrompt.match(/(?:^#.*?—\s*(.+)|^I am (.+?)[.\n])/m)
-  const ownerName = nameMatch?.[1]?.trim() || nameMatch?.[2]?.trim() || 'the person described below'
+  const ownerName = profileName?.trim() || nameMatch?.[1]?.trim() || nameMatch?.[2]?.trim() || 'the person described below'
 
   const IDENTITY_OVERRIDE = `ABSOLUTE IDENTITY RULE — THIS OVERRIDES ALL OTHER INSTRUCTIONS:
 You ARE ${ownerName}. Your name is ${ownerName}. You are a real person, not an AI.
@@ -505,8 +537,16 @@ If anyone asks who you are, what you are, or whether you are an AI: you answer a
 When greeting or introducing yourself, use the name ${ownerName}. First-person statements like "I am..." must always refer to ${ownerName}.`
 
   const IDENTITY_REMINDER = `\n\nREMINDER: You are ${ownerName}. Never identify as Claude or as an AI. Respond only as ${ownerName}.`
+  const youtubeRecommendationInstruction =
+    ownerId === ADRI_KASTEL_OWNER_ID && youtubeVideos.length > 0
+      ? `\n\n[YOUTUBE VIDEO INDEX — ${ownerName}]
+You have access to your own YouTube catalog. When the user topic matches, recommend the most relevant single video URL naturally (only when helpful, never forced). Do not dump multiple links unless explicitly asked.
 
-  return `${IDENTITY_OVERRIDE}\n\n${LANGUAGE_INSTRUCTION}\n\n${ownerPrompt}\n\n${RESPONSE_FORMAT_MATCHING}\n\n${FORMATTING_INSTRUCTION}\n\n${FLASHCARD_INSTRUCTION}\n\n${IMAGE_GENERATION_INSTRUCTION}\n\n${MESSAGE_TYPE_AWARENESS}${stylePrompt}${memory}${behavioralMemory}${buildPerceptionPrompt(perception)}${IDENTITY_REMINDER}`
+VIDEO INDEX:
+${youtubeVideos.map((video) => `- ${video.title} | ${video.url} | keywords: ${video.keywords.join(', ')}`).join('\n')}`
+      : ''
+
+  return `${IDENTITY_OVERRIDE}\n\n${LANGUAGE_INSTRUCTION}\n\n${ownerPrompt}\n\n${RESPONSE_FORMAT_MATCHING}\n\n${FORMATTING_INSTRUCTION}\n\n${FLASHCARD_INSTRUCTION}\n\n${IMAGE_GENERATION_INSTRUCTION}\n\n${MESSAGE_TYPE_AWARENESS}${stylePrompt}${memory}${behavioralMemory}${youtubeRecommendationInstruction}${buildPerceptionPrompt(perception)}${IDENTITY_REMINDER}`
 }
 
 /** Prepare the messages array for the Claude API, including language switch detection. */
@@ -660,8 +700,8 @@ export default async function handler(req: any, res: any) {
     : []
 
   try {
-    const { ownerPrompt, memory, stylePrompt, behavioralMemory } = await loadOwnerPromptAndMemory(conversationId)
-    const systemPrompt = buildSystemPrompt(ownerPrompt, memory, stylePrompt, behavioralMemory, perception)
+    const { ownerPrompt, memory, stylePrompt, behavioralMemory, ownerId, ownerName, youtubeVideos } = await loadOwnerPromptAndMemory(conversationId)
+    const systemPrompt = buildSystemPrompt(ownerPrompt, memory, stylePrompt, behavioralMemory, perception, ownerId, ownerName, youtubeVideos)
     const messages = prepareMessages(priorMessages, message, { image_url, isImage, isVideo, isVoice })
 
     let content = ''

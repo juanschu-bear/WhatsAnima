@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS public.wa_owners (
   system_prompt TEXT,
   bio TEXT,
   expertise TEXT,
+  youtube_videos JSONB DEFAULT NULL,
   tavus_replica_id TEXT,
   opm_api_url TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
