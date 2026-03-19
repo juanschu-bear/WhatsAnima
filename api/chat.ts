@@ -637,9 +637,7 @@ When greeting or introducing yourself, use the name ${ownerName}. First-person s
   const youtubeRecommendationInstruction =
     forceAdriRules && youtubeVideos.length > 0
       ? `\n\n[YOUTUBE VIDEO INDEX — ${ownerName}]
-You have access to your own YouTube catalog.
-Only recommend one of your videos when you are confident it directly addresses what the person is asking. If unsure, ask a short clarifying question first.
-When you share a video, keep the reply to 2-3 short lines maximum: title, URL, one-sentence reason.
+You have ${youtubeVideos.length} of your own YouTube videos available. When the user's topic DIRECTLY matches a video you have, share it — title, URL, one sentence why. When no video directly matches, ask ONE short clarifying question to understand better. Never say you cannot share videos. Never share the same video twice in one conversation.
 
 VIDEO INDEX:
 ${youtubeVideos.map((video) => `- ${video.title} | ${video.url} | keywords: ${video.keywords.join(', ')}`).join('\n')}`
