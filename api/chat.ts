@@ -289,6 +289,16 @@ function findBestYouTubeVideoMatch(contextText: string, videos: YouTubeVideoInde
   return best && best.score >= 4 ? best : null
 }
 
+function selectFallbackAdriVideo(videos: YouTubeVideoIndexItem[]): YouTubeVideoIndexItem | null {
+  if (videos.length === 0) return null
+  const priorityTerms = ['oferta', 'ofertas', 'instagram', 'clientes', 'growth', 'marketing', 'lanzamiento', 'ventas']
+  for (const video of videos) {
+    const haystack = `${video.title} ${video.keywords.join(' ')}`.toLowerCase()
+    if (priorityTerms.some((term) => haystack.includes(term))) return video
+  }
+  return videos[0]
+}
+
 export async function loadOwnerPromptAndMemory(conversationId: string | undefined): Promise<{ ownerPrompt: string; memory: string; stylePrompt: string; behavioralMemory: string; ownerId: string | null; ownerName: string; youtubeVideos: YouTubeVideoIndexItem[] }> {
   if (!conversationId) return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '', stylePrompt: '', behavioralMemory: '', ownerId: null, ownerName: 'Avatar', youtubeVideos: [] }
   const databaseUrl = getDatabaseUrl()
@@ -760,6 +770,9 @@ export default async function handler(req: any, res: any) {
     const matchedYouTubeVideo = ownerId === ADRI_KASTEL_OWNER_ID
       ? findBestYouTubeVideoMatch(contextForVideoMatch, youtubeVideos)
       : null
+    const forcedAdriVideo = ownerId === ADRI_KASTEL_OWNER_ID
+      ? (matchedYouTubeVideo?.video ?? selectFallbackAdriVideo(youtubeVideos))
+      : null
     const systemPrompt = buildSystemPrompt(
       ownerPrompt,
       memory,
@@ -769,7 +782,7 @@ export default async function handler(req: any, res: any) {
       ownerId,
       ownerName,
       youtubeVideos,
-      matchedYouTubeVideo?.video ?? null,
+      forcedAdriVideo,
     )
     if (ownerId === ADRI_KASTEL_OWNER_ID) {
       const youtubeBlockStart = systemPrompt.indexOf('[YOUTUBE VIDEO INDEX')
@@ -783,6 +796,7 @@ export default async function handler(req: any, res: any) {
           ownerName,
           youtubeVideosCount: youtubeVideos.length,
           matchedVideo: matchedYouTubeVideo?.video?.url || null,
+          forcedVideo: forcedAdriVideo?.url || null,
           matchedScore: matchedYouTubeVideo?.score || 0,
           matchedKeywords: matchedYouTubeVideo?.matchedKeywords || [],
           injectedSnippet,
@@ -810,13 +824,13 @@ export default async function handler(req: any, res: any) {
     if (!content) {
       return res.status(502).json({ error: 'Empty response from AI' })
     }
-    if (ownerId === ADRI_KASTEL_OWNER_ID && matchedYouTubeVideo?.video?.url && !content.includes(matchedYouTubeVideo.video.url)) {
+    if (ownerId === ADRI_KASTEL_OWNER_ID && forcedAdriVideo?.url && !content.includes(forcedAdriVideo.url)) {
       const lang = detectLanguage(message)
       const forcedLine = lang === 'es'
-        ? `Te recomiendo este video puntual: ${matchedYouTubeVideo.video.url}`
+        ? `Te recomiendo este video puntual: ${forcedAdriVideo.url}`
         : lang === 'de'
-          ? `Ich empfehle dir dieses konkrete Video: ${matchedYouTubeVideo.video.url}`
-          : `I recommend this specific video: ${matchedYouTubeVideo.video.url}`
+          ? `Ich empfehle dir dieses konkrete Video: ${forcedAdriVideo.url}`
+          : `I recommend this specific video: ${forcedAdriVideo.url}`
       content = `${content.trim()}\n\n${forcedLine}`
     }
 
