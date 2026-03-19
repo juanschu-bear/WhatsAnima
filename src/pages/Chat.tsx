@@ -78,6 +78,7 @@ interface CaptionDraft {
   previewUrl: string
 }
 const WAVEFORM_BARS = Array.from({ length: 15 }, (_, index) => index)
+const HTTPS_URL_REGEX = /https:\/\/[^\s]+/gi
 
 function formatClock(totalSeconds: number) {
   const safeSeconds = Number.isFinite(totalSeconds) ? Math.max(0, totalSeconds) : 0
@@ -88,6 +89,54 @@ function formatClock(totalSeconds: number) {
 
 function formatMessageTime(dateStr: string) {
   return new Date(dateStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+function renderMessageTextWithLinks(content: string | null | undefined) {
+  const text = content || ''
+  if (!text) return ''
+
+  const parts: Array<string | JSX.Element> = []
+  let lastIndex = 0
+
+  for (const match of text.matchAll(HTTPS_URL_REGEX)) {
+    const rawUrl = match[0]
+    const start = match.index ?? -1
+    if (start < 0) continue
+
+    if (start > lastIndex) {
+      parts.push(text.slice(lastIndex, start))
+    }
+
+    const trailingMatch = rawUrl.match(/[),.!?;:]+$/)
+    const trailing = trailingMatch ? trailingMatch[0] : ''
+    const cleanUrl = trailing ? rawUrl.slice(0, -trailing.length) : rawUrl
+
+    if (cleanUrl.length > 'https://'.length) {
+      parts.push(
+        <a
+          key={`${cleanUrl}-${start}`}
+          href={cleanUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline break-all text-[#9af8ea] hover:text-[#b9fff5]"
+          onClick={(event) => event.stopPropagation()}
+        >
+          {cleanUrl}
+        </a>
+      )
+      if (trailing) parts.push(trailing)
+    } else {
+      parts.push(rawUrl)
+    }
+
+    lastIndex = start + rawUrl.length
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex))
+  }
+
+  return parts.length > 0 ? parts : text
 }
 
 function dateKey(dateStr: string) {
@@ -2100,7 +2149,7 @@ export default function Chat() {
                           : 'rounded-tl-[6px] border-white/[0.06] bg-[#1a2332] text-white/[0.92]'
                       }`}
                     >
-                      <span>{message.content}</span>
+                      <span>{renderMessageTextWithLinks(message.content)}</span>
                       <span className={`mt-1 flex items-center justify-end gap-0.5 text-[10px] ${isContact ? 'text-white/40' : 'text-white/30'}`}>
                         {formatMessageTime(message.created_at)}
                         {ReadReceipt}
