@@ -6,6 +6,7 @@ import {
   useState,
   type ChangeEvent,
   type MouseEvent,
+  type ReactNode,
 } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { getConversation, listMessages, listPerceptionLogs, sendMessage, listAllOwners, findContactByEmail, findOrCreateConversation, createContactForOwner } from '../lib/api'
@@ -95,7 +96,7 @@ function renderMessageTextWithLinks(content: string | null | undefined) {
   const text = content || ''
   if (!text) return ''
 
-  const parts: Array<string | JSX.Element> = []
+  const parts: ReactNode[] = []
   let lastIndex = 0
 
   for (const match of text.matchAll(HTTPS_URL_REGEX)) {
