@@ -267,6 +267,17 @@ function parseProfileItems(value: string | null | undefined) {
     .filter(Boolean)
 }
 
+function inferLanguageFromText(text: string): 'es' | 'de' | 'en' {
+  const lower = text.toLowerCase()
+  const spanishMarkers = ['que', 'como', 'para', 'con', 'ventas', 'oferta', 'gracias', 'video', 'objeciones', 'cierre']
+  const germanMarkers = ['ich', 'und', 'nicht', 'aber', 'danke', 'angebot', 'einwand', 'schluss']
+  const esHits = spanishMarkers.filter((token) => lower.includes(token)).length + (/[áéíóúñ¿¡]/.test(text) ? 2 : 0)
+  const deHits = germanMarkers.filter((token) => lower.includes(token)).length + (/[äöüß]/.test(text) ? 2 : 0)
+  if (esHits > deHits && esHits >= 2) return 'es'
+  if (deHits > esHits && deHits >= 2) return 'de'
+  return 'en'
+}
+
 function isPlaceholderContent(message: Message) {
   return ['[Image]', '[Video]', '[Recorded video]', '[Video message]', '[Voice message]', 'Voice note'].includes(
     message.content || ''
@@ -2078,11 +2089,19 @@ export default function Chat() {
   const expertiseItems = parseProfileItems(owner.expertise)
   const mainTopics = expertiseItems.slice(0, 5)
   const strengths = expertiseItems.slice(5, 10).length > 0 ? expertiseItems.slice(5, 10) : expertiseItems.slice(0, 4)
-  const uiLanguage = locale?.toLowerCase().startsWith('de')
-    ? 'de'
-    : locale?.toLowerCase().startsWith('es')
-      ? 'es'
-      : 'en'
+  const lastUserLanguage = inferLanguageFromText(
+    [...messages]
+      .reverse()
+      .find((entry) => entry.sender === 'contact' && typeof entry.content === 'string' && entry.content.trim().length > 0)
+      ?.content || ''
+  )
+  const uiLanguage = lastUserLanguage !== 'en'
+    ? lastUserLanguage
+    : (locale?.toLowerCase().startsWith('de')
+      ? 'de'
+      : locale?.toLowerCase().startsWith('es')
+        ? 'es'
+        : 'en')
   const openYouTubeLabel = uiLanguage === 'de' ? 'YouTube öffnen' : uiLanguage === 'es' ? 'Abrir video en YouTube' : 'Open YouTube video'
   const videoTopicsLabel = uiLanguage === 'de' ? 'Video-Themen' : uiLanguage === 'es' ? 'Temas de video' : 'Video Topics'
   const videosFoundLabel = uiLanguage === 'de' ? 'Videos gefunden' : uiLanguage === 'es' ? 'Videos encontrados' : 'Videos Found'

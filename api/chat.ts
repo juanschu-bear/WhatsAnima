@@ -3,7 +3,8 @@ import { createClient } from '@supabase/supabase-js'
 
 export const DEFAULT_SYSTEM_PROMPT = 'You are a helpful assistant.'
 const ADRI_KASTEL_OWNER_ID = '19fa8767-952a-4533-899b-96f66ee85516'
-const ADRI_STRONG_MATCH_MIN_SCORE = 10
+const BRIAN_COX_OWNER_ID = '1d4651eb-5ff1-43e3-a0f3-76528fa32b3e'
+const YOUTUBE_STRONG_MATCH_MIN_SCORE = 10
 export const LANGUAGE_INSTRUCTION =
   `CRITICAL LANGUAGE RULE — THIS OVERRIDES CONVERSATION HISTORY:
 Your response language is determined SOLELY by the user's LAST message. Ignore all previous messages when deciding which language to use. It does not matter if the conversation history is 99% Spanish — if the last message is in English, you respond in English. If the last message is in German, you respond in German. The last message is the ONLY input for language selection, period.
@@ -95,7 +96,10 @@ type YouTubeVideoIndexItem = {
   title: string
   url: string
   keywords: string[]
+  source: 'own' | 'external'
 }
+
+type YouTubeRecommendationProfile = 'adri' | 'brian'
 
 type YouTubeVideoMatch = {
   video: YouTubeVideoIndexItem
@@ -255,9 +259,14 @@ function normalizeYouTubeVideoIndex(value: any): YouTubeVideoIndexItem[] {
             .filter(Boolean)
             .slice(0, 12)
         : []
-      return { title, url, keywords }
+      const source = item.source === 'external' ? 'external' : 'own'
+      return { title, url, keywords, source }
     })
     .filter((item: YouTubeVideoIndexItem | null): item is YouTubeVideoIndexItem => Boolean(item))
+}
+
+function sourcePriority(source: YouTubeVideoIndexItem['source']): number {
+  return source === 'own' ? 0 : 1
 }
 
 function tokenizeForVideoMatch(text: string): string[] {
@@ -281,19 +290,26 @@ function findBestYouTubeVideoMatch(contextText: string, videos: YouTubeVideoInde
   const contextTokens = tokenizeForVideoMatch(contextText)
   if (contextTokens.length === 0) return null
   const contextTokenSet = new Set(contextTokens)
-  let best: YouTubeVideoMatch | null = null
+  const ranked: YouTubeVideoMatch[] = []
 
   for (const video of videos) {
     const matchedKeywords = video.keywords.filter((keyword) => contextTokenSet.has(keyword))
     const titleTokens = tokenizeForVideoMatch(video.title)
     const titleOverlap = titleTokens.filter((token) => contextTokenSet.has(token))
     const score = matchedKeywords.length * 4 + Math.min(8, titleOverlap.length)
-    if (!best || score > best.score) {
-      best = { video, score, matchedKeywords }
+    if (score >= YOUTUBE_STRONG_MATCH_MIN_SCORE) {
+      ranked.push({ video, score, matchedKeywords })
     }
   }
 
-  return best && best.score >= ADRI_STRONG_MATCH_MIN_SCORE ? best : null
+  ranked.sort((a, b) => {
+    const sourceDelta = sourcePriority(a.video.source) - sourcePriority(b.video.source)
+    if (sourceDelta !== 0) return sourceDelta
+    if (b.score !== a.score) return b.score - a.score
+    return b.matchedKeywords.length - a.matchedKeywords.length
+  })
+
+  return ranked[0] ?? null
 }
 
 function findTopYouTubeVideoMatches(
@@ -320,7 +336,12 @@ function findTopYouTubeVideoMatches(
     }
   }
 
-  ranked.sort((a, b) => b.score - a.score)
+  ranked.sort((a, b) => {
+    const sourceDelta = sourcePriority(a.video.source) - sourcePriority(b.video.source)
+    if (sourceDelta !== 0) return sourceDelta
+    if (b.score !== a.score) return b.score - a.score
+    return b.matchedKeywords.length - a.matchedKeywords.length
+  })
 
   return ranked.slice(0, limit).map((entry) => ({
     title: entry.video.title,
@@ -331,16 +352,41 @@ function findTopYouTubeVideoMatches(
   }))
 }
 
-function isAdriKastelContext(ownerId: string | null | undefined, ownerName: string | null | undefined, ownerPrompt: string | null | undefined) {
-  if (ownerId === ADRI_KASTEL_OWNER_ID) return true
+function getYouTubeRecommendationProfile(
+  ownerId: string | null | undefined,
+  ownerName: string | null | undefined,
+  ownerPrompt: string | null | undefined
+): YouTubeRecommendationProfile | null {
+  if (ownerId === ADRI_KASTEL_OWNER_ID) return 'adri'
+  if (ownerId === BRIAN_COX_OWNER_ID) return 'brian'
   const name = (ownerName || '').toLowerCase()
-  if (name.includes('adri') && name.includes('kastel')) return true
+  if (name.includes('adri') && name.includes('kastel')) return 'adri'
+  if (name.includes('brian') && name.includes('cox')) return 'brian'
   const prompt = (ownerPrompt || '').toLowerCase()
-  return prompt.includes('adri kastel')
+  if (prompt.includes('adri kastel')) return 'adri'
+  if (prompt.includes('brian cox')) return 'brian'
+  return null
 }
 
-function buildForcedAdriVideoReply(lang: string, video: YouTubeVideoIndexItem): string {
+function buildForcedVideoReply(lang: string, video: YouTubeVideoIndexItem, profile: YouTubeRecommendationProfile): string {
   const cleanedTitle = (video.title || 'Video recomendado').trim()
+  const sourceHint =
+    video.source === 'own'
+      ? ''
+      : (lang === 'es'
+          ? ' Es una recomendación externa donde aparezco.'
+          : lang === 'de'
+            ? ' Das ist eine externe Empfehlung, in der ich vorkomme.'
+            : ' This is an external recommendation where I appear.')
+  if (profile === 'brian') {
+    if (lang === 'es') {
+      return `${cleanedTitle}\n${video.url}\nMuy buena para este tema.${sourceHint}`
+    }
+    if (lang === 'de') {
+      return `${cleanedTitle}\n${video.url}\nPasst sehr gut zu deiner Frage.${sourceHint}`
+    }
+    return `${cleanedTitle}\n${video.url}\nGreat fit for your question.${sourceHint}`
+  }
   if (lang === 'es') {
     return `${cleanedTitle}\n${video.url}\nTe lo recomiendo porque encaja directo con lo que me estás pidiendo.`
   }
@@ -350,7 +396,16 @@ function buildForcedAdriVideoReply(lang: string, video: YouTubeVideoIndexItem): 
   return `${cleanedTitle}\n${video.url}\nI recommend this because it directly matches what you're asking.`
 }
 
-function buildAdriClarifyingQuestion(lang: string): string {
+function buildClarifyingQuestion(lang: string, profile: YouTubeRecommendationProfile): string {
+  if (profile === 'brian') {
+    if (lang === 'es') {
+      return 'Para recomendarte el video exacto, ¿en qué quieres enfocarte: física, cosmología, cuántica, espacio, agujeros negros, tiempo o evolución?'
+    }
+    if (lang === 'de') {
+      return 'Damit ich dir das exakte Video gebe: Worum geht es dir konkret - Physik, Kosmologie, Quantenmechanik, Weltraum, Schwarze Löcher, Zeit oder Evolution?'
+    }
+    return 'To recommend the exact video, what should I focus on: physics, cosmology, quantum mechanics, space, black holes, time, or evolution?'
+  }
   if (lang === 'es') {
     return 'Para recomendarte el video exacto, ¿en qué parte quieres enfocarte: objeciones, cierre, pricing o estructura de oferta?'
   }
@@ -360,7 +415,16 @@ function buildAdriClarifyingQuestion(lang: string): string {
   return 'To recommend the exact video, what should I focus on: objections, closing, pricing, or offer structure?'
 }
 
-function buildAdriTopicSelectionPrompt(lang: string): string {
+function buildTopicSelectionPrompt(lang: string, profile: YouTubeRecommendationProfile): string {
+  if (profile === 'brian') {
+    if (lang === 'es') {
+      return 'Perfecto. Elige un tema y te paso 2-3 videos precisos: física, cosmología, mecánica cuántica, espacio, agujeros negros, tiempo, universo, divulgación científica, física de partículas o evolución.'
+    }
+    if (lang === 'de') {
+      return 'Perfekt. Wähle ein Thema und ich gebe dir 2-3 präzise Videos: Physik, Kosmologie, Quantenmechanik, Weltraum, Schwarze Löcher, Zeit, Universum, Wissenschaftskommunikation, Teilchenphysik oder Evolution.'
+    }
+    return 'Perfect. Pick one topic and I will pull 2-3 precise videos: physics, cosmology, quantum mechanics, space, black holes, time, universe, science communication, particle physics, or evolution.'
+  }
   if (lang === 'es') {
     return 'Buenísimo. Elige un tema y te saco 2-3 videos precisos: ofertas, objeciones, cierre, pricing, audiencia o Instagram.'
   }
@@ -391,6 +455,29 @@ function isVideoRecommendationRequest(text: string): boolean {
     'canales',
   ]
   return videoTerms.some((term) => normalized.includes(term))
+}
+
+function isSalesTopicRequest(text: string): boolean {
+  const normalized = text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+  const salesTerms = [
+    'ventas',
+    'vender',
+    'oferta',
+    'ofertas',
+    'objeciones',
+    'objecion',
+    'cierre',
+    'pricing',
+    'prospect',
+    'lead',
+    'closing',
+    'conversion',
+    'pitch',
+  ]
+  return salesTerms.some((term) => normalized.includes(term))
 }
 
 function isFollowUpVideoRequest(text: string): boolean {
@@ -428,6 +515,31 @@ function requestsMultipleVideos(text: string): boolean {
   return pluralTerms.some((term) => normalized.includes(term))
 }
 
+function hasRecentVideoContext(priorMessages: ChatMessage[], videos: YouTubeVideoIndexItem[]): boolean {
+  const ownedIds = new Set(videos.map((video) => parseYouTubeVideoId(video.url)).filter(Boolean))
+  const recentAssistant = priorMessages.filter((entry) => entry.role === 'assistant').slice(-8)
+  for (const entry of recentAssistant) {
+    const text = entry.content || ''
+    const normalized = text.toLowerCase()
+    const urls = extractUrlsFromText(text)
+    const hasOwnedVideo = urls.some((url) => {
+      const id = parseYouTubeVideoId(url)
+      return Boolean(id && ownedIds.has(id))
+    })
+    if (hasOwnedVideo) return true
+    if (
+      normalized.includes('elige un tema') ||
+      normalized.includes('pick one topic') ||
+      normalized.includes('wähle ein thema') ||
+      normalized.includes('video topics') ||
+      normalized.includes('temas de video')
+    ) {
+      return true
+    }
+  }
+  return false
+}
+
 function extractUrlsFromText(text: string): string[] {
   return (text.match(/https?:\/\/[^\s)]+/g) || []).map((url) => url.trim())
 }
@@ -460,7 +572,7 @@ function isOwnedYouTubeUrl(url: string, videos: YouTubeVideoIndexItem[]): boolea
   return ownedIds.has(candidateId)
 }
 
-function isTopicSelectionMessage(text: string): boolean {
+function isTopicSelectionMessage(text: string, profile: YouTubeRecommendationProfile): boolean {
   const normalized = text
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -470,24 +582,75 @@ function isTopicSelectionMessage(text: string): boolean {
   if (!compact) return false
   const words = compact.split(' ')
   if (words.length > 4) return false
-  const topics = new Set([
-    'objeciones',
-    'objecion',
-    'cierre',
-    'pricing',
-    'oferta',
-    'ofertas',
-    'ventas',
-    'audiencia',
-    'instagram',
-    'mindset',
-    'closing',
-  ])
+  const topics = profile === 'adri'
+    ? new Set([
+        'objeciones',
+        'objecion',
+        'cierre',
+        'pricing',
+        'oferta',
+        'ofertas',
+        'ventas',
+        'audiencia',
+        'instagram',
+        'mindset',
+        'closing',
+      ])
+    : new Set([
+        'physics',
+        'cosmology',
+        'quantum',
+        'mechanics',
+        'space',
+        'black',
+        'holes',
+        'time',
+        'universe',
+        'science',
+        'communication',
+        'particle',
+        'evolution',
+        'fisica',
+        'cosmologia',
+        'cuantica',
+        'espacio',
+        'agujeros',
+        'tiempo',
+        'evolucion',
+      ])
   return words.some((word) => topics.has(word))
 }
 
+function parseNumericSelection(text: string, max: number): number | null {
+  const trimmed = text.trim()
+  const match = trimmed.match(/^(\d{1,2})[.)]?$/)
+  if (!match) return null
+  const value = Number(match[1])
+  if (!Number.isFinite(value) || value < 1 || value > max) return null
+  return value
+}
+
+function resolveSelectedTopicFromMessage(text: string, topicChips: string[]): string | null {
+  if (!text.trim() || topicChips.length === 0) return null
+  const idx = parseNumericSelection(text, topicChips.length)
+  if (idx) return topicChips[idx - 1]
+
+  const normalized = text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+  for (const topic of topicChips) {
+    const t = topic
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+    if (normalized.includes(t)) return topic
+  }
+  return null
+}
+
 function deriveTopicChips(videos: YouTubeVideoIndexItem[], max = 8): string[] {
-  const blocked = new Set(['youtube', 'video', 'videos', 'adri', 'kastel', 'canal', 'channel'])
+  const blocked = new Set(['youtube', 'video', 'videos', 'adri', 'kastel', 'brian', 'cox', 'canal', 'channel'])
   const counts = new Map<string, number>()
   for (const video of videos) {
     for (const keyword of video.keywords) {
@@ -1005,19 +1168,30 @@ export default async function handler(req: any, res: any) {
       extractUrlsFromText(entry.content).forEach((url) => previouslySharedUrls.add(url))
     }
     const candidateVideos = youtubeVideos.filter((video) => !previouslySharedUrls.has(video.url))
-    const matchedYouTubeVideo = isAdriContext
-      ? findBestYouTubeVideoMatch(contextForVideoMatch, candidateVideos)
-      : null
-    const forcedAdriVideo = isAdriContext ? (matchedYouTubeVideo?.video ?? null) : null
     const userAskedForVideo = isAdriContext
       ? (isVideoRecommendationRequest(message) || isTopicSelectionMessage(message))
       : false
     const isFollowUpRequest = isAdriContext ? isFollowUpVideoRequest(message) : false
     const multiVideoRequest = isAdriContext ? requestsMultipleVideos(message) : false
     const topicChips = isAdriContext ? deriveTopicChips(youtubeVideos) : []
+    const selectedTopic = isAdriContext ? resolveSelectedTopicFromMessage(message, topicChips) : null
+    const videoFlowActive = isAdriContext ? hasRecentVideoContext(priorMessages, youtubeVideos) : false
+    const contextualVideoIntent = isAdriContext
+      ? (isSalesTopicRequest(message) || (videoFlowActive && (isFollowUpRequest || Boolean(selectedTopic))))
+      : false
+    const shouldUseVideoFlow = isAdriContext
+      ? (userAskedForVideo || contextualVideoIntent || Boolean(selectedTopic))
+      : false
+    const videoMatchContext = selectedTopic
+      ? `${contextForVideoMatch}\n${selectedTopic}`
+      : contextForVideoMatch
+    const matchedYouTubeVideo = isAdriContext
+      ? findBestYouTubeVideoMatch(videoMatchContext, candidateVideos)
+      : null
+    const forcedAdriVideo = isAdriContext ? (matchedYouTubeVideo?.video ?? null) : null
     const shelfSuggestions = isAdriContext
       ? findTopYouTubeVideoMatches(
-          contextForVideoMatch,
+          videoMatchContext,
           candidateVideos,
           previouslySharedUrls,
           3,
@@ -1083,7 +1257,7 @@ export default async function handler(req: any, res: any) {
     }
     let responseVideoTopics: string[] | null = null
     let responseVideoSuggestions: YouTubeVideoSuggestion[] | null = null
-    if (isAdriContext && userAskedForVideo) {
+    if (isAdriContext && shouldUseVideoFlow) {
       const lang = resolveReplyLanguage(message, priorMessages)
       if (forcedAdriVideo?.url) {
         content = buildForcedAdriVideoReply(lang, forcedAdriVideo)
@@ -1093,7 +1267,7 @@ export default async function handler(req: any, res: any) {
       } else {
         content = buildAdriClarifyingQuestion(lang)
       }
-      if (multiVideoRequest && shelfSuggestions.length >= 2) {
+      if ((multiVideoRequest || Boolean(selectedTopic)) && shelfSuggestions.length >= 2) {
         responseVideoSuggestions = shelfSuggestions
       }
     }
@@ -1107,7 +1281,7 @@ export default async function handler(req: any, res: any) {
         const lang = resolveReplyLanguage(message, priorMessages)
         if (forcedAdriVideo?.url) {
           content = buildForcedAdriVideoReply(lang, forcedAdriVideo)
-        } else if (userAskedForVideo) {
+        } else if (shouldUseVideoFlow) {
           content = buildAdriClarifyingQuestion(lang)
         } else {
           content = content.replace(/https?:\/\/[^\s)]+/g, '').replace(/\s{2,}/g, ' ').trim()
