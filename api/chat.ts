@@ -5,6 +5,7 @@ export const DEFAULT_SYSTEM_PROMPT = 'You are a helpful assistant.'
 const ADRI_KASTEL_OWNER_ID = '19fa8767-952a-4533-899b-96f66ee85516'
 const BRIAN_COX_OWNER_ID = '1d4651eb-5ff1-43e3-a0f3-76528fa32b3e'
 const YOUTUBE_STRONG_MATCH_MIN_SCORE = 10
+const VIDEO_FLOW_MAX_CHARS = 320
 export const LANGUAGE_INSTRUCTION =
   `CRITICAL LANGUAGE RULE — THIS OVERRIDES CONVERSATION HISTORY:
 Your response language is determined SOLELY by the user's LAST message. Ignore all previous messages when deciding which language to use. It does not matter if the conversation history is 99% Spanish — if the last message is in English, you respond in English. If the last message is in German, you respond in German. The last message is the ONLY input for language selection, period.
@@ -563,6 +564,21 @@ function parseYouTubeVideoId(url: string): string | null {
   } catch {
     return null
   }
+}
+
+function enforceMaxChars(text: string, maxChars: number): string {
+  const normalized = text.trim()
+  if (normalized.length <= maxChars) return normalized
+  const sliced = normalized.slice(0, maxChars).trimEnd()
+  const lastSentenceBoundary = Math.max(sliced.lastIndexOf('. '), sliced.lastIndexOf('? '), sliced.lastIndexOf('! '))
+  if (lastSentenceBoundary > Math.floor(maxChars * 0.55)) {
+    return sliced.slice(0, lastSentenceBoundary + 1).trimEnd()
+  }
+  const lastSpace = sliced.lastIndexOf(' ')
+  if (lastSpace > Math.floor(maxChars * 0.6)) {
+    return `${sliced.slice(0, lastSpace).trimEnd()}…`
+  }
+  return `${sliced}…`
 }
 
 function isOwnedYouTubeUrl(url: string, videos: YouTubeVideoIndexItem[]): boolean {
@@ -1281,6 +1297,7 @@ export default async function handler(req: any, res: any) {
       if ((multiVideoRequest || Boolean(selectedTopic)) && shelfSuggestions.length >= 2) {
         responseVideoSuggestions = shelfSuggestions
       }
+      content = enforceMaxChars(content, VIDEO_FLOW_MAX_CHARS)
     }
     if (hasYouTubeProfile) {
       const urlsInContent = extractUrlsFromText(content)
