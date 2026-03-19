@@ -313,6 +313,30 @@ function findBestYouTubeVideoMatch(contextText: string, videos: YouTubeVideoInde
   return ranked[0] ?? null
 }
 
+function findClosestYouTubeVideoMatch(contextText: string, videos: YouTubeVideoIndexItem[]): YouTubeVideoMatch | null {
+  if (videos.length === 0) return null
+  const contextTokens = tokenizeForVideoMatch(contextText)
+  const contextTokenSet = new Set(contextTokens)
+  const ranked: Array<YouTubeVideoMatch> = []
+
+  for (const video of videos) {
+    const matchedKeywords = video.keywords.filter((keyword) => contextTokenSet.has(keyword))
+    const titleTokens = tokenizeForVideoMatch(video.title)
+    const titleOverlap = titleTokens.filter((token) => contextTokenSet.has(token))
+    const score = matchedKeywords.length * 4 + Math.min(8, titleOverlap.length)
+    ranked.push({ video, score, matchedKeywords })
+  }
+
+  ranked.sort((a, b) => {
+    const sourceDelta = sourcePriority(a.video.source) - sourcePriority(b.video.source)
+    if (sourceDelta !== 0) return sourceDelta
+    if (b.score !== a.score) return b.score - a.score
+    return b.matchedKeywords.length - a.matchedKeywords.length
+  })
+
+  return ranked[0] ?? null
+}
+
 function findTopYouTubeVideoMatches(
   contextText: string,
   videos: YouTubeVideoIndexItem[],
@@ -608,6 +632,7 @@ function isTopicSelectionMessage(text: string, profile: YouTubeRecommendationPro
         'ofertas',
         'ventas',
         'audiencia',
+        'audience',
         'instagram',
         'mindset',
         'closing',
@@ -635,6 +660,36 @@ function isTopicSelectionMessage(text: string, profile: YouTubeRecommendationPro
         'evolucion',
       ])
   return words.some((word) => topics.has(word))
+}
+
+function extractSingleWordSalesTopic(text: string): string | null {
+  const compact = text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!compact || compact.includes(' ')) return null
+  const valid = new Set(['cierre', 'objeciones', 'objecion', 'pricing', 'oferta', 'ventas', 'audience', 'audiencia'])
+  if (!valid.has(compact)) return null
+  if (compact === 'audience') return 'audiencia'
+  if (compact === 'objecion') return 'objeciones'
+  return compact
+}
+
+function hasClarifyingQuestionAlready(priorMessages: ChatMessage[], profile: YouTubeRecommendationProfile): boolean {
+  const recentAssistant = priorMessages.filter((entry) => entry.role === 'assistant').slice(-12)
+  return recentAssistant.some((entry) => {
+    const normalized = entry.content
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+    if (profile === 'adri') {
+      return normalized.includes('para recomendarte el video exacto') || normalized.includes('pick one topic')
+    }
+    return normalized.includes('to recommend the exact video') || normalized.includes('pick one topic')
+  })
 }
 
 function parseNumericSelection(text: string, max: number): number | null {
@@ -1192,14 +1247,20 @@ export default async function handler(req: any, res: any) {
       extractUrlsFromText(entry.content).forEach((url) => previouslySharedUrls.add(url))
     }
     const candidateVideos = youtubeVideos.filter((video) => !previouslySharedUrls.has(video.url))
+    const singleWordTopic = hasYouTubeProfile && youtubeProfile === 'adri'
+      ? extractSingleWordSalesTopic(message)
+      : null
     const userAskedForVideo = hasYouTubeProfile
-      ? (isVideoRecommendationRequest(message) || isTopicSelectionMessage(message, youtubeProfile!))
+      ? (isVideoRecommendationRequest(message) || isTopicSelectionMessage(message, youtubeProfile!) || Boolean(singleWordTopic))
       : false
     const isFollowUpRequest = hasYouTubeProfile ? isFollowUpVideoRequest(message) : false
     const multiVideoRequest = hasYouTubeProfile ? requestsMultipleVideos(message) : false
     const topicChips = hasYouTubeProfile ? deriveTopicChips(youtubeVideos) : []
-    const selectedTopic = hasYouTubeProfile ? resolveSelectedTopicFromMessage(message, topicChips) : null
+    const selectedTopic = hasYouTubeProfile
+      ? (singleWordTopic || resolveSelectedTopicFromMessage(message, topicChips))
+      : null
     const videoFlowActive = hasYouTubeProfile ? hasRecentVideoContext(priorMessages, youtubeVideos) : false
+    const clarifyingAlreadyAsked = hasYouTubeProfile ? hasClarifyingQuestionAlready(priorMessages, youtubeProfile!) : false
     const contextualVideoIntent = hasYouTubeProfile
       ? (
           (youtubeProfile === 'adri' && isSalesTopicRequest(message)) ||
@@ -1215,7 +1276,13 @@ export default async function handler(req: any, res: any) {
     const matchedYouTubeVideo = hasYouTubeProfile
       ? findBestYouTubeVideoMatch(videoMatchContext, candidateVideos)
       : null
-    const forcedYouTubeVideo = hasYouTubeProfile ? (matchedYouTubeVideo?.video ?? null) : null
+    const closestYouTubeVideo = hasYouTubeProfile
+      ? findClosestYouTubeVideoMatch(videoMatchContext, candidateVideos.length > 0 ? candidateVideos : youtubeVideos)
+      : null
+    const shouldFallbackToClosest = Boolean(selectedTopic) || clarifyingAlreadyAsked
+    const forcedYouTubeVideo = hasYouTubeProfile
+      ? (matchedYouTubeVideo?.video ?? (shouldFallbackToClosest ? (closestYouTubeVideo?.video ?? null) : null))
+      : null
     const shelfSuggestions = hasYouTubeProfile
       ? findTopYouTubeVideoMatches(
           videoMatchContext,
@@ -1254,8 +1321,10 @@ export default async function handler(req: any, res: any) {
           matchedScore: matchedYouTubeVideo?.score || 0,
           matchedKeywords: matchedYouTubeVideo?.matchedKeywords || [],
           askedForVideo: userAskedForVideo,
+          singleWordTopic,
           followUpVideoRequest: isFollowUpRequest,
           multiVideoRequest,
+          clarifyingAlreadyAsked,
           shelfSuggestionsCount: shelfSuggestions.length,
           injectedSnippet,
         })
@@ -1291,6 +1360,12 @@ export default async function handler(req: any, res: any) {
       } else if (isFollowUpRequest) {
         content = buildTopicSelectionPrompt(lang, youtubeProfile!)
         responseVideoTopics = topicChips
+      } else if (clarifyingAlreadyAsked) {
+        content = buildForcedVideoReply(
+          lang,
+          (closestYouTubeVideo?.video ?? (candidateVideos[0] || youtubeVideos[0])),
+          youtubeProfile!
+        )
       } else {
         content = buildClarifyingQuestion(lang, youtubeProfile!)
       }
