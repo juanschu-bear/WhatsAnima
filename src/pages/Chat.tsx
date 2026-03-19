@@ -104,13 +104,41 @@ function renderMessageTextWithLinks(content: string | null | undefined) {
   const parts: ReactNode[] = []
   let lastIndex = 0
 
+  const renderBoldText = (input: string, keyPrefix: string) => {
+    const nodes: ReactNode[] = []
+    let cursor = 0
+    const boldRegex = /\*\*(.+?)\*\*/g
+    let boldMatch: RegExpExecArray | null
+    let localIndex = 0
+
+    while ((boldMatch = boldRegex.exec(input)) !== null) {
+      const start = boldMatch.index
+      const end = boldRegex.lastIndex
+      if (start > cursor) {
+        nodes.push(input.slice(cursor, start))
+      }
+      nodes.push(
+        <strong key={`${keyPrefix}-b-${localIndex++}`} className="font-semibold text-white">
+          {boldMatch[1]}
+        </strong>
+      )
+      cursor = end
+    }
+
+    if (cursor < input.length) {
+      nodes.push(input.slice(cursor))
+    }
+
+    return nodes.length > 0 ? nodes : [input]
+  }
+
   for (const match of text.matchAll(HTTPS_URL_REGEX)) {
     const rawUrl = match[0]
     const start = match.index ?? -1
     if (start < 0) continue
 
     if (start > lastIndex) {
-      parts.push(text.slice(lastIndex, start))
+      parts.push(...renderBoldText(text.slice(lastIndex, start), `pre-${start}`))
     }
 
     const trailingMatch = rawUrl.match(/[),.!?;:]+$/)
@@ -130,16 +158,16 @@ function renderMessageTextWithLinks(content: string | null | undefined) {
           {cleanUrl}
         </a>
       )
-      if (trailing) parts.push(trailing)
+      if (trailing) parts.push(...renderBoldText(trailing, `trail-${start}`))
     } else {
-      parts.push(rawUrl)
+      parts.push(...renderBoldText(rawUrl, `raw-${start}`))
     }
 
     lastIndex = start + rawUrl.length
   }
 
   if (lastIndex < text.length) {
-    parts.push(text.slice(lastIndex))
+    parts.push(...renderBoldText(text.slice(lastIndex), `post-${lastIndex}`))
   }
 
   return parts.length > 0 ? parts : text
@@ -2211,7 +2239,7 @@ export default function Chat() {
                           : 'rounded-tl-[6px] border-white/[0.06] bg-[#1a2332] text-white/[0.92]'
                       }`}
                     >
-	                      <span>{renderMessageTextWithLinks(message.content)}</span>
+                      <span className="whitespace-pre-wrap break-words">{renderMessageTextWithLinks(message.content)}</span>
                       {youtubePreviews.length > 0 && (
                         <div className="mt-3 space-y-2">
                           {youtubePreviews.map((preview) => (
