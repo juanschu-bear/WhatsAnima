@@ -58,6 +58,12 @@ interface Message {
   _retryFn?: () => void
 }
 
+interface VideoSuggestion {
+  title: string
+  url: string
+  reason?: string
+}
+
 interface ConversationData {
   id: string
   owner_id: string
@@ -1332,6 +1338,8 @@ export default function Chat() {
   const [error, setError] = useState<string | null>(null)
   const [failedMessage, setFailedMessage] = useState<string | null>(null)
   const [transcriptMap, setTranscriptMap] = useState<Record<string, string>>({})
+  const [videoTopicsMap, setVideoTopicsMap] = useState<Record<string, string[]>>({})
+  const [videoSuggestionsMap, setVideoSuggestionsMap] = useState<Record<string, VideoSuggestion[]>>({})
   const [mediaMenuOpen, setMediaMenuOpen] = useState(false)
   const [isDesktopLayout, setIsDesktopLayout] = useState(false)
   const avatarReplyInFlight = useRef(new Set<string>())
@@ -1555,6 +1563,8 @@ export default function Chat() {
       .then(([conv, msgs, logs]) => {
         setConversation(conv as ConversationData)
         setMessages(msgs as Message[])
+        setVideoTopicsMap({})
+        setVideoSuggestionsMap({})
         const transcripts = (logs as Array<{ message_id: string; transcript: string | null }>).reduce<Record<string, string>>(
           (accumulator, log) => {
             if (log.transcript && !accumulator[log.message_id]) {
@@ -1656,7 +1666,7 @@ export default function Chat() {
       perception?: any
       userMessageId?: string
     }
-  ): Promise<{ content: string; mediaUrl: string | null; isGeneratedImage?: boolean }> {
+  ): Promise<{ content: string; mediaUrl: string | null; isGeneratedImage?: boolean; videoTopics?: string[]; videoSuggestions?: VideoSuggestion[] }> {
     try {
       const {
         useVoice = true,
@@ -1700,10 +1710,31 @@ export default function Chat() {
 
       let replyText = ''
       let generatedImageUrl: string | null = null
+      let videoTopics: string[] | undefined
+      let videoSuggestions: VideoSuggestion[] | undefined
       const chatData = await chatResponse.json().catch(() => ({}))
       if (chatResponse.ok) {
         replyText = typeof chatData?.content === 'string' ? chatData.content.trim() : ''
         generatedImageUrl = typeof chatData?.image_url === 'string' ? chatData.image_url : null
+        if (Array.isArray(chatData?.video_topics)) {
+          videoTopics = chatData.video_topics
+            .map((topic: unknown) => (typeof topic === 'string' ? topic.trim() : ''))
+            .filter((topic: string) => topic.length > 0)
+            .slice(0, 8)
+        }
+        if (Array.isArray(chatData?.video_suggestions)) {
+          videoSuggestions = chatData.video_suggestions
+            .map((item: any) => {
+              if (!item || typeof item !== 'object') return null
+              const title = typeof item.title === 'string' ? item.title.trim() : ''
+              const url = typeof item.url === 'string' ? item.url.trim() : ''
+              const reason = typeof item.reason === 'string' ? item.reason.trim() : ''
+              if (!title || !url) return null
+              return { title, url, reason }
+            })
+            .filter((item: VideoSuggestion | null): item is VideoSuggestion => Boolean(item))
+            .slice(0, 3)
+        }
       } else {
         console.error('[getAvatarReply] Chat API error:', chatData?.error || chatResponse.status)
         throw new Error(`Chat API returned ${chatResponse.status}`)
@@ -1719,11 +1750,11 @@ export default function Chat() {
 
       // If an image was generated, return it directly (no TTS needed for image responses)
       if (generatedImageUrl) {
-        return { content: replyText, mediaUrl: generatedImageUrl, isGeneratedImage: true }
+        return { content: replyText, mediaUrl: generatedImageUrl, isGeneratedImage: true, videoTopics, videoSuggestions }
       }
 
       if (!useVoice) {
-        return { content: replyText, mediaUrl: null }
+        return { content: replyText, mediaUrl: null, videoTopics, videoSuggestions }
       }
 
       setAvatarStatus('recording')
@@ -1757,6 +1788,8 @@ export default function Chat() {
       return {
         content: replyText,
         mediaUrl: uploadedUrl,
+        videoTopics,
+        videoSuggestions,
       }
     } catch (err) {
       console.error('[getAvatarReply] FAILED:', err)
@@ -1868,14 +1901,21 @@ export default function Chat() {
         hasAudio ? replyPayload.mediaUrl ?? undefined : undefined
       )
       setMessages((current) => [...current, reply as Message])
+      const replyId = String((reply as Message).id)
+      if (replyPayload.videoTopics && replyPayload.videoTopics.length > 0) {
+        setVideoTopicsMap((current) => ({ ...current, [replyId]: replyPayload.videoTopics as string[] }))
+      }
+      if (replyPayload.videoSuggestions && replyPayload.videoSuggestions.length > 0) {
+        setVideoSuggestionsMap((current) => ({ ...current, [replyId]: replyPayload.videoSuggestions as VideoSuggestion[] }))
+      }
       if (hasAudio) {
         setTranscriptMap((current) => ({
           ...current,
-          [String((reply as Message).id)]: String(replyPayload.content),
+          [replyId]: String(replyPayload.content),
         }))
       }
       // Mark avatar reply as instantly read by contact
-      markAsInstantlyRead(String((reply as Message).id))
+      markAsInstantlyRead(replyId)
       replySucceeded = true
 
       // ── Notification: sound + push/local notification ──
@@ -1940,6 +1980,12 @@ export default function Chat() {
     } finally {
       setSending(false)
     }
+  }
+
+  function handleVideoTopicChip(topic: string) {
+    const normalized = topic.trim()
+    if (!normalized) return
+    void handleSendText(`Muéstrame videos tuyos sobre ${normalized}`)
   }
 
   function openCaptionDraft(file: File) {
@@ -2158,13 +2204,16 @@ export default function Chat() {
               )
             }
 
-            const message = item.message
-            const isContact = message.sender === 'contact'
-            const isSelected = selectedIds.has(message.id)
+	            const message = item.message
+	            const messageId = String(message.id)
+	            const isContact = message.sender === 'contact'
+	            const isSelected = selectedIds.has(message.id)
 	            const reactions = reactionsMap[message.id]
 	            const hasReaction = reactions?.contact || reactions?.avatar
 	            const isRead = Boolean(readAtMap[message.id])
 	            const youtubePreviews = extractYouTubePreviews(message.content)
+	            const topicChips = videoTopicsMap[messageId] || []
+	            const videoShelf = videoSuggestionsMap[messageId] || []
 
             // Read receipt: single check (sent) + eye icon (grey=unread, colored=read)
             const ReadReceipt = isContact ? (
@@ -2262,7 +2311,67 @@ export default function Chat() {
                           ))}
                         </div>
                       )}
-	                      <span className={`mt-1 flex items-center justify-end gap-0.5 text-[10px] ${isContact ? 'text-white/40' : 'text-white/30'}`}>
+                      {!isContact && topicChips.length > 0 && (
+                        <div className="mt-3">
+                          <div className="mb-2 text-[10px] uppercase tracking-[0.18em] text-white/45">Video Topics</div>
+                          <div className="flex flex-wrap gap-2">
+                            {topicChips.map((topic) => (
+                              <button
+                                key={`${messageId}-topic-${topic}`}
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  handleVideoTopicChip(topic)
+                                }}
+                                className="rounded-full border border-[#00a884]/35 bg-[#00a884]/12 px-3 py-1 text-[12px] font-medium text-[#9af8ea] transition hover:border-[#00a884]/60 hover:bg-[#00a884]/20"
+                              >
+                                {topic}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {!isContact && videoShelf.length > 1 && (
+                        <div className="mt-3 -mx-1">
+                          <div className="mb-2 px-1 text-[10px] uppercase tracking-[0.18em] text-white/45">{videoShelf.length} Videos Found</div>
+                          <div className="flex gap-3 overflow-x-auto px-1 pb-1">
+                            {videoShelf.map((video, index) => {
+                              const videoId = parseYouTubeVideoId(video.url)
+                              const thumbnail = videoId ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg` : ''
+                              return (
+                                <a
+                                  key={`${messageId}-shelf-${index}-${video.url}`}
+                                  href={video.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(event) => event.stopPropagation()}
+                                  className="min-w-[190px] max-w-[190px] overflow-hidden rounded-xl border border-white/12 bg-black/20 transition hover:border-[#00a884]/45"
+                                >
+                                  {thumbnail ? (
+                                    <img
+                                      src={thumbnail}
+                                      alt={video.title}
+                                      className="h-[108px] w-full object-cover"
+                                      loading="lazy"
+                                    />
+                                  ) : (
+                                    <div className="flex h-[108px] w-full items-center justify-center bg-black/35 text-[12px] text-white/60">
+                                      YouTube
+                                    </div>
+                                  )}
+                                  <div className="px-3 py-2">
+                                    <div className="line-clamp-2 text-[12px] font-medium leading-[1.35] text-white/90">{video.title}</div>
+                                    {video.reason ? (
+                                      <div className="mt-1 line-clamp-2 text-[11px] text-white/60">{video.reason}</div>
+                                    ) : null}
+                                  </div>
+                                </a>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
+                      <span className={`mt-1 flex items-center justify-end gap-0.5 text-[10px] ${isContact ? 'text-white/40' : 'text-white/30'}`}>
                         {formatMessageTime(message.created_at)}
                         {ReadReceipt}
                       </span>

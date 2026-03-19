@@ -103,6 +103,12 @@ type YouTubeVideoMatch = {
   matchedKeywords: string[]
 }
 
+type YouTubeVideoSuggestion = {
+  title: string
+  url: string
+  reason: string
+}
+
 /** Extract string label from an emotion value that may be a plain string, a JSON-encoded string, or an OPM v4 object like {label, score}. */
 function emotionLabel(val: any): string {
   const normalize = (raw: string) => {
@@ -290,6 +296,41 @@ function findBestYouTubeVideoMatch(contextText: string, videos: YouTubeVideoInde
   return best && best.score >= ADRI_STRONG_MATCH_MIN_SCORE ? best : null
 }
 
+function findTopYouTubeVideoMatches(
+  contextText: string,
+  videos: YouTubeVideoIndexItem[],
+  excludedUrls: Set<string>,
+  limit = 3,
+  minScore = 4
+): YouTubeVideoSuggestion[] {
+  if (!contextText.trim() || videos.length === 0) return []
+  const contextTokens = tokenizeForVideoMatch(contextText)
+  if (contextTokens.length === 0) return []
+  const contextTokenSet = new Set(contextTokens)
+  const ranked: Array<YouTubeVideoMatch> = []
+
+  for (const video of videos) {
+    if (excludedUrls.has(video.url)) continue
+    const matchedKeywords = video.keywords.filter((keyword) => contextTokenSet.has(keyword))
+    const titleTokens = tokenizeForVideoMatch(video.title)
+    const titleOverlap = titleTokens.filter((token) => contextTokenSet.has(token))
+    const score = matchedKeywords.length * 4 + Math.min(8, titleOverlap.length)
+    if (score >= minScore) {
+      ranked.push({ video, score, matchedKeywords })
+    }
+  }
+
+  ranked.sort((a, b) => b.score - a.score)
+
+  return ranked.slice(0, limit).map((entry) => ({
+    title: entry.video.title,
+    url: entry.video.url,
+    reason: entry.matchedKeywords.length > 0
+      ? `Matches: ${entry.matchedKeywords.slice(0, 3).join(', ')}`
+      : 'Strong title match',
+  }))
+}
+
 function isAdriKastelContext(ownerId: string | null | undefined, ownerName: string | null | undefined, ownerPrompt: string | null | undefined) {
   if (ownerId === ADRI_KASTEL_OWNER_ID) return true
   const name = (ownerName || '').toLowerCase()
@@ -319,6 +360,16 @@ function buildAdriClarifyingQuestion(lang: string): string {
   return 'To recommend the exact video, what should I focus on: objections, closing, pricing, or offer structure?'
 }
 
+function buildAdriTopicSelectionPrompt(lang: string): string {
+  if (lang === 'es') {
+    return 'Buenísimo. Elige un tema y te saco 2-3 videos precisos: ofertas, objeciones, cierre, pricing, audiencia o Instagram.'
+  }
+  if (lang === 'de') {
+    return 'Top. Wähle ein Thema, dann gebe ich dir 2-3 präzise Videos: Angebote, Einwände, Closing, Pricing, Zielgruppe oder Instagram.'
+  }
+  return 'Perfect. Pick one topic and I will pull 2-3 precise videos: offers, objections, closing, pricing, audience, or Instagram.'
+}
+
 function isVideoRecommendationRequest(text: string): boolean {
   const normalized = text.toLowerCase()
   const videoTerms = [
@@ -340,6 +391,61 @@ function isVideoRecommendationRequest(text: string): boolean {
     'canales',
   ]
   return videoTerms.some((term) => normalized.includes(term))
+}
+
+function isFollowUpVideoRequest(text: string): boolean {
+  const normalized = text.toLowerCase()
+  const followUpTerms = [
+    'ya lo vi',
+    'ya vi',
+    'already watched',
+    'already saw',
+    'another',
+    'otro',
+    'otra',
+    'mehr',
+    'noch eins',
+    'hast du noch',
+    'tienes otro',
+    'algo mas',
+    'something else',
+  ]
+  return followUpTerms.some((term) => normalized.includes(term))
+}
+
+function requestsMultipleVideos(text: string): boolean {
+  const normalized = text.toLowerCase()
+  const pluralTerms = [
+    'videos',
+    'varios',
+    'varias',
+    '3 videos',
+    '2 videos',
+    'multiple',
+    'mehrere',
+    'algunos videos',
+  ]
+  return pluralTerms.some((term) => normalized.includes(term))
+}
+
+function extractUrlsFromText(text: string): string[] {
+  return (text.match(/https?:\/\/[^\s)]+/g) || []).map((url) => url.trim())
+}
+
+function deriveTopicChips(videos: YouTubeVideoIndexItem[], max = 8): string[] {
+  const blocked = new Set(['youtube', 'video', 'videos', 'adri', 'kastel', 'canal', 'channel'])
+  const counts = new Map<string, number>()
+  for (const video of videos) {
+    for (const keyword of video.keywords) {
+      const cleaned = keyword.trim().toLowerCase()
+      if (!cleaned || blocked.has(cleaned) || cleaned.length < 4) continue
+      counts.set(cleaned, (counts.get(cleaned) || 0) + 1)
+    }
+  }
+  return Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, max)
+    .map(([topic]) => topic.charAt(0).toUpperCase() + topic.slice(1))
 }
 
 export async function loadOwnerPromptAndMemory(conversationId: string | undefined): Promise<{ ownerPrompt: string; memory: string; stylePrompt: string; behavioralMemory: string; ownerId: string | null; ownerName: string; youtubeVideos: YouTubeVideoIndexItem[] }> {
@@ -827,11 +933,29 @@ export default async function handler(req: any, res: any) {
       ...priorMessages.filter((entry) => entry.role === 'user').slice(-3).map((entry) => entry.content),
       message,
     ].join('\n')
+    const previouslySharedUrls = new Set<string>()
+    for (const entry of priorMessages) {
+      if (entry.role !== 'assistant') continue
+      extractUrlsFromText(entry.content).forEach((url) => previouslySharedUrls.add(url))
+    }
+    const candidateVideos = youtubeVideos.filter((video) => !previouslySharedUrls.has(video.url))
     const matchedYouTubeVideo = isAdriContext
-      ? findBestYouTubeVideoMatch(contextForVideoMatch, youtubeVideos)
+      ? findBestYouTubeVideoMatch(contextForVideoMatch, candidateVideos)
       : null
     const forcedAdriVideo = isAdriContext ? (matchedYouTubeVideo?.video ?? null) : null
     const userAskedForVideo = isAdriContext ? isVideoRecommendationRequest(message) : false
+    const isFollowUpRequest = isAdriContext ? isFollowUpVideoRequest(message) : false
+    const multiVideoRequest = isAdriContext ? requestsMultipleVideos(message) : false
+    const topicChips = isAdriContext ? deriveTopicChips(youtubeVideos) : []
+    const shelfSuggestions = isAdriContext
+      ? findTopYouTubeVideoMatches(
+          contextForVideoMatch,
+          candidateVideos,
+          previouslySharedUrls,
+          3,
+          4
+        )
+      : []
     const systemPrompt = buildSystemPrompt(
       ownerPrompt,
       memory,
@@ -861,6 +985,9 @@ export default async function handler(req: any, res: any) {
           matchedScore: matchedYouTubeVideo?.score || 0,
           matchedKeywords: matchedYouTubeVideo?.matchedKeywords || [],
           askedForVideo: userAskedForVideo,
+          followUpVideoRequest: isFollowUpRequest,
+          multiVideoRequest,
+          shelfSuggestionsCount: shelfSuggestions.length,
           injectedSnippet,
         })
       )
@@ -886,11 +1013,21 @@ export default async function handler(req: any, res: any) {
     if (!content) {
       return res.status(502).json({ error: 'Empty response from AI' })
     }
+    let responseVideoTopics: string[] | null = null
+    let responseVideoSuggestions: YouTubeVideoSuggestion[] | null = null
     if (isAdriContext && userAskedForVideo) {
       const lang = detectLanguage(message)
-      content = forcedAdriVideo?.url
-        ? buildForcedAdriVideoReply(lang, forcedAdriVideo)
-        : buildAdriClarifyingQuestion(lang)
+      if (forcedAdriVideo?.url) {
+        content = buildForcedAdriVideoReply(lang, forcedAdriVideo)
+      } else if (isFollowUpRequest) {
+        content = buildAdriTopicSelectionPrompt(lang)
+        responseVideoTopics = topicChips
+      } else {
+        content = buildAdriClarifyingQuestion(lang)
+      }
+      if (multiVideoRequest && shelfSuggestions.length >= 2) {
+        responseVideoSuggestions = shelfSuggestions
+      }
     }
 
     // Check for generate_image block and generate image server-side
@@ -909,7 +1046,11 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json({ content: fallbackText })
     }
 
-    return res.status(200).json({ content })
+    return res.status(200).json({
+      content,
+      ...(responseVideoTopics ? { video_topics: responseVideoTopics } : {}),
+      ...(responseVideoSuggestions ? { video_suggestions: responseVideoSuggestions } : {}),
+    })
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     console.error('Chat API error:', err.message, err.stack)
