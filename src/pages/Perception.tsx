@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { resolveAvatarUrl } from '../lib/avatars'
 
 type LanguageFilter = 'All' | 'English' | 'German' | 'Spanish'
-type MediaFilter = 'All' | 'Audio' | 'Video'
+type AnalysisTab = 'voice' | 'video'
 
 interface OwnerRow {
   id: string
@@ -551,7 +551,7 @@ export default function Perception() {
 
   const [avatarFilter, setAvatarFilter] = useState('All')
   const [languageFilter, setLanguageFilter] = useState<LanguageFilter>('All')
-  const [mediaFilter, setMediaFilter] = useState<MediaFilter>('All')
+  const [analysisTab, setAnalysisTab] = useState<AnalysisTab>('voice')
   const [emotionFilter, setEmotionFilter] = useState('All')
   const [ruleFilter, setRuleFilter] = useState('All')
   const [dateFrom, setDateFrom] = useState('')
@@ -664,15 +664,17 @@ export default function Perception() {
 
   const filteredEntries = useMemo(() => {
     return entries.filter((entry) => {
+      const normalizedMedia = normalizeKey(entry.mediaType || entry.messageType || '')
+      if (analysisTab === 'voice' && normalizedMedia !== 'audio' && normalizedMedia !== 'voice') return false
+      if (analysisTab === 'video' && normalizedMedia !== 'video') return false
       if (avatarFilter !== 'All' && entry.avatarName !== avatarFilter) return false
       if (languageFilter !== 'All' && entry.language !== languageFilter) return false
-      if (mediaFilter !== 'All' && normalizeKey(entry.mediaType || entry.messageType || '') !== normalizeKey(mediaFilter)) return false
       if (emotionFilter !== 'All' && entry.primaryEmotion !== emotionFilter && entry.secondaryEmotion !== emotionFilter) return false
       if (ruleFilter !== 'All' && !entry.firedRules.some((rule) => rule.name === ruleFilter || rule.category === ruleFilter)) return false
       if (!filterDate(entry.createdAt, dateFrom, dateTo)) return false
       return true
     })
-  }, [avatarFilter, dateFrom, dateTo, emotionFilter, entries, languageFilter, mediaFilter, ruleFilter])
+  }, [analysisTab, avatarFilter, dateFrom, dateTo, emotionFilter, entries, languageFilter, ruleFilter])
 
   useEffect(() => {
     if (filteredEntries.length === 0) {
@@ -726,6 +728,30 @@ export default function Perception() {
               <p className="mt-2 max-w-3xl text-sm leading-6 text-white/62 sm:text-[15px]">
                 Filter and inspect perception logs across avatars, languages, rules, and time windows.
               </p>
+              <div className="mt-4 inline-flex rounded-2xl border border-white/10 bg-[#08111a] p-1.5">
+                <button
+                  type="button"
+                  onClick={() => setAnalysisTab('voice')}
+                  className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
+                    analysisTab === 'voice'
+                      ? 'bg-[#0c8a6d]/30 text-[#9af8ea] shadow-[0_0_0_1px_rgba(116,240,223,0.18)]'
+                      : 'text-white/70 hover:bg-white/6 hover:text-white'
+                  }`}
+                >
+                  Voice Analysis
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAnalysisTab('video')}
+                  className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
+                    analysisTab === 'video'
+                      ? 'bg-[#0c8a6d]/30 text-[#9af8ea] shadow-[0_0_0_1px_rgba(116,240,223,0.18)]'
+                      : 'text-white/70 hover:bg-white/6 hover:text-white'
+                  }`}
+                >
+                  Video Analysis
+                </button>
+              </div>
             </div>
             <div className="flex gap-3">
               <button
@@ -745,7 +771,7 @@ export default function Perception() {
             </div>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
             <label className="flex flex-col gap-2 text-xs uppercase tracking-[0.18em] text-white/45">
               Avatar
               <select value={avatarFilter} onChange={(event) => setAvatarFilter(event.target.value)} className="rounded-2xl border border-white/10 bg-[#08111a] px-4 py-3 text-sm tracking-normal text-white outline-none transition focus:border-[#7cf0e1]/50">
@@ -756,12 +782,6 @@ export default function Perception() {
               Language
               <select value={languageFilter} onChange={(event) => setLanguageFilter(event.target.value as LanguageFilter)} className="rounded-2xl border border-white/10 bg-[#08111a] px-4 py-3 text-sm tracking-normal text-white outline-none transition focus:border-[#7cf0e1]/50">
                 {LANGUAGE_OPTIONS.map((option) => <option key={option}>{option}</option>)}
-              </select>
-            </label>
-            <label className="flex flex-col gap-2 text-xs uppercase tracking-[0.18em] text-white/45">
-              Media
-              <select value={mediaFilter} onChange={(event) => setMediaFilter(event.target.value as MediaFilter)} className="rounded-2xl border border-white/10 bg-[#08111a] px-4 py-3 text-sm tracking-normal text-white outline-none transition focus:border-[#7cf0e1]/50">
-                {['All', 'Audio', 'Video'].map((option) => <option key={option}>{option}</option>)}
               </select>
             </label>
             <label className="flex flex-col gap-2 text-xs uppercase tracking-[0.18em] text-white/45">
