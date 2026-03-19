@@ -715,10 +715,18 @@ export function useVideoRecording({
 
         origVideo.onloadedmetadata = () => {
           try {
-            const origStream = origVideo.captureStream ? origVideo.captureStream() : null
+            const captureCapableVideo = origVideo as HTMLVideoElement & {
+              captureStream?: () => MediaStream
+              mozCaptureStream?: () => MediaStream
+            }
+            const origStream = captureCapableVideo.captureStream
+              ? captureCapableVideo.captureStream()
+              : captureCapableVideo.mozCaptureStream
+                ? captureCapableVideo.mozCaptureStream()
+                : null
             const audioTracks = origStream ? origStream.getAudioTracks() : []
             if (audioTracks.length > 0) {
-              audioTracks.forEach((track) => canvasStream.addTrack(track))
+              audioTracks.forEach((track: MediaStreamTrack) => canvasStream.addTrack(track))
               console.log('[VideoRotation] Audio track attached')
             }
           } catch (error: any) {
