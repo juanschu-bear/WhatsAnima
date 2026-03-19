@@ -1332,18 +1332,56 @@ export default function Chat() {
       const convId = await findOrCreateConversation(targetOwnerId, contact.id)
       const selected = getSelectedMessages()
       const ownerName = conversation.wa_owners.display_name || 'Avatar'
+      const contactName = conversation.wa_contacts.display_name || 'You'
 
       for (const msg of selected) {
-        const prefix = `[${t(locale, 'forwardedMessage')} — ${ownerName}]\n`
-        const content = msg.type === 'voice'
-          ? `${prefix}[Voice] ${msg.content || ''}`
-          : msg.type === 'image'
-          ? `${prefix}[Image] ${msg.content || ''}`
-          : msg.type === 'video'
-          ? `${prefix}[Video] ${msg.content || ''}`
-          : `${prefix}${msg.content || ''}`
+        const sourceSpeaker = msg.sender === 'avatar' ? ownerName : contactName
+        const forwardedPrefix = `[${t(locale, 'forwardedMessage')} — ${ownerName}]`
+        const speakerMeta = `[Source speaker: ${sourceSpeaker}]`
 
-        await sendMessage(convId, 'contact', 'text', content.trim())
+        if (msg.type === 'voice' && msg.media_url) {
+          const voiceBody = msg.content && !isPlaceholderContent(msg) ? msg.content : '[Voice message]'
+          const voiceContent = `${forwardedPrefix}\n${speakerMeta}\n[Voice]\n${voiceBody}`.trim()
+          await sendMessage(
+            convId,
+            'contact',
+            'voice',
+            voiceContent,
+            msg.media_url,
+            msg.duration_sec ?? undefined
+          )
+          continue
+        }
+
+        if (msg.type === 'video' && msg.media_url) {
+          const videoBody = msg.content && !isPlaceholderContent(msg) ? msg.content : '[Video message]'
+          const videoContent = `${forwardedPrefix}\n${speakerMeta}\n[Video]\n${videoBody}`.trim()
+          await sendMessage(
+            convId,
+            'contact',
+            'video',
+            videoContent,
+            msg.media_url,
+            msg.duration_sec ?? undefined
+          )
+          continue
+        }
+
+        if (msg.type === 'image' && msg.media_url) {
+          const imageBody = msg.content && !isPlaceholderContent(msg) ? msg.content : '[Image]'
+          const imageContent = `${forwardedPrefix}\n${speakerMeta}\n[Image]\n${imageBody}`.trim()
+          await sendMessage(
+            convId,
+            'contact',
+            'image',
+            imageContent,
+            msg.media_url
+          )
+          continue
+        }
+
+        const textContent = `${forwardedPrefix}\n${speakerMeta}\n${msg.content || ''}`.trim()
+        await sendMessage(convId, 'contact', 'text', textContent)
       }
 
       showToast(`${t(locale, 'forward')} ✓`)
