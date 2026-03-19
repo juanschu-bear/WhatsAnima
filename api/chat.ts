@@ -432,6 +432,60 @@ function extractUrlsFromText(text: string): string[] {
   return (text.match(/https?:\/\/[^\s)]+/g) || []).map((url) => url.trim())
 }
 
+function parseYouTubeVideoId(url: string): string | null {
+  try {
+    const parsed = new URL(url)
+    const host = parsed.hostname.toLowerCase()
+    if (host === 'youtu.be') {
+      return parsed.pathname.replace('/', '').trim() || null
+    }
+    if (host === 'www.youtube.com' || host === 'youtube.com' || host === 'm.youtube.com') {
+      if (parsed.pathname === '/watch') {
+        return parsed.searchParams.get('v')?.trim() || null
+      }
+      if (parsed.pathname.startsWith('/shorts/')) {
+        return parsed.pathname.split('/')[2]?.trim() || null
+      }
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+function isOwnedYouTubeUrl(url: string, videos: YouTubeVideoIndexItem[]): boolean {
+  const candidateId = parseYouTubeVideoId(url)
+  if (!candidateId) return false
+  const ownedIds = new Set(videos.map((video) => parseYouTubeVideoId(video.url)).filter(Boolean))
+  return ownedIds.has(candidateId)
+}
+
+function isTopicSelectionMessage(text: string): boolean {
+  const normalized = text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+  const compact = normalized.replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim()
+  if (!compact) return false
+  const words = compact.split(' ')
+  if (words.length > 4) return false
+  const topics = new Set([
+    'objeciones',
+    'objecion',
+    'cierre',
+    'pricing',
+    'oferta',
+    'ofertas',
+    'ventas',
+    'audiencia',
+    'instagram',
+    'mindset',
+    'closing',
+  ])
+  return words.some((word) => topics.has(word))
+}
+
 function deriveTopicChips(videos: YouTubeVideoIndexItem[], max = 8): string[] {
   const blocked = new Set(['youtube', 'video', 'videos', 'adri', 'kastel', 'canal', 'channel'])
   const counts = new Map<string, number>()
@@ -943,7 +997,9 @@ export default async function handler(req: any, res: any) {
       ? findBestYouTubeVideoMatch(contextForVideoMatch, candidateVideos)
       : null
     const forcedAdriVideo = isAdriContext ? (matchedYouTubeVideo?.video ?? null) : null
-    const userAskedForVideo = isAdriContext ? isVideoRecommendationRequest(message) : false
+    const userAskedForVideo = isAdriContext
+      ? (isVideoRecommendationRequest(message) || isTopicSelectionMessage(message))
+      : false
     const isFollowUpRequest = isAdriContext ? isFollowUpVideoRequest(message) : false
     const multiVideoRequest = isAdriContext ? requestsMultipleVideos(message) : false
     const topicChips = isAdriContext ? deriveTopicChips(youtubeVideos) : []
@@ -1027,6 +1083,23 @@ export default async function handler(req: any, res: any) {
       }
       if (multiVideoRequest && shelfSuggestions.length >= 2) {
         responseVideoSuggestions = shelfSuggestions
+      }
+    }
+    if (isAdriContext) {
+      const urlsInContent = extractUrlsFromText(content)
+      const hasForeignYouTubeUrl = urlsInContent.some((url) => {
+        const isYouTube = /(?:youtube\.com|youtu\.be)/i.test(url)
+        return isYouTube && !isOwnedYouTubeUrl(url, youtubeVideos)
+      })
+      if (hasForeignYouTubeUrl) {
+        const lang = detectLanguage(message)
+        if (forcedAdriVideo?.url) {
+          content = buildForcedAdriVideoReply(lang, forcedAdriVideo)
+        } else if (userAskedForVideo) {
+          content = buildAdriClarifyingQuestion(lang)
+        } else {
+          content = content.replace(/https?:\/\/[^\s)]+/g, '').replace(/\s{2,}/g, ' ').trim()
+        }
       }
     }
 
