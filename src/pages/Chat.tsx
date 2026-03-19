@@ -2078,6 +2078,14 @@ export default function Chat() {
   const expertiseItems = parseProfileItems(owner.expertise)
   const mainTopics = expertiseItems.slice(0, 5)
   const strengths = expertiseItems.slice(5, 10).length > 0 ? expertiseItems.slice(5, 10) : expertiseItems.slice(0, 4)
+  const uiLanguage = locale?.toLowerCase().startsWith('de')
+    ? 'de'
+    : locale?.toLowerCase().startsWith('es')
+      ? 'es'
+      : 'en'
+  const openYouTubeLabel = uiLanguage === 'de' ? 'YouTube öffnen' : uiLanguage === 'es' ? 'Abrir video en YouTube' : 'Open YouTube video'
+  const videoTopicsLabel = uiLanguage === 'de' ? 'Video-Themen' : uiLanguage === 'es' ? 'Temas de video' : 'Video Topics'
+  const videosFoundLabel = uiLanguage === 'de' ? 'Videos gefunden' : uiLanguage === 'es' ? 'Videos encontrados' : 'Videos Found'
 
   return (
     <div className="relative flex h-[100dvh] min-h-[100dvh] flex-col overflow-hidden bg-[linear-gradient(140deg,_#020a12_0%,_#071420_35%,_#060e1a_65%,_#030810_100%)] text-white supports-[-webkit-touch-callout:none]:min-h-[-webkit-fill-available]">
@@ -2306,14 +2314,14 @@ export default function Chat() {
                                 className="h-auto w-full object-cover"
                                 loading="lazy"
                               />
-                              <div className="px-3 py-2 text-[12px] text-[#9af8ea]">Open YouTube video</div>
+                              <div className="px-3 py-2 text-[12px] text-[#9af8ea]">{openYouTubeLabel}</div>
                             </a>
                           ))}
                         </div>
                       )}
                       {!isContact && topicChips.length > 0 && (
                         <div className="mt-3">
-                          <div className="mb-2 text-[10px] uppercase tracking-[0.18em] text-white/45">Video Topics</div>
+                          <div className="mb-2 text-[10px] uppercase tracking-[0.18em] text-white/45">{videoTopicsLabel}</div>
                           <div className="flex flex-wrap gap-2">
                             {topicChips.map((topic) => (
                               <button
@@ -2333,7 +2341,7 @@ export default function Chat() {
                       )}
                       {!isContact && videoShelf.length > 1 && (
                         <div className="mt-3 -mx-1">
-                          <div className="mb-2 px-1 text-[10px] uppercase tracking-[0.18em] text-white/45">{videoShelf.length} Videos Found</div>
+                          <div className="mb-2 px-1 text-[10px] uppercase tracking-[0.18em] text-white/45">{videoShelf.length} {videosFoundLabel}</div>
                           <div className="flex gap-3 overflow-x-auto px-1 pb-1">
                             {videoShelf.map((video, index) => {
                               const videoId = parseYouTubeVideoId(video.url)

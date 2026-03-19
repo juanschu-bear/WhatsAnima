@@ -625,6 +625,18 @@ export function detectLanguage(text: string): string {
   return 'en'
 }
 
+function resolveReplyLanguage(message: string, priorMessages: ChatMessage[], fallback: 'es' | 'de' | 'en' = 'es'): 'es' | 'de' | 'en' {
+  const current = detectLanguage(message)
+  if (current === 'es' || current === 'de' || current === 'en') return current
+  for (let index = priorMessages.length - 1; index >= 0; index -= 1) {
+    const entry = priorMessages[index]
+    if (entry.role !== 'user') continue
+    const detected = detectLanguage(entry.content)
+    if (detected === 'es' || detected === 'de' || detected === 'en') return detected
+  }
+  return fallback
+}
+
 export const LANG_NAMES: Record<string, string> = { en: 'English', de: 'German', es: 'Spanish' }
 
 export function getMessageTypeTag(msg: ChatMessage): string {
@@ -1072,7 +1084,7 @@ export default async function handler(req: any, res: any) {
     let responseVideoTopics: string[] | null = null
     let responseVideoSuggestions: YouTubeVideoSuggestion[] | null = null
     if (isAdriContext && userAskedForVideo) {
-      const lang = detectLanguage(message)
+      const lang = resolveReplyLanguage(message, priorMessages)
       if (forcedAdriVideo?.url) {
         content = buildForcedAdriVideoReply(lang, forcedAdriVideo)
       } else if (isFollowUpRequest) {
@@ -1092,7 +1104,7 @@ export default async function handler(req: any, res: any) {
         return isYouTube && !isOwnedYouTubeUrl(url, youtubeVideos)
       })
       if (hasForeignYouTubeUrl) {
-        const lang = detectLanguage(message)
+        const lang = resolveReplyLanguage(message, priorMessages)
         if (forcedAdriVideo?.url) {
           content = buildForcedAdriVideoReply(lang, forcedAdriVideo)
         } else if (userAskedForVideo) {
