@@ -8,6 +8,7 @@ import {
 
 type RecordingMode = 'idle' | 'recording' | 'stopping'
 type CaptureKind = 'none' | 'voice' | 'video'
+const VOICE_MAX_SECONDS = 300
 
 interface Message {
   id: string
@@ -258,6 +259,9 @@ export function useVoiceRecording({
       recordTimerRef.current = window.setInterval(() => {
         const elapsed = Math.floor((Date.now() - audioStartRef.current) / 1000)
         setRecordingSeconds(elapsed)
+        if (elapsed >= VOICE_MAX_SECONDS) {
+          void finishVoiceRecording('draft')
+        }
       }, 250)
     } catch (startError) {
       console.error(startError)
@@ -294,6 +298,10 @@ export function useVoiceRecording({
     browserTranscriptRef.current = ''
 
     if (!blob || action === 'cancel') return
+    if (durationSeconds > VOICE_MAX_SECONDS) {
+      onError('Voice notes are limited to 5 minutes.')
+      return
+    }
     if (action === 'draft') {
       voiceDraftBlobRef.current = blob
       setVoiceDraftTranscript(transcript)

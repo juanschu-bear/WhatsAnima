@@ -256,6 +256,7 @@ export function normalizeOpmResponse(raw: any) {
 export type OpmStageCallback = (emoji: string, text: string, progress: number) => void
 const OPM_CLIENT_TIMEOUT_MS = 180000
 const OPM_CLIENT_POLL_INTERVAL_MS = 3000
+const OPM_AUDIO_TIMEOUT_MS = 300000
 
 function hasMeaningfulOpmData(result: any) {
   if (!result) return false
@@ -363,7 +364,9 @@ export async function callOpmApi(
 
     onStage('\uD83D\uDD2C', watchingLabel, 25)
 
-    while (Date.now() - startTime < OPM_CLIENT_TIMEOUT_MS) {
+    const timeoutMs = mediaType === 'audio' ? OPM_AUDIO_TIMEOUT_MS : OPM_CLIENT_TIMEOUT_MS
+
+    while (Date.now() - startTime < timeoutMs) {
       await delay(OPM_CLIENT_POLL_INTERVAL_MS)
       const statusRes = await fetch(`${opmUrl}/status/${jobId}`)
       if (!statusRes.ok) continue
@@ -389,7 +392,7 @@ export async function callOpmApi(
         onStage('\uD83D\uDCAC', `${firstName} is composing a response...`, 85)
       } else {
         const elapsed = Date.now() - startTime
-        const progress = Math.min(25 + Math.floor((elapsed / OPM_CLIENT_TIMEOUT_MS) * 60), 85)
+        const progress = Math.min(25 + Math.floor((elapsed / timeoutMs) * 60), 85)
         onStage('\uD83D\uDD2C', watchingLabel, progress)
       }
     }
