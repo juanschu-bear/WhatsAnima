@@ -787,8 +787,17 @@ export default async function handler(req: any, res: any) {
 
   try {
     const { ownerPrompt, memory, stylePrompt, behavioralMemory, ownerId, ownerName, youtubeVideos } = await loadOwnerPromptAndMemory(conversationId)
-    const effectiveOwnerId = ownerId || (typeof ownerIdHint === 'string' ? ownerIdHint : null)
-    const effectiveOwnerName = ownerName || (typeof ownerNameHint === 'string' ? ownerNameHint : 'Avatar')
+    const normalizedOwnerIdHint = typeof ownerIdHint === 'string' && ownerIdHint.trim().length > 0
+      ? ownerIdHint.trim()
+      : null
+    const normalizedOwnerNameHint = typeof ownerNameHint === 'string' && ownerNameHint.trim().length > 0
+      ? ownerNameHint.trim()
+      : null
+    const effectiveOwnerId = ownerId || normalizedOwnerIdHint
+    const effectiveOwnerName =
+      ownerName && ownerName !== 'Avatar'
+        ? ownerName
+        : (normalizedOwnerNameHint || ownerName || 'Avatar')
     const isAdriContext = isAdriKastelContext(effectiveOwnerId, effectiveOwnerName, ownerPrompt)
     const contextForVideoMatch = [
       ...priorMessages.filter((entry) => entry.role === 'user').slice(-3).map((entry) => entry.content),
