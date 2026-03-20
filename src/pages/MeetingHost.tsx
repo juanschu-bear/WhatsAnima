@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { createOwnerIfNeeded } from '../lib/api'
+import { createOwnerIfNeeded, listAllOwners } from '../lib/api'
 import { resolveAvatarUrl } from '../lib/avatars'
 
 type MeetingSession = {
@@ -15,13 +15,28 @@ type MeetingSession = {
   join_url?: string
 }
 
+type OwnerOption = {
+  id: string
+  display_name: string | null
+}
+
+const HOST_PRIORITY = ['juan', 'adri', 'brian']
+
+function ownerRank(name: string) {
+  const lower = name.toLowerCase()
+  const index = HOST_PRIORITY.findIndex((token) => lower.includes(token))
+  return index === -1 ? 99 : index
+}
+
 export default function MeetingHost() {
   const navigate = useNavigate()
   const { user } = useAuth()
-  const [ownerId, setOwnerId] = useState<string | null>(null)
+  const [ownerOptions, setOwnerOptions] = useState<OwnerOption[]>([])
+  const [selectedOwnerId, setSelectedOwnerId] = useState<string | null>(null)
   const [ownerName, setOwnerName] = useState('Avatar')
   const [topic, setTopic] = useState('')
   const [busy, setBusy] = useState(false)
+  const [initializing, setInitializing] = useState(true)
   const [session, setSession] = useState<MeetingSession | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
@@ -29,28 +44,78 @@ export default function MeetingHost() {
   useEffect(() => {
     if (!user) return
     let cancelled = false
-    createOwnerIfNeeded({
-      userId: user.id,
-      email: String(user.email || ''),
-      displayName: String(user.user_metadata?.full_name || user.email || 'Owner'),
-    })
-      .then((owner) => {
+    const load = async () => {
+      try {
+        const owner = await createOwnerIfNeeded({
+          userId: user.id,
+          email: String(user.email || ''),
+          displayName: String(user.user_metadata?.full_name || user.email || 'Owner'),
+        })
         if (cancelled) return
-        setOwnerId(owner.id)
-        setOwnerName(owner.display_name || owner.email || 'Avatar')
-      })
-      .catch((loadError) => {
+
+        const allOwnersRaw = await listAllOwners()
+        if (cancelled) return
+        const mappedOwners = (Array.isArray(allOwnersRaw) ? allOwnersRaw : [])
+          .map((item) => ({
+            id: String((item as any)?.id || '').trim(),
+            display_name: typeof (item as any)?.display_name === 'string' ? (item as any).display_name : null,
+          }))
+          .filter((item) => item.id)
+
+        const curated = mappedOwners
+          .filter((item) => {
+            const name = String(item.display_name || '').toLowerCase()
+            return name.includes('juan') || name.includes('adri') || name.includes('brian')
+          })
+          .sort((left, right) => ownerRank(String(left.display_name || '')) - ownerRank(String(right.display_name || '')))
+
+        const fallbackOwner = {
+          id: String(owner.id || '').trim(),
+          display_name: (owner.display_name || owner.email || 'Avatar') as string,
+        }
+
+        const nextOptions = curated.length > 0
+          ? curated
+          : mappedOwners.length > 0
+            ? mappedOwners
+            : [fallbackOwner]
+
+        const initialOwner = nextOptions.find((item) => item.id === fallbackOwner.id) || nextOptions[0]
+        setOwnerOptions(nextOptions)
+        setSelectedOwnerId(initialOwner?.id || fallbackOwner.id)
+        setOwnerName(String(initialOwner?.display_name || fallbackOwner.display_name || 'Avatar'))
+      } catch (loadError) {
         if (cancelled) return
         setError(loadError instanceof Error ? loadError.message : 'Unable to resolve owner profile')
-      })
+      } finally {
+        if (!cancelled) setInitializing(false)
+      }
+    }
+
+    void load()
     return () => { cancelled = true }
   }, [user])
 
+  useEffect(() => {
+    if (!selectedOwnerId || ownerOptions.length === 0) return
+    const selected = ownerOptions.find((item) => item.id === selectedOwnerId)
+    setOwnerName(String(selected?.display_name || 'Avatar'))
+  }, [ownerOptions, selectedOwnerId])
+
+  useEffect(() => {
+    if (!session?.token) return
+    const interval = window.setInterval(() => {
+      void refreshParticipants()
+    }, 3000)
+    return () => window.clearInterval(interval)
+  }, [session?.token])
+
   const avatarImage = useMemo(() => resolveAvatarUrl(ownerName), [ownerName])
   const inviteLink = session?.join_url || (session?.token ? `${window.location.origin}/meeting/${session.token}` : '')
+  const participantCount = session?.participants?.length || 0
 
   async function createMeeting() {
-    if (!ownerId) {
+    if (!selectedOwnerId) {
       setError('Owner profile unavailable.')
       return
     }
@@ -61,7 +126,7 @@ export default function MeetingHost() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          owner_id: ownerId,
+          owner_id: selectedOwnerId,
           topic: topic.trim() || null,
         }),
       })
@@ -104,8 +169,8 @@ export default function MeetingHost() {
 
   return (
     <div className="brand-scene min-h-[100dvh] px-4 py-8 text-white sm:px-6">
-      <div className="mx-auto max-w-3xl">
-        <div className="brand-panel rounded-[28px] p-6 sm:p-8">
+      <div className="relative z-10 mx-auto max-w-4xl">
+        <div className="brand-panel pointer-events-auto rounded-[28px] p-6 sm:p-8">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-4">
               <img src={avatarImage} alt={ownerName} className="h-16 w-16 rounded-2xl object-cover ring-1 ring-white/12" />
@@ -123,18 +188,43 @@ export default function MeetingHost() {
             </button>
           </div>
 
-          <div className="mt-6 grid gap-3 sm:grid-cols-[1fr_auto]">
+          <div className="mt-6 grid gap-4 lg:grid-cols-3">
+            {ownerOptions.map((option) => {
+              const name = String(option.display_name || 'Avatar')
+              const active = option.id === selectedOwnerId
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => setSelectedOwnerId(option.id)}
+                  className={`flex items-center gap-3 rounded-2xl border px-3 py-3 text-left transition ${
+                    active
+                      ? 'border-[#00a884]/55 bg-[#00a884]/16'
+                      : 'border-white/10 bg-white/[0.03] hover:border-white/25'
+                  }`}
+                >
+                  <img src={resolveAvatarUrl(name)} alt={name} className="h-12 w-12 rounded-xl object-cover ring-1 ring-white/10" />
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-white">{name}</p>
+                    <p className="text-xs text-white/55">{active ? 'Meeting host selected' : 'Select as host'}</p>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+
+          <div className="mt-5 grid gap-3 sm:grid-cols-[1fr_auto]">
             <input
               value={topic}
               onChange={(event) => setTopic(event.target.value)}
               placeholder="Meeting topic (optional)"
-              className="rounded-2xl border border-white/10 bg-[#08111a] px-4 py-3 text-sm text-white outline-none focus:border-[#00a884]/60"
+              className="rounded-2xl border border-white/10 bg-[#08111a] px-4 py-3 text-sm text-white outline-none transition focus:border-[#00a884]/60"
             />
             <button
               type="button"
               onClick={() => void createMeeting()}
-              disabled={busy}
-              className="rounded-2xl bg-[#00a884] px-5 py-3 text-sm font-semibold text-[#08111a] transition hover:brightness-110 disabled:opacity-70"
+              disabled={busy || initializing || !selectedOwnerId}
+              className="rounded-2xl bg-[#00a884] px-5 py-3 text-sm font-semibold text-[#08111a] transition hover:brightness-110 disabled:opacity-60"
             >
               {busy ? 'Creating...' : 'Create Meeting'}
             </button>
@@ -146,16 +236,16 @@ export default function MeetingHost() {
 
           {session ? (
             <div className="mt-6 space-y-4">
-              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-                <p className="text-[11px] uppercase tracking-[0.18em] text-white/45">Invite Link</p>
-                <p className="mt-2 break-all text-sm text-white/85">{inviteLink}</p>
+              <div className="rounded-2xl border border-[#00a884]/35 bg-[linear-gradient(180deg,rgba(0,168,132,0.18),rgba(0,168,132,0.08))] p-5 shadow-[0_20px_70px_rgba(0,0,0,0.25)]">
+                <p className="text-[11px] uppercase tracking-[0.18em] text-[#9af8ea]/75">Invite Link</p>
+                <p className="mt-2 break-all text-sm text-white">{inviteLink}</p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button
                     type="button"
                     onClick={() => void copyInvite()}
-                    className="rounded-xl border border-white/12 bg-white/[0.05] px-3 py-2 text-xs text-white/85 transition hover:bg-white/[0.08]"
+                    className="rounded-xl border border-white/18 bg-white/[0.08] px-3 py-2 text-xs font-medium text-white transition hover:bg-white/[0.12]"
                   >
-                    {copied ? 'Copied' : 'Invite'}
+                    {copied ? 'Copied' : 'Copy Invite'}
                   </button>
                   <button
                     type="button"
@@ -167,9 +257,10 @@ export default function MeetingHost() {
                   <button
                     type="button"
                     onClick={() => navigate(`/video-call/meeting-${session.token}?meeting_token=${encodeURIComponent(session.token)}`)}
-                    className="rounded-xl bg-[#00a884] px-3 py-2 text-xs font-semibold text-[#08111a] transition hover:brightness-110"
+                    disabled={participantCount < 1}
+                    className="rounded-xl bg-[#00a884] px-3 py-2 text-xs font-semibold text-[#08111a] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    Start Live Call
+                    Start Live Call {participantCount > 0 ? `(${participantCount})` : ''}
                   </button>
                 </div>
               </div>
@@ -183,7 +274,7 @@ export default function MeetingHost() {
                     </div>
                   )) : (
                     <div className="rounded-xl border border-white/8 bg-[#091322] px-3 py-2 text-sm text-white/60">
-                      No one joined yet.
+                      No one joined yet. Share the invite link and this list will update live.
                     </div>
                   )}
                 </div>
