@@ -8,11 +8,31 @@ export default function Home() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const [checking, setChecking] = useState(true)
+  const [accountOpen, setAccountOpen] = useState(false)
+  const [profileName, setProfileName] = useState('')
+  const [profileEmail, setProfileEmail] = useState('')
+  const [savingAccount, setSavingAccount] = useState(false)
+  const [accountMessage, setAccountMessage] = useState<string | null>(null)
 
   const displayName =
+    profileName.trim() ||
     [user?.user_metadata?.first_name, user?.user_metadata?.last_name].filter(Boolean).join(' ') ||
+    user?.user_metadata?.full_name ||
+    profileEmail ||
     user?.email ||
     'WhatsAnima'
+
+  useEffect(() => {
+    if (!user) return
+    const initialName = String(
+      user.user_metadata?.full_name ||
+      [user.user_metadata?.first_name, user.user_metadata?.last_name].filter(Boolean).join(' ') ||
+      user.email ||
+      '',
+    ).trim()
+    setProfileName(initialName)
+    setProfileEmail(String(user.email || '').trim())
+  }, [user])
 
   useEffect(() => {
     if (!user) {
@@ -66,6 +86,38 @@ export default function Home() {
     routeByRole().catch(() => setChecking(false))
   }, [user, navigate])
 
+  async function saveAccount() {
+    if (!user) return
+    setSavingAccount(true)
+    setAccountMessage(null)
+    try {
+      const nextName = profileName.trim()
+      const nextEmail = profileEmail.trim()
+      const currentEmail = String(user.email || '').trim()
+      const payload: Record<string, unknown> = {
+        data: {
+          full_name: nextName || currentEmail || 'WhatsAnima User',
+        },
+      }
+      if (nextEmail && nextEmail.toLowerCase() !== currentEmail.toLowerCase()) {
+        payload.email = nextEmail
+      }
+
+      const { error } = await supabase.auth.updateUser(payload)
+      if (error) throw error
+
+      setAccountMessage(
+        payload.email
+          ? 'Account saved. Check your inbox to confirm the new email address.'
+          : 'Account saved.',
+      )
+    } catch (saveError) {
+      setAccountMessage(saveError instanceof Error ? saveError.message : 'Could not save account changes.')
+    } finally {
+      setSavingAccount(false)
+    }
+  }
+
   if (checking) {
     return (
       <div className="brand-scene flex min-h-screen items-center justify-center">
@@ -93,8 +145,61 @@ export default function Home() {
           <p className="mt-8 max-w-2xl text-lg text-white/80 sm:text-xl">
             Your AI twin is ready.
           </p>
-          <div className="mt-5 rounded-full border border-white/10 bg-white/5 px-5 py-2 text-sm text-white/70 backdrop-blur-xl">
-            {displayName}
+          <div className="mt-5 w-full max-w-sm">
+            <button
+              type="button"
+              onClick={() => setAccountOpen((current) => !current)}
+              className="flex w-full items-center justify-between rounded-2xl border border-white/12 bg-white/[0.05] px-4 py-3 text-left text-white/85 backdrop-blur-xl transition hover:border-[#00a884]/40 hover:bg-white/[0.08]"
+            >
+              <span className="text-sm font-medium">Account</span>
+              <span className="max-w-[62%] truncate text-sm text-white/70">{displayName}</span>
+            </button>
+            {accountOpen ? (
+              <div className="mt-2 rounded-2xl border border-white/10 bg-[#0a141f]/95 p-4 text-left shadow-[0_25px_60px_rgba(0,0,0,0.35)] backdrop-blur-2xl">
+                <label className="block text-[11px] uppercase tracking-[0.18em] text-white/45">
+                  Name
+                  <input
+                    type="text"
+                    value={profileName}
+                    onChange={(event) => setProfileName(event.target.value)}
+                    className="mt-2 w-full rounded-xl border border-white/12 bg-[#08111a] px-3 py-2 text-sm text-white outline-none transition focus:border-[#00a884]/60"
+                    placeholder="Your name"
+                  />
+                </label>
+                <label className="mt-3 block text-[11px] uppercase tracking-[0.18em] text-white/45">
+                  Email
+                  <input
+                    type="email"
+                    value={profileEmail}
+                    onChange={(event) => setProfileEmail(event.target.value)}
+                    className="mt-2 w-full rounded-xl border border-white/12 bg-[#08111a] px-3 py-2 text-sm text-white outline-none transition focus:border-[#00a884]/60"
+                    placeholder="you@example.com"
+                  />
+                </label>
+                {accountMessage ? (
+                  <p className="mt-3 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-white/75">
+                    {accountMessage}
+                  </p>
+                ) : null}
+                <div className="mt-3 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAccountOpen(false)}
+                    className="rounded-xl border border-white/12 bg-white/[0.04] px-3 py-2 text-xs text-white/80 transition hover:bg-white/[0.08]"
+                  >
+                    Close
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void saveAccount()}
+                    disabled={savingAccount}
+                    className="rounded-xl bg-[#00a884] px-3 py-2 text-xs font-semibold text-[#08111a] transition hover:brightness-110 disabled:opacity-60"
+                  >
+                    {savingAccount ? 'Saving...' : 'Save Account'}
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
           <div className="mt-8 flex w-full max-w-sm flex-col gap-3">
             <button
