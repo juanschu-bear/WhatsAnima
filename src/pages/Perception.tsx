@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { resolveAvatarUrl } from '../lib/avatars'
+import { getStoredLocale, type Locale } from '../lib/i18n'
 
 type LanguageFilter = 'All' | 'English' | 'German' | 'Spanish'
 type AnalysisTab = 'voice' | 'video'
@@ -579,9 +580,20 @@ function bodyLanguageSummary(source: Record<string, unknown>) {
   return parts.length > 0 ? parts.join(' • ') : 'Unavailable'
 }
 
+function displayFilterOption(value: string, locale: Locale) {
+  if (locale !== 'es') return value
+  if (value === 'All') return 'Todo'
+  if (value === 'English') return 'Ingles'
+  if (value === 'German') return 'Aleman'
+  if (value === 'Spanish') return 'Espanol'
+  return value
+}
+
 export default function Perception() {
   const navigate = useNavigate()
   const { user } = useAuth()
+  const locale = useMemo(() => getStoredLocale(), [])
+  const T = (en: string, es: string) => (locale === 'es' ? es : en)
 
   const [entries, setEntries] = useState<PerceptionEntry[]>([])
   const [loading, setLoading] = useState(true)
@@ -787,6 +799,24 @@ export default function Perception() {
     }
   }, [filteredEntries])
 
+  const metricConfig = useMemo(() => {
+    if (locale !== 'es') return METRIC_CONFIG
+    const localized: Record<string, { label: string; reference: string }> = {
+      speaking_rate_wps: { label: 'Ritmo de habla', reference: 'Normal: 1.5–2.5' },
+      voice_stability: { label: 'Estabilidad de voz', reference: 'Alta >85%, Baja <70%' },
+      voice_tremor: { label: 'Temblor de voz', reference: 'Bajo <10%, Alto >20%' },
+      pitch_range_hz: { label: 'Rango de tono', reference: 'Estrecho <50, Amplio >100' },
+      estimated_fundamental_hz: { label: 'Frecuencia fund.', reference: 'Hombre: 85–155' },
+      mean_volume_db: { label: 'Volumen', reference: 'Mas bajo ← -50 · -35 → Mas alto' },
+      speech_ratio: { label: 'Ratio de voz', reference: '>95% = continuo' },
+      longest_pause_ms: { label: 'Pausa mas larga', reference: '>3s = deliberada' },
+      average_pause_ms: { label: 'Pausa prom.', reference: 'Normal: 500–1500' },
+    }
+    return METRIC_CONFIG.map((metric) =>
+      localized[metric.key] ? { ...metric, ...localized[metric.key] } : metric
+    )
+  }, [locale])
+
   return (
     <div className="min-h-[100dvh] overflow-x-hidden bg-[radial-gradient(circle_at_top,rgba(0,195,170,0.12),transparent_30%),radial-gradient(circle_at_82%_18%,rgba(72,137,255,0.12),transparent_24%),linear-gradient(180deg,#04101a_0%,#07111b_55%,#02060b_100%)] text-white">
       <div
@@ -799,10 +829,10 @@ export default function Perception() {
         <header className="flex flex-col gap-4 rounded-[28px] border border-white/10 bg-[linear-gradient(180deg,rgba(9,20,31,0.94),rgba(4,10,18,0.98))] p-5 shadow-[0_30px_120px_rgba(0,0,0,0.35)] sm:p-6">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
-              <p className="text-[11px] uppercase tracking-[0.35em] text-[#82f8e3]/55">Perception Dashboard</p>
-              <h1 className="mt-2 text-3xl font-semibold tracking-[-0.03em] text-white sm:text-4xl">Live Reading Archive</h1>
+              <p className="text-[11px] uppercase tracking-[0.35em] text-[#82f8e3]/55">{T('Perception Dashboard', 'Panel de Percepcion')}</p>
+              <h1 className="mt-2 text-3xl font-semibold tracking-[-0.03em] text-white sm:text-4xl">{T('Live Reading Archive', 'Archivo de Lecturas')}</h1>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-white/62 sm:text-[15px]">
-                Filter and inspect perception logs across avatars, languages, rules, and time windows.
+                {T('Filter and inspect perception logs across avatars, languages, rules, and time windows.', 'Filtra e inspecciona logs de percepcion por avatar, idioma, reglas y ventana de tiempo.')}
               </p>
               <div className="mt-4 inline-flex rounded-2xl border border-white/10 bg-[#08111a] p-1.5">
                 <button
@@ -814,7 +844,7 @@ export default function Perception() {
                       : 'text-white/70 hover:bg-white/6 hover:text-white'
                   }`}
                 >
-                  Voice Analysis
+                  {T('Voice Analysis', 'Analisis de Voz')}
                 </button>
                 <button
                   type="button"
@@ -825,7 +855,7 @@ export default function Perception() {
                       : 'text-white/70 hover:bg-white/6 hover:text-white'
                   }`}
                 >
-                  Video Analysis
+                  {T('Video Analysis', 'Analisis de Video')}
                 </button>
               </div>
             </div>
@@ -835,50 +865,50 @@ export default function Perception() {
                 onClick={() => navigate('/dashboard')}
                 className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white/78 transition hover:bg-white/8"
               >
-                Dashboard
+                {T('Dashboard', 'Dashboard')}
               </button>
               <button
                 type="button"
                 onClick={() => navigate('/')}
                 className="rounded-2xl border border-[#75f0df]/25 bg-[#0c8a6d]/20 px-4 py-2.5 text-sm text-[#9af8ea] transition hover:border-[#75f0df]/45 hover:text-white"
               >
-                Home
+                {T('Home', 'Inicio')}
               </button>
             </div>
           </div>
 
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
             <label className="flex flex-col gap-2 text-xs uppercase tracking-[0.18em] text-white/45">
-              Avatar
+              {T('Avatar', 'Avatar')}
               <select value={avatarFilter} onChange={(event) => setAvatarFilter(event.target.value)} className="rounded-2xl border border-white/10 bg-[#08111a] px-4 py-3 text-sm tracking-normal text-white outline-none transition focus:border-[#7cf0e1]/50">
-                {avatarOptions.map((option) => <option key={option}>{option}</option>)}
+                {avatarOptions.map((option) => <option key={option} value={option}>{displayFilterOption(option, locale)}</option>)}
               </select>
             </label>
             <label className="flex flex-col gap-2 text-xs uppercase tracking-[0.18em] text-white/45">
-              Language
+              {T('Language', 'Idioma')}
               <select value={languageFilter} onChange={(event) => setLanguageFilter(event.target.value as LanguageFilter)} className="rounded-2xl border border-white/10 bg-[#08111a] px-4 py-3 text-sm tracking-normal text-white outline-none transition focus:border-[#7cf0e1]/50">
-                {LANGUAGE_OPTIONS.map((option) => <option key={option}>{option}</option>)}
+                {LANGUAGE_OPTIONS.map((option) => <option key={option} value={option}>{displayFilterOption(option, locale)}</option>)}
               </select>
             </label>
             <label className="flex flex-col gap-2 text-xs uppercase tracking-[0.18em] text-white/45">
-              Emotion
+              {T('Emotion', 'Emocion')}
               <select value={emotionFilter} onChange={(event) => setEmotionFilter(event.target.value)} className="rounded-2xl border border-white/10 bg-[#08111a] px-4 py-3 text-sm tracking-normal text-white outline-none transition focus:border-[#7cf0e1]/50">
-                {emotionOptions.map((option) => <option key={option}>{option}</option>)}
+                {emotionOptions.map((option) => <option key={option} value={option}>{displayFilterOption(option, locale)}</option>)}
               </select>
             </label>
             <label className="flex flex-col gap-2 text-xs uppercase tracking-[0.18em] text-white/45">
-              Rule
+              {T('Rule', 'Regla')}
               <select value={ruleFilter} onChange={(event) => setRuleFilter(event.target.value)} className="rounded-2xl border border-white/10 bg-[#08111a] px-4 py-3 text-sm tracking-normal text-white outline-none transition focus:border-[#7cf0e1]/50">
-                {ruleOptions.map((option) => <option key={option}>{option}</option>)}
+                {ruleOptions.map((option) => <option key={option} value={option}>{displayFilterOption(option, locale)}</option>)}
               </select>
             </label>
             <div className="grid grid-cols-2 gap-3">
               <label className="flex flex-col gap-2 text-xs uppercase tracking-[0.18em] text-white/45">
-                From
+                {T('From', 'Desde')}
                 <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} className="rounded-2xl border border-white/10 bg-[#08111a] px-4 py-3 text-sm tracking-normal text-white outline-none transition focus:border-[#7cf0e1]/50" />
               </label>
               <label className="flex flex-col gap-2 text-xs uppercase tracking-[0.18em] text-white/45">
-                To
+                {T('To', 'Hasta')}
                 <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} className="rounded-2xl border border-white/10 bg-[#08111a] px-4 py-3 text-sm tracking-normal text-white outline-none transition focus:border-[#7cf0e1]/50" />
               </label>
             </div>
@@ -887,12 +917,12 @@ export default function Perception() {
 
         <section className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
           {[
-            { label: 'Messages', value: String(stats.messages) },
-            { label: 'Total duration', value: formatDuration(stats.totalDuration) },
-            { label: 'Avg speaking rate', value: stats.avgSpeakingRate != null ? `${stats.avgSpeakingRate.toFixed(2)} wps` : '—' },
-            { label: 'Avg stability', value: stats.avgStability != null ? stats.avgStability.toFixed(2) : '—' },
-            { label: 'Avg tremor', value: stats.avgTremor != null ? stats.avgTremor.toFixed(3) : '—' },
-            { label: 'Rules fired', value: String(stats.rulesFired) },
+            { label: T('Messages', 'Mensajes'), value: String(stats.messages) },
+            { label: T('Total duration', 'Duracion total'), value: formatDuration(stats.totalDuration) },
+            { label: T('Avg speaking rate', 'Ritmo promedio'), value: stats.avgSpeakingRate != null ? `${stats.avgSpeakingRate.toFixed(2)} wps` : '—' },
+            { label: T('Avg stability', 'Estabilidad prom.'), value: stats.avgStability != null ? stats.avgStability.toFixed(2) : '—' },
+            { label: T('Avg tremor', 'Temblor prom.'), value: stats.avgTremor != null ? stats.avgTremor.toFixed(3) : '—' },
+            { label: T('Rules fired', 'Reglas activadas'), value: String(stats.rulesFired) },
           ].map((stat) => (
             <div key={stat.label} className="rounded-[24px] border border-white/8 bg-[linear-gradient(180deg,rgba(8,18,28,0.92),rgba(5,11,18,0.96))] px-4 py-4 shadow-[0_20px_60px_rgba(0,0,0,0.28)]">
               <div className="text-[11px] uppercase tracking-[0.24em] text-white/40">{stat.label}</div>
@@ -914,8 +944,8 @@ export default function Perception() {
             <aside className="rounded-[28px] border border-white/8 bg-[linear-gradient(180deg,rgba(8,18,28,0.92),rgba(5,11,18,0.96))] p-3 shadow-[0_30px_90px_rgba(0,0,0,0.3)] xl:sticky xl:top-5 xl:max-h-[calc(100vh-300px)] xl:self-start">
               <div className="flex items-center justify-between px-2 pb-3 pt-1">
                 <div>
-                  <p className="text-[11px] uppercase tracking-[0.25em] text-white/35">Timeline</p>
-                  <p className="mt-1 text-sm text-white/58">{filteredEntries.length} filtered logs</p>
+                  <p className="text-[11px] uppercase tracking-[0.25em] text-white/35">{T('Timeline', 'Linea de tiempo')}</p>
+                  <p className="mt-1 text-sm text-white/58">{filteredEntries.length} {T('filtered logs', 'logs filtrados')}</p>
                 </div>
               </div>
 
@@ -971,7 +1001,7 @@ export default function Perception() {
                               )
                             })}
                           </div>
-                          <p className="mt-2 line-clamp-3 text-[13px] leading-6 text-white/62">{entry.transcript || 'No transcript available.'}</p>
+                          <p className="mt-2 line-clamp-3 text-[13px] leading-6 text-white/62">{entry.transcript || T('No transcript available.', 'No hay transcripcion disponible.')}</p>
                         </div>
                       </div>
                     </button>
@@ -979,7 +1009,7 @@ export default function Perception() {
                 })}
                 {filteredEntries.length === 0 ? (
                   <div className="rounded-[24px] border border-white/8 bg-white/[0.02] px-4 py-5 text-sm text-white/55">
-                    No perception logs match the current filters.
+                    {T('No perception logs match the current filters.', 'Ningun log de percepcion coincide con los filtros actuales.')}
                   </div>
                 ) : null}
               </div>
@@ -999,9 +1029,9 @@ export default function Perception() {
                       </div>
                       <div className="grid w-full gap-3 sm:grid-cols-2 xl:w-auto xl:max-w-[760px] xl:grid-cols-3">
                         {[
-                          { label: 'Primary Emotion', value: selectedEntry.primaryEmotion, style: emotionStyle(selectedEntry.primaryEmotion) },
-                          { label: 'Secondary Emotion', value: selectedEntry.secondaryEmotion, style: emotionStyle(selectedEntry.secondaryEmotion) },
-                          { label: 'Recommended Tone for Avatar', value: selectedEntry.recommendedTone, tone: 'from-[#153428] to-[#0b1712]' },
+                          { label: T('Primary Emotion', 'Emocion principal'), value: selectedEntry.primaryEmotion, style: emotionStyle(selectedEntry.primaryEmotion) },
+                          { label: T('Secondary Emotion', 'Emocion secundaria'), value: selectedEntry.secondaryEmotion, style: emotionStyle(selectedEntry.secondaryEmotion) },
+                          { label: T('Recommended Tone for Avatar', 'Tono recomendado para avatar'), value: selectedEntry.recommendedTone, tone: 'from-[#153428] to-[#0b1712]' },
                         ].map((card) => (
                           <div key={card.label} className={`min-w-[160px] rounded-[22px] border px-4 py-4 ${isEmotionCard(card) ? `${card.style.border} ${card.style.bg}` : 'border-white/8 bg-[linear-gradient(180deg,#153428,#0b1712)]'}`}>
                             <div className="text-[11px] uppercase tracking-[0.22em] text-white/42">{card.label}</div>
@@ -1016,8 +1046,8 @@ export default function Perception() {
                     {selectedEntry.messageMediaUrl ? (
                       <div className="mt-5 rounded-[24px] border border-white/8 bg-black/20 p-4">
                         <div className="mb-3 flex items-center justify-between gap-3">
-                          <p className="text-sm font-medium text-white">{selectedEntry.mediaType === 'video' ? 'Video playback' : 'Audio playback'}</p>
-                          <p className="text-xs text-white/45">{selectedEntry.messageDurationSec ? formatDuration(selectedEntry.messageDurationSec) : 'Duration unavailable'}</p>
+                          <p className="text-sm font-medium text-white">{selectedEntry.mediaType === 'video' ? T('Video playback', 'Reproduccion de video') : T('Audio playback', 'Reproduccion de audio')}</p>
+                          <p className="text-xs text-white/45">{selectedEntry.messageDurationSec ? formatDuration(selectedEntry.messageDurationSec) : T('Duration unavailable', 'Duracion no disponible')}</p>
                         </div>
                         {selectedEntry.mediaType === 'video' ? (
                           <video
@@ -1036,7 +1066,7 @@ export default function Perception() {
                   {selectedEntry.mediaType === 'video' ? (
                     <section className="grid gap-5 lg:grid-cols-2">
                       <div className="rounded-[28px] border border-fuchsia-400/16 bg-[linear-gradient(180deg,rgba(54,14,41,0.82),rgba(17,7,16,0.96))] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.25)]">
-                        <div className="text-[11px] uppercase tracking-[0.24em] text-fuchsia-100/50">CYGNUS Facial Analysis</div>
+                        <div className="text-[11px] uppercase tracking-[0.24em] text-fuchsia-100/50">{T('CYGNUS Facial Analysis', 'Analisis facial CYGNUS')}</div>
                         <div className="mt-4 space-y-3">
                           {topActionUnits(selectedEntry.facialAnalysis).length > 0 ? (
                             topActionUnits(selectedEntry.facialAnalysis).map((unit) => (
@@ -1054,40 +1084,40 @@ export default function Perception() {
                               </div>
                             ))
                           ) : (
-                            <p className="text-sm text-white/60">No facial action-unit detail recorded for this log.</p>
+                            <p className="text-sm text-white/60">{T('No facial action-unit detail recorded for this log.', 'No hay detalle de unidades de accion facial para este log.')}</p>
                           )}
                           <div className="rounded-[18px] border border-white/8 bg-white/[0.04] px-4 py-3 text-sm text-white/78">
-                            Gaze direction: {gazeSummary(selectedEntry.facialAnalysis)}
+                            {T('Gaze direction', 'Direccion de mirada')}: {gazeSummary(selectedEntry.facialAnalysis)}
                           </div>
                           <div className="rounded-[18px] border border-white/8 bg-white/[0.04] px-4 py-3 text-sm text-white/78">
-                            Head pose: {String(selectedEntry.facialAnalysis.head_pose || selectedEntry.facialAnalysis.pose_summary || 'Unavailable')}
+                            {T('Head pose', 'Posicion de cabeza')}: {String(selectedEntry.facialAnalysis.head_pose || selectedEntry.facialAnalysis.pose_summary || T('Unavailable', 'No disponible'))}
                           </div>
                           <div className="rounded-[18px] border border-white/8 bg-white/[0.04] px-4 py-3 text-sm text-white/78">
-                            Micro-expressions: {Array.isArray(selectedEntry.facialAnalysis.micro_expressions) ? `${selectedEntry.facialAnalysis.micro_expressions.length} events` : 'Unavailable'}
+                            {T('Micro-expressions', 'Microexpresiones')}: {Array.isArray(selectedEntry.facialAnalysis.micro_expressions) ? `${selectedEntry.facialAnalysis.micro_expressions.length} ${T('events', 'eventos')}` : T('Unavailable', 'No disponible')}
                           </div>
                         </div>
                       </div>
 
                       <div className="rounded-[28px] border border-amber-400/16 bg-[linear-gradient(180deg,rgba(64,37,8,0.86),rgba(19,11,5,0.96))] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.25)]">
-                        <div className="text-[11px] uppercase tracking-[0.24em] text-amber-100/50">Body Language</div>
+                        <div className="text-[11px] uppercase tracking-[0.24em] text-amber-100/50">{T('Body Language', 'Lenguaje corporal')}</div>
                         <div className="mt-4 space-y-3">
                           <div className="rounded-[18px] border border-white/8 bg-white/[0.04] px-4 py-3 text-sm text-white/78">
-                            Posture: {String(selectedEntry.bodyLanguage.posture_score || selectedEntry.bodyLanguage.posture || 'Unavailable')}
+                            {T('Posture', 'Postura')}: {String(selectedEntry.bodyLanguage.posture_score || selectedEntry.bodyLanguage.posture || T('Unavailable', 'No disponible'))}
                           </div>
                           <div className="rounded-[18px] border border-white/8 bg-white/[0.04] px-4 py-3 text-sm text-white/78">
-                            Gesture frequency: {String(selectedEntry.bodyLanguage.gesture_frequency || selectedEntry.bodyLanguage.hand_gestures || 'Unavailable')}
+                            {T('Gesture frequency', 'Frecuencia de gestos')}: {String(selectedEntry.bodyLanguage.gesture_frequency || selectedEntry.bodyLanguage.hand_gestures || T('Unavailable', 'No disponible'))}
                           </div>
                           <div className="rounded-[18px] border border-white/8 bg-white/[0.04] px-4 py-3 text-sm text-white/78">
-                            Movement patterns: {String(selectedEntry.bodyLanguage.movement_patterns || selectedEntry.bodyLanguage.movement_summary || 'Unavailable')}
+                            {T('Movement patterns', 'Patrones de movimiento')}: {String(selectedEntry.bodyLanguage.movement_patterns || selectedEntry.bodyLanguage.movement_summary || T('Unavailable', 'No disponible'))}
                           </div>
                           <div className="rounded-[18px] border border-white/8 bg-white/[0.04] px-4 py-3 text-sm leading-6 text-white/78">
-                            Summary: {bodyLanguageSummary(selectedEntry.bodyLanguage)}
+                            {T('Summary', 'Resumen')}: {bodyLanguageSummary(selectedEntry.bodyLanguage)}
                           </div>
                         </div>
                       </div>
 
                       <div className="rounded-[28px] border border-cyan-400/16 bg-[linear-gradient(180deg,rgba(8,51,66,0.86),rgba(5,18,24,0.96))] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.25)] lg:col-span-2">
-                        <div className="text-[11px] uppercase tracking-[0.24em] text-cyan-100/50">Emotion Profile</div>
+                        <div className="text-[11px] uppercase tracking-[0.24em] text-cyan-100/50">{T('Emotion Profile', 'Perfil emocional')}</div>
                         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                           {emotionProfile(selectedEntry.facialAnalysis).length > 0 ? (
                             emotionProfile(selectedEntry.facialAnalysis).map((emotion) => (
@@ -1105,7 +1135,7 @@ export default function Perception() {
                               </div>
                             ))
                           ) : (
-                            <p className="text-sm text-white/62">No emotion profile percentages recorded for this video log.</p>
+                            <p className="text-sm text-white/62">{T('No emotion profile percentages recorded for this video log.', 'No hay porcentajes de perfil emocional para este log de video.')}</p>
                           )}
                         </div>
                       </div>
@@ -1114,14 +1144,14 @@ export default function Perception() {
 
                   <section className="grid gap-5 lg:grid-cols-2">
                     <div className="rounded-[28px] border border-emerald-400/18 bg-[linear-gradient(180deg,rgba(10,54,39,0.88),rgba(6,23,18,0.96))] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.25)]">
-                      <div className="text-[11px] uppercase tracking-[0.24em] text-emerald-100/50">LUCID Behavioral Summary</div>
+                      <div className="text-[11px] uppercase tracking-[0.24em] text-emerald-100/50">{T('LUCID Behavioral Summary', 'Resumen conductual LUCID')}</div>
                       <p className="mt-4 whitespace-pre-wrap text-[15px] leading-7 text-emerald-50/92">
-                        {selectedEntry.behavioralSummary || 'No behavioral summary recorded for this log.'}
+                        {selectedEntry.behavioralSummary || T('No behavioral summary recorded for this log.', 'No hay resumen conductual para este log.')}
                       </p>
                     </div>
 
                     <div className="rounded-[28px] border border-cyan-400/16 bg-[linear-gradient(180deg,rgba(8,51,66,0.86),rgba(5,18,24,0.96))] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.25)]">
-                      <div className="text-[11px] uppercase tracking-[0.24em] text-cyan-100/50">Conversation Hooks</div>
+                      <div className="text-[11px] uppercase tracking-[0.24em] text-cyan-100/50">{T('Conversation Hooks', 'Anclas de conversacion')}</div>
                       <div className="mt-4 space-y-3">
                         {selectedEntry.conversationHooks.length > 0 ? (
                           selectedEntry.conversationHooks.map((hook) => (
@@ -1130,7 +1160,7 @@ export default function Perception() {
                             </div>
                           ))
                         ) : (
-                          <p className="text-[14px] leading-6 text-cyan-50/70">No conversation hooks extracted for this log.</p>
+                          <p className="text-[14px] leading-6 text-cyan-50/70">{T('No conversation hooks extracted for this log.', 'No se extrajeron anclas de conversacion para este log.')}</p>
                         )}
                       </div>
                     </div>
@@ -1139,10 +1169,10 @@ export default function Perception() {
                   <section className="rounded-[28px] border border-white/8 bg-[linear-gradient(180deg,rgba(8,18,28,0.94),rgba(4,10,18,0.98))] p-5 shadow-[0_30px_90px_rgba(0,0,0,0.28)]">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
-                        <div className="text-[11px] uppercase tracking-[0.24em] text-white/35">ORACLE Pulse</div>
-                        <h3 className="mt-2 text-xl font-semibold tracking-[-0.03em] text-white">Fired Rules</h3>
+                        <div className="text-[11px] uppercase tracking-[0.24em] text-white/35">{T('ORACLE Pulse', 'Pulso ORACLE')}</div>
+                        <h3 className="mt-2 text-xl font-semibold tracking-[-0.03em] text-white">{T('Fired Rules', 'Reglas activadas')}</h3>
                       </div>
-                      <div className="text-sm text-white/48">{selectedEntry.firedRules.length} rules detected</div>
+                      <div className="text-sm text-white/48">{selectedEntry.firedRules.length} {T('rules detected', 'reglas detectadas')}</div>
                     </div>
                     <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                       {selectedEntry.firedRules.length > 0 ? (
@@ -1160,12 +1190,12 @@ export default function Perception() {
                             <div className="pointer-events-none absolute left-4 top-full z-20 mt-3 hidden w-[min(26rem,calc(100vw-4rem))] rounded-[18px] border border-white/12 bg-[#07111b]/96 p-4 text-left shadow-[0_24px_80px_rgba(0,0,0,0.45)] group-hover:block">
                               <p className={`text-sm font-semibold ${ruleStyle(rule.rawName).color}`}>{rule.name}</p>
                               <p className="mt-2 text-sm leading-6 text-white/78">
-                                {RULE_DEFINITIONS[rule.rawName] || 'No static definition available for this rule yet.'}
+                                {RULE_DEFINITIONS[rule.rawName] || T('No static definition available for this rule yet.', 'Aun no hay una definicion estatica para esta regla.')}
                               </p>
                               <div className="mt-3 border-t border-white/8 pt-3">
-                                <div className="text-[10px] uppercase tracking-[0.22em] text-white/35">Behavioral Interpretation</div>
+                                <div className="text-[10px] uppercase tracking-[0.22em] text-white/35">{T('Behavioral Interpretation', 'Interpretacion conductual')}</div>
                                 <p className="mt-2 text-sm leading-6 text-white/68">
-                                  {rule.interpretation || 'No log-specific behavioral interpretation recorded for this rule.'}
+                                  {rule.interpretation || T('No log-specific behavioral interpretation recorded for this rule.', 'No hay interpretacion conductual especifica de este log para esta regla.')}
                                 </p>
                               </div>
                             </div>
@@ -1175,7 +1205,7 @@ export default function Perception() {
                           </div>
                         ))
                       ) : (
-                        <p className="text-sm text-white/55">No rules recorded for this perception event.</p>
+                        <p className="text-sm text-white/55">{T('No rules recorded for this perception event.', 'No se registraron reglas en este evento de percepcion.')}</p>
                       )}
                     </div>
                   </section>
@@ -1183,19 +1213,19 @@ export default function Perception() {
                   <section className="rounded-[28px] border border-white/8 bg-[linear-gradient(180deg,rgba(8,18,28,0.94),rgba(4,10,18,0.98))] p-5 shadow-[0_30px_90px_rgba(0,0,0,0.28)]">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
-                        <div className="text-[11px] uppercase tracking-[0.24em] text-white/35">ECHO Prosodic Analysis</div>
+                        <div className="text-[11px] uppercase tracking-[0.24em] text-white/35">{T('ECHO Prosodic Analysis', 'Analisis prosodico ECHO')}</div>
                       </div>
-                      <div className="text-sm text-white/45">Reference bands shown below each metric</div>
+                      <div className="text-sm text-white/45">{T('Reference bands shown below each metric', 'Bandas de referencia debajo de cada metrica')}</div>
                     </div>
 
                     <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                      {METRIC_CONFIG.map((metric) => (
+                      {metricConfig.map((metric) => (
                         <div key={metric.key} className="rounded-[20px] border border-white/8 bg-white/[0.03] px-4 py-4">
                           <div className="text-[11px] uppercase tracking-[0.18em] text-white/35">{metric.label}</div>
                           <div className={`mt-3 text-2xl font-semibold tracking-[-0.03em] ${metric.accent}`}>
                             {formatMetric(metricValue(selectedEntry, metric), metric.unit)}
                           </div>
-                          <div className="mt-2 text-xs text-white/42">Reference: {metric.reference}</div>
+                          <div className="mt-2 text-xs text-white/42">{T('Reference', 'Referencia')}: {metric.reference}</div>
                           {metric.key === 'mean_volume_db' ? (
                             <div className="mt-3">
                               <div className="relative h-2 overflow-hidden rounded-full bg-[linear-gradient(90deg,rgba(148,163,184,0.35),rgba(251,113,133,0.65))]">
@@ -1205,8 +1235,8 @@ export default function Perception() {
                                 />
                               </div>
                               <div className="mt-2 flex justify-between text-[11px] text-white/38">
-                                <span>Leiser</span>
-                                <span>Lauter</span>
+                                <span>{T('Quieter', 'Mas bajo')}</span>
+                                <span>{T('Louder', 'Mas alto')}</span>
                               </div>
                             </div>
                           ) : null}
@@ -1217,24 +1247,24 @@ export default function Perception() {
                     <div className="mt-5 rounded-[22px] border border-white/8 bg-white/[0.03] px-4 py-4">
                       <div className="flex items-center justify-between gap-3">
                         <div>
-                          <div className="text-[11px] uppercase tracking-[0.18em] text-white/35">Pause Distribution</div>
+                          <div className="text-[11px] uppercase tracking-[0.18em] text-white/35">{T('Pause Distribution', 'Distribucion de pausas')}</div>
                           <div className="mt-2 text-lg font-semibold text-white">
-                            {formatMetric(metricValue(selectedEntry, METRIC_CONFIG[6]), '%')}
+                            {formatMetric(metricValue(selectedEntry, metricConfig[6]), '%')}
                           </div>
                           <div className="mt-2 text-sm text-white/62">
                             {(() => {
                               const pauses = pauseBreakdown(selectedEntry)
-                              return `PAUSES: ${Math.round(pauses.total)} total`
+                              return `${T('PAUSES', 'PAUSAS')}: ${Math.round(pauses.total)} ${T('total', 'total')}`
                             })()}
                           </div>
                           <div className="mt-1 text-xs text-white/42">
                             {(() => {
                               const pauses = pauseBreakdown(selectedEntry)
-                              return `Micro: ${Math.round(pauses.micro)}, Notable: ${Math.round(pauses.notable)}, Long: ${Math.round(pauses.long)}, Deliberate: ${Math.round(pauses.deliberate)}`
+                              return `${T('Micro', 'Micro')}: ${Math.round(pauses.micro)}, ${T('Notable', 'Notables')}: ${Math.round(pauses.notable)}, ${T('Long', 'Largas')}: ${Math.round(pauses.long)}, ${T('Deliberate', 'Deliberadas')}: ${Math.round(pauses.deliberate)}`
                             })()}
                           </div>
                         </div>
-                        <div className="text-xs text-white/45">Target speech ratio 0.55-0.85</div>
+                        <div className="text-xs text-white/45">{T('Target speech ratio 0.55-0.85', 'Ratio objetivo de voz 0.55-0.85')}</div>
                       </div>
                       <div className="mt-4 h-3 overflow-hidden rounded-full bg-white/8">
                         <div
@@ -1245,7 +1275,7 @@ export default function Perception() {
                               Math.min(
                               100,
                                 Math.round(
-                                  (metricValue(selectedEntry, METRIC_CONFIG[6]) ?? 0),
+                                  (metricValue(selectedEntry, metricConfig[6]) ?? 0),
                                 ),
                               ),
                             )}%`,
@@ -1256,14 +1286,14 @@ export default function Perception() {
                   </section>
 
                   <section className="rounded-[28px] border border-white/8 bg-[linear-gradient(180deg,rgba(8,18,28,0.94),rgba(4,10,18,0.98))] p-5 shadow-[0_30px_90px_rgba(0,0,0,0.28)]">
-                    <div className="text-[11px] uppercase tracking-[0.24em] text-white/35">Full Transcript</div>
+                    <div className="text-[11px] uppercase tracking-[0.24em] text-white/35">{T('Full Transcript', 'Transcripcion completa')}</div>
                     <div className="mt-4 space-y-4 text-[16px] leading-8 text-white/88">
                       {selectedEntry.transcript ? (
                         transcriptParagraphs(selectedEntry.transcript).map((paragraph, index) => (
                           <p key={`${selectedEntry.id}-${index}`}>{paragraph}</p>
                         ))
                       ) : (
-                        <p className="text-white/55">No transcript available for this perception log.</p>
+                        <p className="text-white/55">{T('No transcript available for this perception log.', 'No hay transcripcion disponible para este log de percepcion.')}</p>
                       )}
                     </div>
                   </section>
