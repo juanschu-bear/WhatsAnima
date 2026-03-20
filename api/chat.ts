@@ -419,6 +419,12 @@ async function callAnthropicVideoWebSearch(
 ): Promise<string> {
   const language = resolveReplyLanguage(userMessage, priorMessages)
   const query = getYouTubeChannelSearchQuery(profile, userMessage)
+  console.log('[chat][youtube_web_search][request]', JSON.stringify({
+    profile,
+    ownerName,
+    language,
+    query,
+  }))
   const payload = {
     model: 'claude-sonnet-4-20250514',
     max_tokens: 450,
@@ -458,6 +464,12 @@ Return exactly one best matching YouTube video from that restricted search.`,
   })
 
   const result = await response.json()
+  console.log('[chat][youtube_web_search][response]', JSON.stringify({
+    ok: response.ok,
+    status: response.status,
+    query,
+    resultPreview: JSON.stringify(result)?.slice(0, 1200) || '',
+  }))
   if (!response.ok) {
     throw new Error(result.error?.message || `Anthropic web_search error ${response.status}`)
   }
@@ -1391,6 +1403,19 @@ export default async function handler(req: any, res: any) {
           explicitVideoIntent,
           topicSelectionReply,
           clarifyingAlreadyAsked,
+        })
+      )
+    } else if (hasYouTubeProfile) {
+      console.log(
+        '[chat][youtube_web_search]',
+        JSON.stringify({
+          ownerId: effectiveOwnerId || null,
+          ownerName: effectiveOwnerName,
+          youtubeProfile,
+          explicitVideoIntent,
+          topicSelectionReply,
+          clarifyingAlreadyAsked,
+          shouldUseVideoWebSearch: false,
         })
       )
     }
