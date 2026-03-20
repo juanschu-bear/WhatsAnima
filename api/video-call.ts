@@ -32,6 +32,33 @@ function buildLiveLanguageInstruction(languageCode: 'en' | 'es' | 'de') {
   ].join('\n')
 }
 
+function normalizeMeetingParticipants(value: unknown): Array<{ name: string; role: string }> {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null
+      const obj = item as Record<string, unknown>
+      const name = String(obj.name || '').trim()
+      const role = String(obj.role || '').trim() || 'Participant'
+      if (!name) return null
+      return { name, role }
+    })
+    .filter((item): item is { name: string; role: string } => Boolean(item))
+}
+
+function buildMeetingPrompt(topic: string, participants: Array<{ name: string; role: string }>) {
+  const roster =
+    participants.length > 0
+      ? participants.map((participant) => `- ${participant.name} (${participant.role})`).join('\n')
+      : '- No participants listed yet'
+  return [
+    'You are in a meeting. Participants present:',
+    roster,
+    `Topic: ${topic || 'General discussion'}`,
+    'You can see and hear everyone. Address participants by name when relevant. If someone seems thoughtful or emotional, acknowledge it naturally.',
+  ].join('\n')
+}
+
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST')
@@ -43,6 +70,7 @@ export default async function handler(req: any, res: any) {
   const conversationId = String(body.conversation_id || body.conversationId || '').trim()
   const ownerId = String(body.owner_id || body.ownerId || '').trim()
   const contactName = String(body.contact_name || body.contactName || '').trim()
+  const meetingToken = String(body.meeting_token || body.meetingToken || '').trim()
 
   const requestBody: Record<string, unknown> = {
     persona_name: body.persona_name,
@@ -57,8 +85,9 @@ export default async function handler(req: any, res: any) {
   }
   const normalizedLanguageCode = normalizeLanguageCode(body.language)
   const languageInstruction = buildLiveLanguageInstruction(normalizedLanguageCode)
-  requestBody.language_instruction = languageInstruction
-  requestBody.system_prompt_append = languageInstruction
+  let finalInstruction = languageInstruction
+  requestBody.language_instruction = finalInstruction
+  requestBody.system_prompt_append = finalInstruction
   requestBody.prompt_overrides = {
     language_policy: languageInstruction,
     response_language: normalizedLanguageCode,
@@ -127,9 +156,52 @@ export default async function handler(req: any, res: any) {
       if (memoryLines.length > 0) {
         requestBody.memory_context = memoryLines.join('\n')
       }
-      requestBody.memory_context = `${String(requestBody.memory_context || '').trim()}\n\n${languageInstruction}`.trim()
+      requestBody.memory_context = `${String(requestBody.memory_context || '').trim()}\n\n${finalInstruction}`.trim()
     } catch (error) {
       console.error('[video-call] memory fetch failed', error)
+    }
+  }
+
+  if (supabase && meetingToken) {
+    try {
+      const { data: meeting, error: meetingError } = await supabase
+        .from('wa_meeting_sessions')
+        .select('id, owner_id, token, topic, participants, expires_at')
+        .eq('token', meetingToken)
+        .maybeSingle()
+
+      if (meetingError) {
+        return res.status(500).json({ error: meetingError.message || 'Failed to load meeting context' })
+      }
+      if (!meeting) {
+        return res.status(404).json({ error: 'Meeting session not found' })
+      }
+      if (meeting.expires_at && new Date(meeting.expires_at).getTime() < Date.now()) {
+        return res.status(410).json({ error: 'Meeting session has expired' })
+      }
+
+      const participants = normalizeMeetingParticipants(meeting.participants)
+      const meetingPrompt = buildMeetingPrompt(String(meeting.topic || '').trim(), participants)
+      finalInstruction = `${finalInstruction}\n\n${meetingPrompt}`.trim()
+      requestBody.language_instruction = finalInstruction
+      requestBody.system_prompt_append = finalInstruction
+      requestBody.prompt_overrides = {
+        ...(requestBody.prompt_overrides as Record<string, unknown>),
+        language_policy: finalInstruction,
+        response_language: normalizedLanguageCode,
+      }
+      requestBody.meeting_context = {
+        token: meeting.token,
+        topic: meeting.topic || '',
+        participants,
+      }
+      if (!requestBody.owner_id && meeting.owner_id) {
+        requestBody.owner_id = meeting.owner_id
+      }
+      requestBody.memory_context = `${String(requestBody.memory_context || '').trim()}\n\n${meetingPrompt}`.trim()
+    } catch (error) {
+      console.error('[video-call] meeting context load failed', error)
+      return res.status(500).json({ error: 'Failed to prepare meeting context' })
     }
   }
 

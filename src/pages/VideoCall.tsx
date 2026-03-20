@@ -161,6 +161,8 @@ export default function VideoCall() {
   const endingSessionRef = useRef(false)
   const hiddenTimeoutRef = useRef<number | null>(null)
   const personaOverrideEnabled = searchParams.get('personaOverride') === '1'
+  const meetingToken = String(searchParams.get('meeting_token') || '').trim()
+  const isMeetingMode = meetingToken.length > 0
 
   useEffect(() => {
     sessionIdRef.current = sessionId
@@ -244,6 +246,55 @@ export default function VideoCall() {
   }
 
   useEffect(() => {
+    if (isMeetingMode) {
+      const raw = sessionStorage.getItem(`wa_meeting_context:${meetingToken}`)
+      if (!raw) {
+        setError('Meeting context missing. Please rejoin from the meeting link.')
+        setLoadingConversation(false)
+        return
+      }
+      try {
+        const parsed = JSON.parse(raw) as {
+          owner?: {
+            id?: string
+            display_name?: string | null
+            tavus_replica_id?: string | null
+          } | null
+          self?: { name?: string } | null
+        }
+        const ownerId = String(parsed.owner?.id || '').trim() || 'meeting-owner'
+        const syntheticConversationId = conversationId || `meeting-${meetingToken}`
+        setConversation({
+          id: syntheticConversationId,
+          owner_id: ownerId,
+          contact_id: `meeting-${meetingToken}`,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          wa_owners: {
+            id: ownerId,
+            display_name: parsed.owner?.display_name || 'Avatar',
+            email: null,
+            voice_id: null,
+            tavus_replica_id: parsed.owner?.tavus_replica_id || null,
+            system_prompt: null,
+            settings: null,
+            bio: null,
+            expertise: null,
+          },
+          wa_contacts: {
+            id: `meeting-${meetingToken}`,
+            display_name: parsed.self?.name || 'Guest',
+            email: null,
+          },
+        } as ConversationData)
+      } catch {
+        setError('Meeting context invalid. Please rejoin from the meeting link.')
+      } finally {
+        setLoadingConversation(false)
+      }
+      return
+    }
+
     if (!conversationId) {
       setError('Missing conversation.')
       setLoadingConversation(false)
@@ -270,7 +321,7 @@ export default function VideoCall() {
     return () => {
       cancelled = true
     }
-  }, [conversationId])
+  }, [conversationId, isMeetingMode, meetingToken])
 
   useEffect(() => {
     let cancelled = false
@@ -444,6 +495,11 @@ export default function VideoCall() {
 
     await Promise.allSettled([endSessionPromise, leaveRoomPromise])
 
+    if (isMeetingMode) {
+      navigate(`/meeting/${encodeURIComponent(meetingToken)}`, { replace: true })
+      return
+    }
+
     if (conversationId) {
       navigate(`/chat/${conversationId}`, { replace: true })
       return
@@ -502,6 +558,7 @@ export default function VideoCall() {
         conversation_id: resolvedConversationId,
         owner_id: owner.id || conversation.owner_id || null,
         contact_name: conversation.wa_contacts?.display_name || null,
+        meeting_token: meetingToken || undefined,
       }
       console.log('[VideoCall] startSession request', requestBody)
       const response = await fetch('/api/video-call', {

@@ -15,6 +15,8 @@ import AuthCallback from './pages/AuthCallback'
 import VideoCall from './pages/VideoCall'
 import Perception from './pages/Perception'
 import ExtendedPerception from './pages/ExtendedPerception'
+import MeetingLobby from './pages/MeetingLobby'
+import MeetingHost from './pages/MeetingHost'
 
 export default function App() {
   return (
@@ -26,6 +28,7 @@ export default function App() {
           <Route path="/signup" element={<Signup />} />
           <Route path="/invite/:token" element={<Invite />} />
           <Route path="/status" element={<Status />} />
+          <Route path="/meeting/:token" element={<MeetingLobby />} />
           <Route path="/chat/:conversationId" element={<Chat />} />
           <Route path="/video-call/:conversationId" element={<VideoCall />} />
           <Route
@@ -73,6 +76,14 @@ export default function App() {
             element={
               <OwnerRoute>
                 <Settings />
+              </OwnerRoute>
+            }
+          />
+          <Route
+            path="/meeting-host"
+            element={
+              <OwnerRoute>
+                <MeetingHost />
               </OwnerRoute>
             }
           />
