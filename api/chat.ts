@@ -1374,6 +1374,12 @@ export default async function handler(req: any, res: any) {
         : (normalizedOwnerNameHint || ownerName || 'Avatar')
     const youtubeProfile = getYouTubeRecommendationProfile(effectiveOwnerId, effectiveOwnerName, ownerPrompt)
     const hasYouTubeProfile = Boolean(youtubeProfile)
+    console.log('[chat][owner_resolution]', JSON.stringify({
+      ownerId,
+      ownerName,
+      effectiveOwnerId,
+      hasYouTubeProfile,
+    }))
     const clarifyingAlreadyAsked = hasYouTubeProfile ? hasClarifyingQuestionAlready(priorMessages, youtubeProfile!) : false
     const explicitVideoIntent = hasYouTubeProfile
       ? isVideoRecommendationRequest(message)
