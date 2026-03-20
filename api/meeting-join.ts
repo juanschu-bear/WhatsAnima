@@ -33,7 +33,7 @@ export default async function handler(req: any, res: any) {
 
     const { data, error } = await supabase
       .from('wa_meeting_sessions')
-      .select('id, owner_id, token, topic, participants, status, created_at, expires_at')
+      .select('id, owner_id, token, topic, participants, status, created_at, expires_at, recording_url')
       .eq('token', token)
       .maybeSingle()
     if (error) return res.status(500).json({ error: error.message || 'Failed to load meeting' })
@@ -57,6 +57,7 @@ export default async function handler(req: any, res: any) {
         token: data.token,
         topic: data.topic || '',
         participants: Array.isArray(data.participants) ? data.participants : [],
+        recording_url: data.recording_url || null,
         owner: owner || null,
       },
     })
@@ -78,7 +79,7 @@ export default async function handler(req: any, res: any) {
 
   const { data: session, error: sessionError } = await supabase
     .from('wa_meeting_sessions')
-    .select('id, owner_id, token, topic, participants, status, created_at, expires_at')
+    .select('id, owner_id, token, topic, participants, status, created_at, expires_at, recording_url')
     .eq('token', token)
     .maybeSingle()
 
@@ -111,7 +112,7 @@ export default async function handler(req: any, res: any) {
       status: nextStatus,
     })
     .eq('id', session.id)
-    .select('id, owner_id, token, topic, participants, status, created_at, expires_at')
+    .select('id, owner_id, token, topic, participants, status, created_at, expires_at, recording_url')
     .single()
 
   if (updateError) {
@@ -132,6 +133,7 @@ export default async function handler(req: any, res: any) {
       token: updated.token,
       topic: updated.topic || '',
       participants: Array.isArray(updated.participants) ? updated.participants : [],
+      recording_url: updated.recording_url || null,
       owner: owner || null,
     },
   })

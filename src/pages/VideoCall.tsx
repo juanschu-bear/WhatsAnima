@@ -150,6 +150,12 @@ export default function VideoCall() {
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [isMicEnabled, setIsMicEnabled] = useState(true)
   const [isCameraEnabled, setIsCameraEnabled] = useState(true)
+  const [recordingActive, setRecordingActive] = useState(false)
+  const [recordingBusy, setRecordingBusy] = useState(false)
+  const [recordingId, setRecordingId] = useState<string | null>(null)
+  const [recordingUrl, setRecordingUrl] = useState<string | null>(null)
+  const [recordingError, setRecordingError] = useState<string | null>(null)
+  const [joinUrl, setJoinUrl] = useState<string | null>(null)
   const [localParticipant, setLocalParticipant] = useState<any>(null)
   const [remoteParticipant, setRemoteParticipant] = useState<any>(null)
 
@@ -486,6 +492,7 @@ export default function VideoCall() {
     setStatusText('Ending call...')
     setPhase((current) => (current === 'error' ? current : 'starting'))
 
+    const stopRecordingPromise = recordingActive ? toggleRecording(true) : Promise.resolve()
     const endSessionPromise = endBackendSession('leave_button')
     const leaveRoomPromise = (async () => {
       if (!callObject) return
@@ -493,7 +500,7 @@ export default function VideoCall() {
       callObject.destroy()
     })()
 
-    await Promise.allSettled([endSessionPromise, leaveRoomPromise])
+    await Promise.allSettled([stopRecordingPromise, endSessionPromise, leaveRoomPromise])
 
     if (isMeetingMode) {
       navigate(`/meeting/${encodeURIComponent(meetingToken)}`, { replace: true })
@@ -588,6 +595,11 @@ export default function VideoCall() {
       }
 
       setSessionId(payload.session_id)
+      setJoinUrl(String(payload.join_url || '').trim() || null)
+      setRecordingActive(false)
+      setRecordingId(null)
+      setRecordingUrl(null)
+      setRecordingError(null)
       sessionIdRef.current = payload.session_id
       endingSessionRef.current = false
       setStatusText('Avatar joining...')
@@ -692,6 +704,47 @@ export default function VideoCall() {
       } catch {
         setError('Unable to update camera state.')
       }
+    }
+  }
+
+  async function toggleRecording(forceStop = false) {
+    if (!isMeetingMode) return
+    const activeSessionId = sessionIdRef.current
+    if (!activeSessionId || !meetingToken) return
+
+    const action: 'start' | 'stop' = forceStop || recordingActive ? 'stop' : 'start'
+    setRecordingBusy(true)
+    setRecordingError(null)
+    try {
+      const response = await fetch('/api/meeting-recording', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action,
+          session_id: activeSessionId,
+          meeting_token: meetingToken,
+          join_url: joinUrl || undefined,
+          recording_id: recordingId || undefined,
+          backendBaseUrl: LIVE_CALL_API_BASE,
+        }),
+      })
+      const payload = await response.json() as {
+        error?: string
+        detail?: string
+        active?: boolean
+        recording_id?: string | null
+        recording_url?: string | null
+      }
+      if (!response.ok) {
+        throw new Error(payload.detail || payload.error || `Unable to ${action} recording`)
+      }
+      setRecordingActive(Boolean(payload.active))
+      setRecordingId(payload.recording_id || null)
+      if (payload.recording_url) setRecordingUrl(payload.recording_url)
+    } catch (error) {
+      setRecordingError(error instanceof Error ? error.message : `Unable to ${action} recording`)
+    } finally {
+      setRecordingBusy(false)
     }
   }
 
@@ -833,8 +886,14 @@ export default function VideoCall() {
               </div>
 
               <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-center px-3 pt-4 sm:px-4 sm:pt-5">
-                <div className="rounded-full border border-white/10 bg-black/28 px-3 py-2 text-[11px] font-medium tracking-[0.22em] text-white/78 backdrop-blur-xl sm:px-4 sm:text-xs">
-                  {statusText}
+                <div className="flex items-center gap-2 rounded-full border border-white/10 bg-black/28 px-3 py-2 text-[11px] font-medium tracking-[0.22em] text-white/78 backdrop-blur-xl sm:px-4 sm:text-xs">
+                  <span>{statusText}</span>
+                  {recordingActive ? (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-red-400/30 bg-red-500/18 px-2 py-0.5 text-[10px] tracking-[0.14em] text-red-100">
+                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-300" />
+                      REC
+                    </span>
+                  ) : null}
                 </div>
               </div>
 
@@ -988,6 +1047,21 @@ export default function VideoCall() {
               )}
             </button>
 
+            {isMeetingMode ? (
+              <button
+                type="button"
+                onClick={() => void toggleRecording(false)}
+                disabled={recordingBusy || phase !== 'connected'}
+                className={`flex h-14 min-w-[6.5rem] touch-manipulation items-center justify-center rounded-full border px-4 text-sm font-semibold transition ${
+                  recordingActive
+                    ? 'border-red-400/30 bg-red-500/18 text-red-100 hover:bg-red-500/24'
+                    : 'border-white/12 bg-white/6 text-white hover:bg-white/10'
+                } disabled:opacity-60`}
+              >
+                {recordingBusy ? '...' : recordingActive ? 'Stop Rec' : 'Record'}
+              </button>
+            ) : null}
+
             <button
               type="button"
               onClick={() => void leaveCall()}
@@ -996,6 +1070,18 @@ export default function VideoCall() {
               Leave
             </button>
           </div>
+
+          {recordingError ? (
+            <div className="mt-2 text-center text-xs text-red-300/90">{recordingError}</div>
+          ) : null}
+          {recordingUrl ? (
+            <div className="mt-2 text-center text-xs text-white/70">
+              Recording:{' '}
+              <a href={recordingUrl} target="_blank" rel="noreferrer" className="text-[#9af8ea] underline">
+                Open
+              </a>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

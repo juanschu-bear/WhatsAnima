@@ -8,6 +8,7 @@ type MeetingSession = {
   token: string
   topic: string
   participants: Array<{ name: string; role: string }>
+  recording_url?: string | null
   owner?: {
     id: string
     display_name: string | null
@@ -40,6 +41,9 @@ export default function MeetingHost() {
   const [session, setSession] = useState<MeetingSession | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [hostJoinName, setHostJoinName] = useState('')
+  const [hostJoinRole, setHostJoinRole] = useState('Host')
+  const [joiningAsHost, setJoiningAsHost] = useState(false)
 
   useEffect(() => {
     if (!user) return
@@ -103,6 +107,18 @@ export default function MeetingHost() {
   }, [ownerOptions, selectedOwnerId])
 
   useEffect(() => {
+    const fullName = String(
+      user?.user_metadata?.full_name ||
+      [user?.user_metadata?.first_name, user?.user_metadata?.last_name].filter(Boolean).join(' ') ||
+      user?.email ||
+      '',
+    ).trim()
+    if (fullName && !hostJoinName.trim()) {
+      setHostJoinName(fullName)
+    }
+  }, [hostJoinName, user])
+
+  useEffect(() => {
     if (!session?.token) return
     const interval = window.setInterval(() => {
       void refreshParticipants()
@@ -150,6 +166,7 @@ export default function MeetingHost() {
       setSession((current) => current ? {
         ...current,
         participants: payload.meeting_context?.participants || [],
+        recording_url: payload.meeting_context?.recording_url || current.recording_url || null,
       } : current)
     } catch (refreshError) {
       setError(refreshError instanceof Error ? refreshError.message : 'Unable to refresh participants')
@@ -164,6 +181,42 @@ export default function MeetingHost() {
       setTimeout(() => setCopied(false), 1800)
     } catch {
       setError('Unable to copy invite link.')
+    }
+  }
+
+  async function joinAsHost() {
+    if (!session?.token) return
+    const name = hostJoinName.trim()
+    const role = hostJoinRole.trim() || 'Host'
+    if (!name) {
+      setError('Enter your name to join as host.')
+      return
+    }
+    setJoiningAsHost(true)
+    setError(null)
+    try {
+      const response = await fetch('/api/meeting-join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token: session.token,
+          name,
+          role,
+        }),
+      })
+      const payload = await response.json() as { error?: string; meeting_context?: MeetingSession }
+      if (!response.ok) throw new Error(payload.error || 'Unable to join as host')
+      if (payload.meeting_context) {
+        setSession((current) => current ? {
+          ...current,
+          participants: payload.meeting_context?.participants || [],
+          recording_url: payload.meeting_context?.recording_url || current.recording_url || null,
+        } : current)
+      }
+    } catch (joinError) {
+      setError(joinError instanceof Error ? joinError.message : 'Unable to join as host')
+    } finally {
+      setJoiningAsHost(false)
     }
   }
 
@@ -266,6 +319,33 @@ export default function MeetingHost() {
               </div>
 
               <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                <p className="text-[11px] uppercase tracking-[0.18em] text-white/45">Join as Host</p>
+                <p className="mt-1 text-sm text-white/60">Add yourself to the participant list before starting the call.</p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                  <input
+                    value={hostJoinName}
+                    onChange={(event) => setHostJoinName(event.target.value)}
+                    placeholder="Your name"
+                    className="rounded-xl border border-white/10 bg-[#08111a] px-3 py-2 text-sm text-white outline-none transition focus:border-[#00a884]/60"
+                  />
+                  <input
+                    value={hostJoinRole}
+                    onChange={(event) => setHostJoinRole(event.target.value)}
+                    placeholder="Your role"
+                    className="rounded-xl border border-white/10 bg-[#08111a] px-3 py-2 text-sm text-white outline-none transition focus:border-[#00a884]/60"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void joinAsHost()}
+                    disabled={joiningAsHost || !hostJoinName.trim()}
+                    className="rounded-xl border border-[#00a884]/40 bg-[#00a884]/20 px-3 py-2 text-sm font-semibold text-[#9af8ea] transition hover:bg-[#00a884]/28 disabled:opacity-60"
+                  >
+                    {joiningAsHost ? 'Joining...' : 'Join as Host'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                 <p className="text-[11px] uppercase tracking-[0.18em] text-white/45">Participants</p>
                 <div className="mt-3 space-y-2">
                   {session.participants?.length ? session.participants.map((participant, index) => (
@@ -278,6 +358,14 @@ export default function MeetingHost() {
                     </div>
                   )}
                 </div>
+                {session.recording_url ? (
+                  <div className="mt-3 rounded-xl border border-white/8 bg-[#091322] px-3 py-2 text-sm text-white/80">
+                    Latest recording:{' '}
+                    <a href={session.recording_url} target="_blank" rel="noreferrer" className="text-[#8feee0] underline">
+                      Open
+                    </a>
+                  </div>
+                ) : null}
               </div>
             </div>
           ) : null}

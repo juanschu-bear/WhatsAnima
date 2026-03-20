@@ -43,7 +43,7 @@ export default async function handler(req: any, res: any) {
       status: 'waiting',
       expires_at: expiresAt,
     })
-    .select('id, owner_id, token, topic, participants, status, created_at, expires_at')
+    .select('id, owner_id, token, topic, participants, status, created_at, expires_at, recording_url')
     .single()
 
   if (error) {
