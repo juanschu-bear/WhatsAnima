@@ -5,6 +5,15 @@ import { resolveAvatarUrl } from '../lib/avatars'
 
 type LanguageFilter = 'All' | 'English' | 'German' | 'Spanish'
 type AnalysisTab = 'voice' | 'video'
+type PersistedPerceptionFilters = {
+  avatarFilter: string
+  languageFilter: LanguageFilter
+  analysisTab: AnalysisTab
+  emotionFilter: string
+  ruleFilter: string
+  dateFrom: string
+  dateTo: string
+}
 
 interface OwnerRow {
   id: string
@@ -90,6 +99,7 @@ interface PerceptionDashboardPayload {
 }
 
 const LANGUAGE_OPTIONS: LanguageFilter[] = ['All', 'English', 'German', 'Spanish']
+const FILTER_STORAGE_KEY = 'wa_perception_filters_v1'
 
 const METRIC_CONFIG = [
   { key: 'speaking_rate_wps', label: 'Speaking Rate', unit: 'wps', reference: 'Normal: 1.5–2.5', accent: 'text-cyan-300', transform: (value: number) => value },
@@ -234,8 +244,32 @@ function ruleLabel(value: string, fallback?: string | null) {
 }
 
 function normalizeRules(value: unknown): Array<{ rawName: string; name: string; confidence: number | null; category: string | null; interpretation: string | null }> {
-  if (!Array.isArray(value)) return []
-  return value
+  const candidates: unknown[] = Array.isArray(value)
+    ? value
+    : value && typeof value === 'object'
+      ? (() => {
+          const obj = value as Record<string, unknown>
+          if (Array.isArray(obj.fired_rules)) return obj.fired_rules
+          if (obj.session_analysis && typeof obj.session_analysis === 'object') {
+            const session = obj.session_analysis as Record<string, unknown>
+            const echoRules = session.echo_rules as Record<string, unknown> | undefined
+            if (echoRules && Array.isArray(echoRules.fired_rules)) return echoRules.fired_rules
+            const crossModalRules = session.cross_modal_rules as Record<string, unknown> | undefined
+            if (crossModalRules && Array.isArray(crossModalRules.fired_rules)) return crossModalRules.fired_rules
+          }
+          return []
+        })()
+      : typeof value === 'string' && value.trim()
+        ? (() => {
+            try {
+              return normalizeRules(JSON.parse(value))
+            } catch {
+              return []
+            }
+          })()
+        : []
+
+  return candidates
     .map((item) => {
       if (typeof item === 'string') {
         const rawName = normalizeKey(item)
@@ -250,6 +284,12 @@ function normalizeRules(value: unknown): Array<{ rawName: string; name: string; 
             ? obj.rule
             : typeof obj.label === 'string'
               ? obj.label
+              : typeof obj.rule_id === 'string'
+                ? obj.rule_id
+                : typeof obj.rule_name === 'string'
+                  ? obj.rule_name
+                  : typeof obj.key === 'string'
+                    ? obj.key
               : ''
       ).trim()
       const name = titleCase(
@@ -273,6 +313,25 @@ function categoryLabel(value: string | null | undefined) {
   const raw = (value || '').trim()
   if (!raw) return 'Uncategorized'
   return titleCase(raw.replace(/_/g, ' '), 'Uncategorized')
+}
+
+function loadPersistedFilters(): PersistedPerceptionFilters | null {
+  try {
+    const raw = localStorage.getItem(FILTER_STORAGE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Partial<PersistedPerceptionFilters>
+    return {
+      avatarFilter: typeof parsed.avatarFilter === 'string' && parsed.avatarFilter ? parsed.avatarFilter : 'All',
+      languageFilter: parsed.languageFilter === 'English' || parsed.languageFilter === 'German' || parsed.languageFilter === 'Spanish' ? parsed.languageFilter : 'All',
+      analysisTab: parsed.analysisTab === 'video' ? 'video' : 'voice',
+      emotionFilter: typeof parsed.emotionFilter === 'string' && parsed.emotionFilter ? parsed.emotionFilter : 'All',
+      ruleFilter: typeof parsed.ruleFilter === 'string' && parsed.ruleFilter ? parsed.ruleFilter : 'All',
+      dateFrom: typeof parsed.dateFrom === 'string' ? parsed.dateFrom : '',
+      dateTo: typeof parsed.dateTo === 'string' ? parsed.dateTo : '',
+    }
+  } catch {
+    return null
+  }
 }
 
 function topicAnchor(transcript: string) {
@@ -549,13 +608,14 @@ export default function Perception() {
   const [error, setError] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
-  const [avatarFilter, setAvatarFilter] = useState('All')
-  const [languageFilter, setLanguageFilter] = useState<LanguageFilter>('All')
-  const [analysisTab, setAnalysisTab] = useState<AnalysisTab>('voice')
-  const [emotionFilter, setEmotionFilter] = useState('All')
-  const [ruleFilter, setRuleFilter] = useState('All')
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
+  const persistedFilters = useMemo(() => loadPersistedFilters(), [])
+  const [avatarFilter, setAvatarFilter] = useState(() => persistedFilters?.avatarFilter || 'All')
+  const [languageFilter, setLanguageFilter] = useState<LanguageFilter>(() => persistedFilters?.languageFilter || 'All')
+  const [analysisTab, setAnalysisTab] = useState<AnalysisTab>(() => persistedFilters?.analysisTab || 'voice')
+  const [emotionFilter, setEmotionFilter] = useState(() => persistedFilters?.emotionFilter || 'All')
+  const [ruleFilter, setRuleFilter] = useState(() => persistedFilters?.ruleFilter || 'All')
+  const [dateFrom, setDateFrom] = useState(() => persistedFilters?.dateFrom || '')
+  const [dateTo, setDateTo] = useState(() => persistedFilters?.dateTo || '')
 
   useEffect(() => {
     if (!user) {
@@ -602,7 +662,10 @@ export default function Perception() {
           const message = log.message_id ? messageById.get(log.message_id) : null
           const transcript = (log.transcript || message?.content || '').trim()
           const avatarName = owner?.display_name?.trim() || 'Avatar'
-          const firedRules = normalizeRules(log.fired_rules)
+          const primaryRules = normalizeRules(log.fired_rules)
+          const firedRules = primaryRules.length > 0
+            ? primaryRules
+            : normalizeRules(log.prosodic_summary)
           return {
             id: log.id,
             createdAt: log.created_at,
@@ -661,6 +724,41 @@ export default function Perception() {
     () => ['All', ...Array.from(new Set(entries.flatMap((entry) => entry.firedRules.map((rule) => rule.category || rule.name)).filter(Boolean))).sort()],
     [entries],
   )
+
+  useEffect(() => {
+    const payload: PersistedPerceptionFilters = {
+      avatarFilter,
+      languageFilter,
+      analysisTab,
+      emotionFilter,
+      ruleFilter,
+      dateFrom,
+      dateTo,
+    }
+    try {
+      localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(payload))
+    } catch {
+      // Ignore storage failures in private mode / blocked storage.
+    }
+  }, [analysisTab, avatarFilter, dateFrom, dateTo, emotionFilter, languageFilter, ruleFilter])
+
+  useEffect(() => {
+    if (avatarFilter !== 'All' && !avatarOptions.includes(avatarFilter)) {
+      setAvatarFilter('All')
+    }
+  }, [avatarFilter, avatarOptions])
+
+  useEffect(() => {
+    if (emotionFilter !== 'All' && !emotionOptions.includes(emotionFilter)) {
+      setEmotionFilter('All')
+    }
+  }, [emotionFilter, emotionOptions])
+
+  useEffect(() => {
+    if (ruleFilter !== 'All' && !ruleOptions.includes(ruleFilter)) {
+      setRuleFilter('All')
+    }
+  }, [ruleFilter, ruleOptions])
 
   const filteredEntries = useMemo(() => {
     return entries.filter((entry) => {
@@ -913,16 +1011,16 @@ export default function Perception() {
               {selectedEntry ? (
                 <div className="space-y-5">
                   <section className="rounded-[30px] border border-white/8 bg-[linear-gradient(180deg,rgba(8,18,28,0.94),rgba(4,10,18,0.98))] p-5 shadow-[0_30px_100px_rgba(0,0,0,0.32)] sm:p-6">
-                    <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-                      <div className="flex items-center gap-4">
+                    <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between lg:gap-6">
+                      <div className="flex min-w-0 items-center gap-4 lg:flex-1">
                         <img src={selectedEntry.avatarImage} alt={selectedEntry.avatarName} className="h-16 w-16 rounded-[24px] object-cover ring-1 ring-white/10" />
-                        <div>
+                        <div className="min-w-0">
                           <p className="text-[11px] uppercase tracking-[0.24em] text-white/35">Selected Log</p>
-                          <h2 className="mt-1 text-2xl font-semibold tracking-[-0.03em] text-white">{selectedEntry.avatarName}</h2>
-                          <p className="mt-1 text-sm text-white/58">{selectedEntry.contactName} · {new Date(selectedEntry.createdAt).toLocaleString()}</p>
+                          <h2 className="mt-1 truncate text-2xl font-semibold tracking-[-0.03em] text-white">{selectedEntry.avatarName}</h2>
+                          <p className="mt-1 truncate text-sm text-white/58">{selectedEntry.contactName} · {new Date(selectedEntry.createdAt).toLocaleString()}</p>
                         </div>
                       </div>
-                      <div className="grid gap-3 sm:grid-cols-3">
+                      <div className="grid w-full gap-3 sm:grid-cols-2 xl:w-auto xl:max-w-[760px] xl:grid-cols-3">
                         {[
                           { label: 'Primary Emotion', value: selectedEntry.primaryEmotion, style: emotionStyle(selectedEntry.primaryEmotion) },
                           { label: 'Secondary Emotion', value: selectedEntry.secondaryEmotion, style: emotionStyle(selectedEntry.secondaryEmotion) },
