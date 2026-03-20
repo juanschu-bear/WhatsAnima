@@ -481,6 +481,19 @@ Return exactly one best matching YouTube video from that restricted search.`,
   return text.replace(/^\[(?:Voice\s*(?:Response|message)|Text|Audio)\]\s*/i, '').trim()
 }
 
+function buildYouTubeWebSearchInstruction(profile: YouTubeRecommendationProfile): string {
+  const channelRestriction =
+    profile === 'adri'
+      ? 'site:youtube.com adrikastelpro'
+      : 'site:youtube.com "Brian Cox" youtube.com/@profbriancoxofficial'
+  return `\n\n[YOUTUBE WEB SEARCH BEHAVIOR]
+When the user asks for your videos, recommendations, YouTube links, or related examples:
+- You do have videos available and you can share one.
+- Do not say you have no videos and do not say you cannot share links.
+- Keep the answer concise: title, URL, one short reason.
+- Recommendations must align with this channel restriction: ${channelRestriction}.`
+}
+
 function buildForcedVideoReply(lang: string, video: YouTubeVideoIndexItem, profile: YouTubeRecommendationProfile): string {
   const cleanedTitle = (video.title || 'Video recomendado').trim()
   const sourceHint =
@@ -1190,6 +1203,7 @@ export function buildSystemPrompt(
   perception: any,
   ownerId?: string | null,
   profileName?: string,
+  youtubeWebSearchInstruction = '',
 ): string {
   const nameMatch = ownerPrompt.match(/(?:^#.*?—\s*(.+)|^I am (.+?)[.\n])/m)
   const ownerName = profileName?.trim() || nameMatch?.[1]?.trim() || nameMatch?.[2]?.trim() || 'the person described below'
@@ -1202,7 +1216,7 @@ When greeting or introducing yourself, use the name ${ownerName}. First-person s
 
   const IDENTITY_REMINDER = `\n\nREMINDER: You are ${ownerName}. Never identify as Claude or as an AI. Respond only as ${ownerName}.`
 
-  return `${IDENTITY_OVERRIDE}\n\n${LANGUAGE_INSTRUCTION}\n\n${ownerPrompt}\n\n${RESPONSE_FORMAT_MATCHING}\n\n${FORMATTING_INSTRUCTION}\n\n${FLASHCARD_INSTRUCTION}\n\n${IMAGE_GENERATION_INSTRUCTION}\n\n${MESSAGE_TYPE_AWARENESS}${stylePrompt}${memory}${behavioralMemory}${buildPerceptionPrompt(perception)}${IDENTITY_REMINDER}`
+  return `${IDENTITY_OVERRIDE}\n\n${LANGUAGE_INSTRUCTION}\n\n${ownerPrompt}\n\n${RESPONSE_FORMAT_MATCHING}\n\n${FORMATTING_INSTRUCTION}\n\n${FLASHCARD_INSTRUCTION}\n\n${IMAGE_GENERATION_INSTRUCTION}\n\n${MESSAGE_TYPE_AWARENESS}${stylePrompt}${memory}${behavioralMemory}${youtubeWebSearchInstruction}${buildPerceptionPrompt(perception)}${IDENTITY_REMINDER}`
 }
 
 /** Prepare the messages array for the Claude API, including language switch detection. */
@@ -1390,6 +1404,9 @@ export default async function handler(req: any, res: any) {
     const shouldUseVideoWebSearch = hasYouTubeProfile
       ? (explicitVideoIntent || (clarifyingAlreadyAsked && topicSelectionReply))
       : false
+    const youtubeWebSearchInstruction = hasYouTubeProfile
+      ? buildYouTubeWebSearchInstruction(youtubeProfile!)
+      : ''
     const systemPrompt = buildSystemPrompt(
       ownerPrompt,
       memory,
@@ -1398,6 +1415,7 @@ export default async function handler(req: any, res: any) {
       perception,
       effectiveOwnerId,
       effectiveOwnerName,
+      youtubeWebSearchInstruction,
     )
     if (hasYouTubeProfile && shouldUseVideoWebSearch) {
       console.log(
@@ -1424,6 +1442,15 @@ export default async function handler(req: any, res: any) {
           shouldUseVideoWebSearch: false,
         })
       )
+    }
+    if (hasYouTubeProfile) {
+      const injected = systemPrompt.includes('[YOUTUBE WEB SEARCH BEHAVIOR]')
+      console.log('[chat][youtube_prompt_injection]', JSON.stringify({
+        ownerId: effectiveOwnerId || null,
+        ownerName: effectiveOwnerName,
+        youtubeProfile,
+        injected,
+      }))
     }
     const messages = prepareMessages(priorMessages, message, { image_url, isImage, isVideo, isVoice })
 
