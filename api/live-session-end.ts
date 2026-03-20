@@ -15,6 +15,7 @@ export default async function handler(req: any, res: any) {
   const sessionId = String(body.sessionId || '').trim()
   const ownerId = typeof body.ownerId === 'string' ? body.ownerId.trim() : ''
   const conversationId = typeof body.conversationId === 'string' ? body.conversationId.trim() : ''
+  const meetingToken = typeof body.meetingToken === 'string' ? body.meetingToken.trim() : ''
   const endReason = String(body.reason || body.endReason || 'client_cleanup').trim()
 
   if (!sessionId) {
@@ -102,6 +103,18 @@ export default async function handler(req: any, res: any) {
         detail: failed.join(' | '),
       })
     }
+
+    if (supabase && meetingToken) {
+      await supabase
+        .from('wa_meeting_sessions')
+        .update({
+          status: 'ended',
+          live_session_id: null,
+          live_join_url: null,
+        })
+        .eq('token', meetingToken)
+    }
+
     return res.status(200).json({
       ok: true,
       sessionId,

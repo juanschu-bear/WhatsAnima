@@ -71,6 +71,50 @@ function buildMeetingPrompt(topic: string, participants: Array<{ name: string; r
   ].join('\n')
 }
 
+type MeetingSessionRow = {
+  id: string
+  owner_id: string | null
+  token: string
+  topic: string | null
+  participants: unknown
+  expires_at: string | null
+  live_session_id?: string | null
+  live_join_url?: string | null
+}
+
+async function loadMeetingSession(supabase: any, meetingToken: string): Promise<{ meeting: MeetingSessionRow | null; error: string | null }> {
+  const primary = await supabase
+    .from('wa_meeting_sessions')
+    .select('id, owner_id, token, topic, participants, expires_at, live_session_id, live_join_url')
+    .eq('token', meetingToken)
+    .maybeSingle()
+
+  if (!primary.error) {
+    return { meeting: primary.data as MeetingSessionRow | null, error: null }
+  }
+
+  const fallback = await supabase
+    .from('wa_meeting_sessions')
+    .select('id, owner_id, token, topic, participants, expires_at')
+    .eq('token', meetingToken)
+    .maybeSingle()
+
+  if (fallback.error) {
+    return { meeting: null, error: fallback.error.message || 'Failed to load meeting context' }
+  }
+
+  return {
+    meeting: fallback.data
+      ? {
+          ...(fallback.data as MeetingSessionRow),
+          live_session_id: null,
+          live_join_url: null,
+        }
+      : null,
+    error: null,
+  }
+}
+
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST')
@@ -222,22 +266,39 @@ export default async function handler(req: any, res: any) {
     }
   }
 
+  let activeMeetingRoom: { sessionId: string; joinUrl: string } | null = null
+  let meetingSessionIdToPersist: string | null = null
+
   if (supabase && meetingToken) {
     try {
-      const { data: meeting, error: meetingError } = await supabase
-        .from('wa_meeting_sessions')
-        .select('id, owner_id, token, topic, participants, expires_at')
-        .eq('token', meetingToken)
-        .maybeSingle()
-
+      const { meeting, error: meetingError } = await loadMeetingSession(supabase, meetingToken)
       if (meetingError) {
-        return res.status(500).json({ error: meetingError.message || 'Failed to load meeting context' })
+        return res.status(500).json({ error: meetingError })
       }
       if (!meeting) {
         return res.status(404).json({ error: 'Meeting session not found' })
       }
       if (meeting.expires_at && new Date(meeting.expires_at).getTime() < Date.now()) {
         return res.status(410).json({ error: 'Meeting session has expired' })
+      }
+      meetingSessionIdToPersist = meeting.id
+
+      const liveSessionId = String(meeting.live_session_id || '').trim()
+      const liveJoinUrl = String(meeting.live_join_url || '').trim()
+      if (liveSessionId && liveJoinUrl) {
+        const { data: existingLive } = await supabase
+          .from('wa_tavus_sessions')
+          .select('session_id, status, ended_at')
+          .eq('session_id', liveSessionId)
+          .maybeSingle()
+        const isActive = Boolean(existingLive?.session_id) && !existingLive?.ended_at && String(existingLive?.status || 'started') !== 'ended'
+        if (isActive) {
+          activeMeetingRoom = { sessionId: liveSessionId, joinUrl: liveJoinUrl }
+          console.log('[video-call] reusing_meeting_room', {
+            meetingToken,
+            sessionId: liveSessionId,
+          })
+        }
       }
 
       const participants = normalizeMeetingParticipants(meeting.participants)
@@ -255,6 +316,8 @@ export default async function handler(req: any, res: any) {
         topic: meeting.topic || '',
         participants,
       }
+      requestBody.group_call = true
+      requestBody.daily_room_mode = 'group'
       if (!requestBody.owner_id && meeting.owner_id) {
         requestBody.owner_id = meeting.owner_id
       }
@@ -272,6 +335,15 @@ export default async function handler(req: any, res: any) {
       promptFirst300: String(requestBody.system_prompt_append || requestBody.language_instruction || '').slice(0, 300),
     })
 
+    if (activeMeetingRoom) {
+      return res.status(200).json({
+        session_id: activeMeetingRoom.sessionId,
+        join_url: activeMeetingRoom.joinUrl,
+        status: 'ready',
+        meeting_shared_room: true,
+      })
+    }
+
     const response = await fetch(`${backendBaseUrl}/api/sessions/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -283,6 +355,18 @@ export default async function handler(req: any, res: any) {
 
     if (!response.ok) {
       return res.status(response.status).json(payload)
+    }
+
+    if (supabase && meetingToken && meetingSessionIdToPersist && payload?.session_id && payload?.join_url) {
+      await supabase
+        .from('wa_meeting_sessions')
+        .update({
+          status: 'live',
+          live_session_id: String(payload.session_id),
+          live_join_url: String(payload.join_url),
+          live_started_at: new Date().toISOString(),
+        })
+        .eq('id', meetingSessionIdToPersist)
     }
 
     if (supabase && payload?.session_id) {

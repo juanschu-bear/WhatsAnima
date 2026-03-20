@@ -183,6 +183,7 @@ export default function VideoCall() {
   const [joinUrl, setJoinUrl] = useState<string | null>(null)
   const [localParticipant, setLocalParticipant] = useState<any>(null)
   const [remoteParticipant, setRemoteParticipant] = useState<any>(null)
+  const [meetingHostControl, setMeetingHostControl] = useState(false)
 
   const callObjectRef = useRef<ReturnType<typeof DailyIframe.createCallObject> | null>(null)
   const localVideoRef = useRef<HTMLVideoElement | null>(null)
@@ -225,12 +226,14 @@ export default function VideoCall() {
   }
 
   function beaconSessionEnd(reason: string) {
+    if (isMeetingMode && !meetingHostControl) return
     const currentSessionId = sessionIdRef.current
     if (!currentSessionId || endingSessionRef.current) return
     endingSessionRef.current = true
     const payload = JSON.stringify({
       sessionId: currentSessionId,
       conversationId,
+      meetingToken: meetingToken || null,
       ownerId: conversation?.owner_id ?? conversation?.wa_owners?.id ?? null,
       personaName: personaOverrideEnabled ? selectedPersona : conversation?.wa_owners?.display_name || 'MAXIM',
       replicaId: conversation?.wa_owners?.tavus_replica_id?.trim() || FALLBACK_REPLICA_ID,
@@ -260,6 +263,7 @@ export default function VideoCall() {
         body: JSON.stringify({
           sessionId: currentSessionId,
           conversationId,
+          meetingToken: meetingToken || null,
           ownerId: conversation?.owner_id ?? conversation?.wa_owners?.id ?? null,
           personaName: personaOverrideEnabled ? selectedPersona : conversation?.wa_owners?.display_name || 'MAXIM',
           replicaId: conversation?.wa_owners?.tavus_replica_id?.trim() || FALLBACK_REPLICA_ID,
@@ -293,6 +297,8 @@ export default function VideoCall() {
           })
           .then((parsed) => {
             if (!parsed || cancelled) return
+            const selfRole = String(parsed.self?.role || '').trim().toLowerCase()
+            setMeetingHostControl(selfRole === 'host' || selfRole === 'organizer')
             const ownerId = String(parsed.owner?.id || '').trim() || 'meeting-owner'
             const syntheticConversationId = conversationId || `meeting-${meetingToken}`
             setConversation({
@@ -335,8 +341,10 @@ export default function VideoCall() {
             display_name?: string | null
             tavus_replica_id?: string | null
           } | null
-          self?: { name?: string } | null
+          self?: { name?: string; role?: string } | null
         }
+        const selfRole = String(parsed.self?.role || '').trim().toLowerCase()
+        setMeetingHostControl(selfRole === 'host' || selfRole === 'organizer')
         const ownerId = String(parsed.owner?.id || '').trim() || 'meeting-owner'
         const syntheticConversationId = conversationId || `meeting-${meetingToken}`
         setConversation({
@@ -562,7 +570,8 @@ export default function VideoCall() {
     setPhase((current) => (current === 'error' ? current : 'starting'))
 
     const stopRecordingPromise = recordingActive ? toggleRecording(true) : Promise.resolve()
-    const endSessionPromise = endBackendSession('leave_button')
+    const shouldEndMeetingSession = !isMeetingMode || meetingHostControl
+    const endSessionPromise = shouldEndMeetingSession ? endBackendSession('leave_button') : Promise.resolve()
     const leaveRoomPromise = (async () => {
       if (!callObject) return
       await callObject.leave().catch(() => undefined)
@@ -712,13 +721,15 @@ export default function VideoCall() {
       callObject.on('joined-meeting', (event: any) => handleParticipantChange('joined-meeting', event))
       callObject.on('left-meeting', (event: any) => {
         logEvent('left-meeting', event)
-        void endBackendSession('left_meeting')
+        if (!isMeetingMode || meetingHostControl) {
+          void endBackendSession('left_meeting')
+        }
       })
       callObject.on('participant-joined', (event: any) => handleParticipantChange('participant-joined', event))
       callObject.on('participant-updated', (event: any) => handleParticipantChange('participant-updated', event))
       callObject.on('participant-left', (event: any) => {
         handleParticipantChange('participant-left', event)
-        if (event?.participant && !event.participant?.local && !isPipecatParticipant(event.participant)) {
+        if (!isMeetingMode && event?.participant && !event.participant?.local && !isPipecatParticipant(event.participant)) {
           void endBackendSession('participant_left')
         }
       })
