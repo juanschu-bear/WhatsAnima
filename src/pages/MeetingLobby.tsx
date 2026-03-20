@@ -27,6 +27,20 @@ export default function MeetingLobby() {
   const [meeting, setMeeting] = useState<MeetingContext | null>(null)
 
   useEffect(() => {
+    const enforceIframeAllow = () => {
+      const iframes = Array.from(document.querySelectorAll('iframe'))
+      for (const iframe of iframes) {
+        const src = String(iframe.getAttribute('src') || '')
+        if (!src.includes('daily.co')) continue
+        iframe.setAttribute('allow', 'camera; microphone; fullscreen; display-capture')
+      }
+    }
+    enforceIframeAllow()
+    const interval = window.setInterval(enforceIframeAllow, 800)
+    return () => window.clearInterval(interval)
+  }, [])
+
+  useEffect(() => {
     if (!meetingToken) {
       setLoading(false)
       setError('Missing meeting token.')

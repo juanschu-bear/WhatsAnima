@@ -143,6 +143,19 @@ function pickAvatarParticipant(participants: any[]) {
   return visibleRemotes.find((participant) => getParticipantTrack(participant, 'video')) ?? visibleRemotes[0] ?? null
 }
 
+const DAILY_IFRAME_ALLOW = 'camera; microphone; fullscreen; display-capture'
+
+function enforceDailyIframePermissions() {
+  if (typeof document === 'undefined') return
+  const iframes = Array.from(document.querySelectorAll('iframe'))
+  for (const iframe of iframes) {
+    const src = String(iframe.getAttribute('src') || '')
+    const title = String(iframe.getAttribute('title') || '')
+    if (!src.includes('daily.co') && !title.toLowerCase().includes('daily')) continue
+    iframe.setAttribute('allow', DAILY_IFRAME_ALLOW)
+  }
+}
+
 export default function VideoCall() {
   const navigate = useNavigate()
   const { conversationId } = useParams<{ conversationId: string }>()
@@ -267,9 +280,53 @@ export default function VideoCall() {
     if (isMeetingMode) {
       const raw = sessionStorage.getItem(`wa_meeting_context:${meetingToken}`)
       if (!raw) {
-        setError('Meeting context missing. Please rejoin from the meeting link.')
-        setLoadingConversation(false)
-        return
+        let cancelled = false
+        fetch(`/api/meeting-join?token=${encodeURIComponent(meetingToken)}`)
+          .then(async (response) => {
+            const payload = await response.json() as { error?: string; meeting_context?: any }
+            if (!response.ok || !payload.meeting_context) {
+              throw new Error(payload.error || 'Meeting context missing. Please rejoin from the meeting link.')
+            }
+            if (cancelled) return null
+            sessionStorage.setItem(`wa_meeting_context:${meetingToken}`, JSON.stringify(payload.meeting_context))
+            return payload.meeting_context
+          })
+          .then((parsed) => {
+            if (!parsed || cancelled) return
+            const ownerId = String(parsed.owner?.id || '').trim() || 'meeting-owner'
+            const syntheticConversationId = conversationId || `meeting-${meetingToken}`
+            setConversation({
+              id: syntheticConversationId,
+              owner_id: ownerId,
+              contact_id: `meeting-${meetingToken}`,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+              wa_owners: {
+                id: ownerId,
+                display_name: parsed.owner?.display_name || 'Avatar',
+                email: null,
+                voice_id: null,
+                tavus_replica_id: parsed.owner?.tavus_replica_id || null,
+                system_prompt: null,
+                settings: null,
+                bio: null,
+                expertise: null,
+              },
+              wa_contacts: {
+                id: `meeting-${meetingToken}`,
+                display_name: parsed.self?.name || 'Guest',
+                email: null,
+              },
+            } as ConversationData)
+          })
+          .catch((loadError) => {
+            if (cancelled) return
+            setError(loadError instanceof Error ? loadError.message : 'Meeting context missing. Please rejoin from the meeting link.')
+          })
+          .finally(() => {
+            if (!cancelled) setLoadingConversation(false)
+          })
+        return () => { cancelled = true }
       }
       try {
         const parsed = JSON.parse(raw) as {
@@ -515,7 +572,7 @@ export default function VideoCall() {
     await Promise.allSettled([stopRecordingPromise, endSessionPromise, leaveRoomPromise])
 
     if (isMeetingMode) {
-      navigate(`/meeting/${encodeURIComponent(meetingToken)}`, { replace: true })
+      navigate('/meeting-host', { replace: true })
       return
     }
 
@@ -568,6 +625,7 @@ export default function VideoCall() {
     setLocalParticipant(null)
     setPhase('starting')
     setStatusText('Connecting...')
+    let permissionInterval: number | null = null
 
     try {
       const languageCode = normalizeLanguageCode(languageRef.current)
@@ -678,11 +736,21 @@ export default function VideoCall() {
         setPhase('error')
       })
 
+      enforceDailyIframePermissions()
+      permissionInterval = window.setInterval(() => {
+        enforceDailyIframePermissions()
+      }, 500)
       await callObject.join({ url: payload.join_url })
+      if (permissionInterval) window.clearInterval(permissionInterval)
+      permissionInterval = null
+      enforceDailyIframePermissions()
       await callObject.setLocalAudio(isMicEnabled)
       await callObject.setLocalVideo(isCameraEnabled)
       syncParticipants(callObject, 'post-join')
     } catch (startError) {
+      if (permissionInterval) {
+        window.clearInterval(permissionInterval)
+      }
       const failedCall = callObjectRef.current
       callObjectRef.current = null
       if (failedCall) {
@@ -776,15 +844,16 @@ export default function VideoCall() {
   }
 
   if (!conversation) {
+    const backRoute = isMeetingMode ? '/meeting-host' : '/'
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-[#04080f] px-6 text-center text-white">
         <p className="text-lg font-semibold">Conversation not found.</p>
         <button
           type="button"
-          onClick={() => navigate('/', { replace: true })}
+          onClick={() => navigate(backRoute, { replace: true })}
           className="mt-5 rounded-full border border-white/12 bg-white/6 px-5 py-2.5 text-sm text-white/80 transition hover:bg-white/10"
         >
-          Back home
+          {isMeetingMode ? 'Back to meeting host' : 'Back home'}
         </button>
       </div>
     )

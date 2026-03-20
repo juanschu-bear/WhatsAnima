@@ -220,6 +220,28 @@ export default function MeetingHost() {
     }
   }
 
+  function startLiveCall() {
+    if (!session?.token || !selectedOwnerId) return
+    const selectedOwner = ownerOptions.find((item) => item.id === selectedOwnerId)
+    const selfName = hostJoinName.trim() || String(user?.user_metadata?.full_name || user?.email || 'Host')
+    const selfRole = hostJoinRole.trim() || 'Host'
+    sessionStorage.setItem(`wa_meeting_context:${session.token}`, JSON.stringify({
+      token: session.token,
+      topic: session.topic || '',
+      participants: session.participants || [],
+      owner: {
+        id: selectedOwnerId,
+        display_name: selectedOwner?.display_name || ownerName,
+        tavus_replica_id: null,
+      },
+      self: {
+        name: selfName,
+        role: selfRole,
+      },
+    }))
+    navigate(`/video-call/meeting-${session.token}?meeting_token=${encodeURIComponent(session.token)}`)
+  }
+
   return (
     <div className="brand-scene min-h-[100dvh] px-4 py-8 text-white sm:px-6">
       <div className="relative z-10 mx-auto max-w-4xl">
@@ -309,7 +331,7 @@ export default function MeetingHost() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => navigate(`/video-call/meeting-${session.token}?meeting_token=${encodeURIComponent(session.token)}`)}
+                    onClick={startLiveCall}
                     disabled={participantCount < 1}
                     className="rounded-xl bg-[#00a884] px-3 py-2 text-xs font-semibold text-[#08111a] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
                   >
