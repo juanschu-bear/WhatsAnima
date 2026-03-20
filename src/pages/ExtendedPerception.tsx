@@ -489,11 +489,6 @@ export default function ExtendedPerception() {
 
   const corr = useMemo(() => correlation(warmthSeries, facialSeries), [facialSeries, warmthSeries])
 
-  const incongruenceEvents = useMemo(
-    () => filteredEntries.filter((entry) => entry.incongruence).slice(0, 8),
-    [filteredEntries],
-  )
-
   const engineNodes: EngineNode[] = useMemo(
     () => [
       {
@@ -727,110 +722,103 @@ export default function ExtendedPerception() {
           <div className="mt-6">
             {selected ? (
               <main className="space-y-6">
-                <section className="overflow-hidden rounded-[38px] border border-cyan-300/18 bg-[linear-gradient(180deg,rgba(7,16,29,0.96),rgba(3,9,16,0.985))] shadow-[0_42px_160px_rgba(0,0,0,0.56)]">
-                  <div className="flex items-center justify-between border-b border-white/8 px-5 py-4 sm:px-7">
+                <section className="overflow-hidden rounded-[40px] border border-cyan-300/14 bg-[linear-gradient(180deg,rgba(5,12,23,0.98),rgba(3,8,16,0.99))] shadow-[0_48px_160px_rgba(0,0,0,0.58)]">
+                  <div className="flex items-center justify-between border-b border-white/6 px-5 py-4 sm:px-7">
                     <div>
-                      <p className="font-mono text-[11px] uppercase tracking-[0.42em] text-cyan-100/42">Oracle / Pattern Recognition</p>
-                      <h2 className="mt-2 text-[2rem] font-semibold tracking-[0.04em] text-white sm:text-[2.4rem]">Crossmodal monitoring system</h2>
+                      <p className="font-mono text-[11px] uppercase tracking-[0.42em] text-cyan-100/38">Oracle / Pattern Recognition</p>
+                      <p className="mt-2 text-[2.15rem] font-semibold tracking-[0.03em] text-white sm:text-[2.6rem]">Crossmodal monitoring system</p>
                     </div>
                     <div className="text-right">
-                      <p className={`font-mono text-[13px] uppercase tracking-[0.18em] ${strongFlag ? 'text-rose-300' : 'text-emerald-300'}`}>{strongFlag ? 'Incongruence flagged' : 'Pattern stable'}</p>
-                      <p className="mt-2 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 font-mono text-sm text-white/62">{selectedMoment}</p>
+                      <p className={`font-mono text-[13px] uppercase tracking-[0.22em] ${strongFlag ? 'text-rose-300' : 'text-emerald-300'}`}>{strongFlag ? 'Incongruence flagged' : 'Pattern stable'}</p>
+                      <p className="mt-2 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 font-mono text-sm text-white/58">{selectedMoment}</p>
                     </div>
                   </div>
 
-                  <div className="grid gap-0 xl:grid-cols-[420px_minmax(0,1fr)]">
-                    <div className="border-b border-white/8 xl:border-b-0 xl:border-r border-white/8">
-                      <div className="p-5 sm:p-6">
-                        <div className="relative overflow-hidden rounded-[28px] border border-cyan-300/16 bg-[radial-gradient(circle_at_48%_16%,rgba(86,203,255,0.18),transparent_25%),linear-gradient(180deg,#0a1725_0%,#040b14_100%)] shadow-[inset_0_0_0_1px_rgba(133,220,255,0.04)]">
-                          <div className="absolute inset-0 bg-[linear-gradient(transparent_0%,rgba(115,223,255,0.04)_49%,transparent_50%,transparent_100%)] bg-[length:100%_18px] opacity-60" />
-                          <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,transparent_0%,rgba(2,8,16,0.16)_55%,rgba(2,8,16,0.84)_100%)]" />
+                  <div className="grid xl:grid-cols-[420px_minmax(0,1fr)]">
+                    <div className="border-b border-white/6 xl:border-b-0 xl:border-r xl:border-white/6">
+                      <div className="space-y-4 p-5 sm:p-6">
+                        <div className="relative overflow-hidden rounded-[30px] border border-cyan-300/14 bg-[radial-gradient(circle_at_50%_12%,rgba(81,198,255,0.18),transparent_25%),linear-gradient(180deg,#0a1525_0%,#050a12_100%)] shadow-[inset_0_0_0_1px_rgba(135,222,255,0.04)]">
+                          <div className="absolute inset-0 bg-[linear-gradient(transparent_0%,rgba(103,222,255,0.035)_49%,transparent_50%,transparent_100%)] bg-[length:100%_18px] opacity-70" />
                           {selected.mediaUrl && selected.mediaType === 'video' ? (
                             <video src={selected.mediaUrl} controls playsInline className="relative z-10 aspect-[4/5] w-full bg-black object-cover" />
                           ) : (
-                            <div className="relative z-10 aspect-[4/5]">
-                              <img src={selected.avatarImage} alt={selected.avatarName} className="h-full w-full object-cover opacity-74" />
-                            </div>
+                            <img src={selected.avatarImage} alt={selected.avatarName} className="relative z-10 aspect-[4/5] w-full object-cover opacity-78" />
                           )}
-                          <div className="absolute inset-x-4 top-4 z-20 flex items-center justify-between gap-3">
-                            <div className="rounded-full border border-cyan-200/18 bg-[#091321]/82 px-3 py-1 font-mono text-[11px] uppercase tracking-[0.22em] text-cyan-100/74">
-                              Live subject frame
-                            </div>
-                            <div className="rounded-full border border-white/12 bg-black/22 px-3 py-1 font-mono text-[11px] uppercase tracking-[0.18em] text-white/62">
-                              {selected.mediaType}
-                            </div>
+                          <div className="absolute inset-x-4 top-4 z-20 flex items-center justify-between">
+                            <div className="rounded-full border border-cyan-200/20 bg-[#0a1322]/80 px-3 py-1 font-mono text-[11px] uppercase tracking-[0.24em] text-cyan-100/76">Live subject frame</div>
+                            <div className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-1 font-mono text-[11px] uppercase tracking-[0.18em] text-white/64">{selected.mediaType}</div>
                           </div>
-                          <div className="absolute inset-x-5 bottom-5 z-20 rounded-[22px] border border-white/12 bg-black/34 px-4 py-3 backdrop-blur-md">
-                            <p className="text-2xl font-semibold tracking-[0.04em] text-white">{selected.avatarName}</p>
-                            <p className="mt-1 text-sm text-cyan-100/72">{selected.contactName} / {selectedMoment}</p>
+                          <div className="absolute inset-x-4 bottom-4 z-20 rounded-[22px] border border-white/12 bg-[#0a1020]/76 px-4 py-4 backdrop-blur-md">
+                            <p className="text-[2rem] font-semibold tracking-[0.02em] text-white">{selected.avatarName}</p>
+                            <p className="mt-1 text-lg text-cyan-100/68">{selected.contactName} / {selectedMoment}</p>
                           </div>
                         </div>
 
-                        <div className="mt-5 grid gap-3">
-                          {sensorWaveforms.map((panel) => (
-                            <div key={panel.key} className="rounded-[20px] border border-white/10 bg-black/22 px-4 py-3">
-                              <div className="flex items-center justify-between gap-3">
-                                <div>
-                                  <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-white/42">{panel.label}</p>
-                                  <p className="mt-1 text-lg text-white/88">{panel.metric}</p>
-                                </div>
-                                <div className="text-right">
-                                  <p className="text-[28px] font-semibold leading-none" style={{ color: panel.stroke }}>{panel.value}%</p>
-                                  <p className="mt-1 font-mono text-[11px] text-white/42">{levelDescriptor(panel.value)}</p>
-                                </div>
+                        {sensorWaveforms.map((panel) => (
+                          <div key={panel.key} className="rounded-[24px] border border-white/8 bg-[#060d17] px-4 py-4 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.02)]">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="font-mono text-[11px] uppercase tracking-[0.24em] text-white/42">{panel.label}</p>
+                                <p className="mt-2 text-[2rem] leading-none text-white">{panel.metric}</p>
                               </div>
-                              <svg viewBox="0 0 300 48" className="mt-3 h-12 w-full">
-                                <path d={linePath(panel.trace, 300, 48)} fill="none" stroke={panel.stroke} strokeWidth="2.3" />
-                              </svg>
+                              <div className="text-right">
+                                <p className="text-[2.4rem] font-semibold leading-none" style={{ color: panel.stroke }}>{panel.value}%</p>
+                                <p className="mt-1 font-mono text-[11px] text-white/38">{levelDescriptor(panel.value)}</p>
+                              </div>
                             </div>
-                          ))}
-                        </div>
+                            <svg viewBox="0 0 320 44" className="mt-4 h-11 w-full">
+                              <path d={linePath(panel.trace, 320, 44)} fill="none" stroke={panel.stroke} strokeWidth="2.6" />
+                            </svg>
+                          </div>
+                        ))}
                       </div>
                     </div>
 
                     <div className="p-5 sm:p-6">
-                      <div className="rounded-[30px] border border-white/8 bg-[linear-gradient(180deg,rgba(8,17,31,0.86),rgba(4,10,18,0.98))]">
-                        <div className="flex items-center justify-between border-b border-white/8 px-5 py-4">
-                          <h3 className="text-center text-[2rem] font-semibold tracking-[0.03em] text-white sm:flex-1">ORACLE CROSSMODAL ENGINE</h3>
-                          <div className={`font-mono text-sm ${strongFlag ? 'text-rose-300' : 'text-cyan-100/42'}`}>{strongFlag ? 'Incongruence flagged' : 'Monitoring'}</div>
+                      <div className="overflow-hidden rounded-[30px] border border-white/8 bg-[linear-gradient(180deg,rgba(7,15,27,0.96),rgba(4,9,17,0.99))]">
+                        <div className="flex items-center justify-between border-b border-white/6 px-5 py-4">
+                          <div className="flex-1 text-center text-[2.35rem] font-semibold tracking-[0.03em] text-white">ORACLE CROSSMODAL ENGINE</div>
+                          <div className={`font-mono text-sm ${strongFlag ? 'text-rose-300' : 'text-cyan-100/38'}`}>{strongFlag ? 'Alert' : 'Monitoring'}</div>
                         </div>
 
                         <div className="relative overflow-hidden px-5 py-5">
-                          <div className="absolute inset-0 bg-[linear-gradient(transparent_0%,rgba(115,223,255,0.025)_49%,transparent_50%,transparent_100%)] bg-[length:100%_16px] opacity-70" />
-                          <svg className="absolute inset-0 h-full w-full" viewBox="0 0 960 420" preserveAspectRatio="none" aria-hidden>
+                          <div className="absolute inset-0 bg-[linear-gradient(180deg,transparent_0%,rgba(92,183,255,0.035)_50%,transparent_100%)]" />
+                          <div className="absolute inset-0 bg-[linear-gradient(transparent_0%,rgba(103,222,255,0.025)_49%,transparent_50%,transparent_100%)] bg-[length:100%_15px] opacity-70" />
+                          <svg className="absolute inset-0 h-full w-full" viewBox="0 0 980 410" preserveAspectRatio="none" aria-hidden>
                             {engineNodes.map((node) => (
                               <path
                                 key={node.key}
-                                d={drawCurve(node.x + 200, node.y, 510, 210)}
+                                d={drawCurve(node.x + 230, node.y, 550, 200)}
                                 fill="none"
-                                stroke={node.key === 'auditory' ? '#8bf6b8' : node.key === 'facial' ? '#ff6f8d' : node.key === 'physio' ? '#f8df69' : '#f2a655'}
-                                strokeWidth="3"
-                                opacity="0.92"
+                                stroke={node.key === 'auditory' ? '#8cf4b8' : node.key === 'facial' ? '#ff6f8d' : node.key === 'physio' ? '#f4dc6c' : '#f3a758'}
+                                strokeWidth="3.2"
+                                opacity="0.94"
                               />
                             ))}
                             <path
-                              d={drawCurve(620, 210, 835, 210)}
+                              d={drawCurve(650, 200, 860, 200)}
                               fill="none"
-                              stroke={strongFlag ? '#ff6a7f' : '#7ef0b4'}
-                              strokeWidth="4"
+                              stroke={strongFlag ? '#ff6f82' : '#7df0b3'}
+                              strokeWidth="4.2"
+                              opacity="0.94"
                             />
                           </svg>
 
-                          <div className="relative z-10 grid gap-6 xl:grid-cols-[310px_1fr_310px]">
-                            <div className="space-y-4">
+                          <div className="relative z-10 grid gap-6 xl:grid-cols-[360px_1fr_300px]">
+                            <div className="space-y-4 pt-5">
                               {sensorWaveforms.map((panel) => (
-                                <div key={panel.key} className="grid grid-cols-[72px_minmax(0,1fr)] items-center gap-3">
-                                  <div className="rounded-[18px] border border-white/12 bg-[#0b1624] p-3 text-center">
-                                    <div className="mx-auto mb-2 h-7 w-7 rounded-full border border-white/10 bg-white/[0.04]" />
-                                    <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-white/56">{panel.label}</p>
+                                <div key={panel.key} className="grid grid-cols-[86px_minmax(0,1fr)] items-center gap-3">
+                                  <div className="rounded-[20px] border border-white/10 bg-[#0a1422] p-3 text-center">
+                                    <div className="mx-auto mb-3 h-9 w-9 rounded-full border border-white/10 bg-white/[0.04]" />
+                                    <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-white/56">{panel.label}</p>
                                   </div>
-                                  <div className="rounded-[18px] border border-white/12 bg-[#0b1624] p-3">
+                                  <div className="rounded-[22px] border border-white/10 bg-[#0a1422] px-4 py-3">
                                     <div className="flex items-center justify-between gap-3">
-                                      <p className="text-[30px] leading-none text-white">{panel.label === 'Physio' ? 'Heart Rate' : panel.label === 'Gesture' ? 'Gesture' : panel.label === 'Facial' ? 'Tension' : 'Warmth'}</p>
-                                      <span className="font-mono text-sm text-white/56">{panel.value}%</span>
+                                      <p className="text-[2.1rem] leading-none text-white">{panel.label === 'Physio' ? 'Heart Rate' : panel.label === 'Gesture' ? 'Gesture' : panel.label === 'Facial' ? 'Tension' : 'Warmth'}</p>
+                                      <span className="font-mono text-lg text-white/58">{panel.value}%</span>
                                     </div>
-                                    <svg viewBox="0 0 180 38" className="mt-2 h-10 w-full">
-                                      <path d={linePath(panel.trace, 180, 38)} fill="none" stroke={panel.stroke} strokeWidth="2.4" />
+                                    <svg viewBox="0 0 210 34" className="mt-3 h-9 w-full">
+                                      <path d={linePath(panel.trace, 210, 34)} fill="none" stroke={panel.stroke} strokeWidth="2.5" />
                                     </svg>
                                   </div>
                                 </div>
@@ -838,58 +826,52 @@ export default function ExtendedPerception() {
                             </div>
 
                             <div className="flex items-center justify-center">
-                              <div className="w-full max-w-[240px] rounded-[28px] border border-cyan-200/28 bg-[linear-gradient(180deg,rgba(124,173,255,0.22),rgba(108,158,241,0.1))] px-6 py-7 text-center shadow-[0_0_0_1px_rgba(157,220,255,0.16),0_0_54px_rgba(87,180,255,0.16)]">
-                                <div className="mb-3 inline-flex h-12 w-12 items-center justify-center rounded-full border border-white/16 bg-white/[0.05] text-white/72">◎</div>
-                                <p className="text-[2.25rem] font-semibold tracking-[0.02em] text-white">ORACLE</p>
-                                <p className="mt-1 text-[1.55rem] leading-tight text-white/90">Crossmodal Engine</p>
+                              <div className="relative w-full max-w-[280px] rounded-[30px] border border-cyan-200/26 bg-[linear-gradient(180deg,rgba(120,164,236,0.22),rgba(102,146,214,0.12))] px-6 py-10 text-center shadow-[0_0_0_1px_rgba(157,220,255,0.16),0_0_64px_rgba(87,180,255,0.12)]">
+                                <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full border border-white/14 bg-white/[0.05] text-white/80">◎</div>
+                                <p className="text-[3rem] font-semibold tracking-[0.02em] text-white">ORACLE</p>
+                                <p className="mt-2 text-[1.8rem] leading-tight text-white/88">Crossmodal Engine</p>
                               </div>
                             </div>
 
-                            <div className={`rounded-[24px] border px-4 py-4 ${strongFlag ? 'border-rose-300/50 bg-[linear-gradient(180deg,rgba(169,49,54,0.65),rgba(101,22,28,0.38))]' : 'border-emerald-300/26 bg-[linear-gradient(180deg,rgba(15,58,46,0.48),rgba(7,25,20,0.34))]'}`}>
-                              <p className={`font-mono text-[13px] uppercase tracking-[0.16em] ${diagnosticTone}`}>{strongFlag ? '!! INCONGRUENCE DETECTED !!' : 'Crossmodal congruence stable'}</p>
-                              <p className={`mt-2 text-[2rem] font-semibold leading-none ${diagnosticTone}`}>{formatClock(selected.createdAt)}</p>
-                              <div className="mt-4 space-y-3 rounded-[18px] border border-black/18 bg-black/20 p-4 text-sm text-white/86">
-                                <div className="flex items-center justify-between">
-                                  <span>Temporal Alignment:</span>
-                                  <span className="rounded-md bg-cyan-300/14 px-2 py-1 text-cyan-100">Confirmed</span>
-                                </div>
-                                <div className="flex items-center justify-between">
-                                  <span>Signal Correlation:</span>
-                                  <span className={corr < 0 ? 'text-rose-100' : 'text-emerald-100'}>{corr.toFixed(2)}</span>
-                                </div>
-                                <div className="flex items-center justify-between">
-                                  <span>Expression Patterns:</span>
-                                  <span className={strongFlag ? 'text-rose-100' : 'text-emerald-100'}>{strongFlag ? 'Non-Congruent' : 'Congruent'}</span>
-                                </div>
-                                <div className="flex items-center justify-between">
-                                  <span>Confidence:</span>
-                                  <span>{selected.incongruenceScore}%</span>
+                            <div className={`rounded-[28px] border px-5 py-5 ${strongFlag ? 'border-rose-300/46 bg-[linear-gradient(180deg,rgba(167,53,57,0.7),rgba(92,22,27,0.36))]' : 'border-emerald-300/24 bg-[linear-gradient(180deg,rgba(17,64,51,0.52),rgba(7,25,20,0.34))]'}`}>
+                              <p className={`font-mono text-[14px] uppercase tracking-[0.18em] ${diagnosticTone}`}>{strongFlag ? '!! INCONGRUENCE DETECTED !!' : 'Crossmodal congruence stable'}</p>
+                              <p className={`mt-3 text-[3rem] font-semibold leading-none ${diagnosticTone}`}>{formatClock(selected.createdAt)}</p>
+                              <div className="mt-5 rounded-[20px] border border-black/18 bg-black/22 p-4">
+                                <div className="space-y-4 text-[1.05rem] text-white/88">
+                                  <div className="flex items-center justify-between gap-4">
+                                    <span>Temporal Alignment:</span>
+                                    <span className="rounded-md bg-cyan-300/14 px-3 py-1 text-cyan-100">Confirmed</span>
+                                  </div>
+                                  <div className="flex items-center justify-between gap-4">
+                                    <span>Signal Correlation:</span>
+                                    <span className={corr < 0 ? 'text-rose-100' : 'text-emerald-100'}>{corr.toFixed(2)}</span>
+                                  </div>
+                                  <div className="flex items-center justify-between gap-4">
+                                    <span>Expression Patterns:</span>
+                                    <span className={strongFlag ? 'text-rose-100' : 'text-emerald-100'}>{strongFlag ? 'Non-Congruent' : 'Congruent'}</span>
+                                  </div>
+                                  <div className="flex items-center justify-between gap-4">
+                                    <span>Confidence:</span>
+                                    <span>{selected.incongruenceScore}%</span>
+                                  </div>
                                 </div>
                               </div>
                             </div>
                           </div>
                         </div>
 
-                        <div className="border-t border-white/8 px-5 py-5">
-                          <div className="rounded-[24px] border border-white/10 bg-black/18 p-4">
-                            <div className="mb-3 flex items-center justify-between">
-                              <p className="font-mono text-[12px] uppercase tracking-[0.22em] text-white/44">Crossmodal Rules / Simultaneous Comparison</p>
+                        <div className="border-t border-white/6 px-5 py-5">
+                          <div className="rounded-[26px] border border-white/8 bg-[#06101b] p-4">
+                            <div className="mb-4 flex items-center justify-between">
+                              <p className="font-mono text-[12px] uppercase tracking-[0.24em] text-white/42">Crossmodal Rules / Simultaneous Comparison</p>
                               <p className={`font-mono text-[12px] ${strongFlag ? 'text-rose-300' : 'text-emerald-300'}`}>{primaryDiagnostic}</p>
                             </div>
-                            <div className="relative h-[230px] rounded-[18px] border border-white/8 bg-[#07111c] px-3 py-3">
-                              {strongFlag ? <div className="absolute inset-y-4 left-[36%] w-[18%] rounded-lg bg-rose-500/16" /> : null}
+                            <div className="relative h-[230px] rounded-[20px] border border-white/8 bg-[#07111d] px-3 py-3">
+                              {strongFlag ? <div className="absolute inset-y-4 left-[38%] w-[18%] rounded-lg bg-rose-500/16" /> : null}
                               <svg viewBox="0 0 760 180" className="relative z-10 h-full w-full">
-                                <path d={linePath(warmthSeries, 760, 180)} fill="none" stroke="#8bf6b8" strokeWidth="3" />
-                                <path d={linePath(facialSeries, 760, 180)} fill="none" stroke="#ff6f8d" strokeWidth="2.5" />
+                                <path d={linePath(warmthSeries, 760, 180)} fill="none" stroke="#8cf4b8" strokeWidth="3.4" />
+                                <path d={linePath(facialSeries, 760, 180)} fill="none" stroke="#ff6f8d" strokeWidth="2.7" />
                               </svg>
-                              <div className="absolute inset-x-4 bottom-4 flex items-center justify-between font-mono text-[11px] text-white/42">
-                                <span>0</span>
-                                <span>2</span>
-                                <span>4</span>
-                                <span>6</span>
-                                <span>8</span>
-                                <span>10</span>
-                              </div>
                             </div>
                           </div>
                         </div>
@@ -898,122 +880,113 @@ export default function ExtendedPerception() {
                   </div>
                 </section>
 
-                <section className="grid gap-5 xl:grid-cols-[minmax(0,1.08fr)_380px]">
-                  <article className="rounded-[34px] border border-cyan-300/16 bg-[linear-gradient(180deg,rgba(7,16,29,0.96),rgba(3,9,16,0.985))] p-5 shadow-[0_36px_130px_rgba(0,0,0,0.5)]">
-                    <div className="grid gap-5 xl:grid-cols-[340px_minmax(0,1fr)]">
-                      <div>
-                        <p className="font-mono text-[12px] uppercase tracking-[0.28em] text-cyan-100/42">Signal Comparison</p>
-                        <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
-                          {comparisonMeters.map((item) => (
-                            <div key={item.label} className="rounded-[24px] border border-white/10 bg-[#08111d] px-5 py-6">
-                              <p className="font-mono text-[13px] uppercase tracking-[0.22em] text-white/58">{item.label}</p>
-                              <p className="mt-2 text-lg text-white/48">{item.sublabel}</p>
-                              <div className="mt-7 flex flex-col items-center">
-                                <div className="flex h-[210px] w-[126px] items-end rounded-[24px] border border-white/12 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.02))] p-3">
-                                  <div className={`w-full rounded-[18px] bg-gradient-to-t ${item.accent}`} style={{ height: `${Math.max(item.value, 4)}%` }} />
-                                </div>
-                                <div className={`mt-5 text-5xl font-semibold ${item.text}`}>{item.value}%</div>
+                <section className="grid gap-5 xl:grid-cols-[320px_minmax(0,1fr)_300px]">
+                  <article className="rounded-[32px] border border-cyan-300/12 bg-[linear-gradient(180deg,rgba(6,13,23,0.98),rgba(3,8,15,0.99))] p-5 shadow-[0_32px_120px_rgba(0,0,0,0.48)]">
+                    <p className="font-mono text-[12px] uppercase tracking-[0.28em] text-cyan-100/40">Signal Comparison Panel</p>
+                    <div className="mt-5 space-y-5">
+                      {comparisonMeters.map((item) => (
+                        <div key={item.label} className="rounded-[24px] border border-white/8 bg-[#08111d] px-5 py-5">
+                          <p className="font-mono text-[13px] uppercase tracking-[0.22em] text-white/58">{item.label}</p>
+                          <p className="mt-2 text-lg text-white/44">{item.sublabel}</p>
+                          <div className="mt-8 flex flex-col items-center">
+                            <div className="flex h-[220px] w-[136px] items-end rounded-[26px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.015))] p-3">
+                              <div className={`w-full rounded-[18px] bg-gradient-to-t ${item.accent}`} style={{ height: `${Math.max(item.value, 4)}%` }} />
+                            </div>
+                            <div className={`mt-6 text-[4.2rem] font-semibold leading-none ${item.text}`}>{item.value}%</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </article>
+
+                  <article className="space-y-5">
+                    <div className={`rounded-[32px] border p-5 shadow-[0_32px_120px_rgba(0,0,0,0.48)] ${strongFlag ? 'border-rose-300/32 bg-[linear-gradient(180deg,rgba(131,22,29,0.48),rgba(33,8,12,0.94))]' : 'border-emerald-300/18 bg-[linear-gradient(180deg,rgba(9,37,35,0.62),rgba(5,14,18,0.94))]'}`}>
+                      <p className="font-mono text-[12px] uppercase tracking-[0.28em] text-white/56">Incongruence Detection</p>
+                      <p className={`mt-4 text-[2.8rem] font-semibold leading-none ${diagnosticTone}`}>{strongFlag ? 'INCONGRUENCE DETECTED' : 'SIGNALS CONGRUENT'}</p>
+                      <p className={`mt-4 max-w-3xl text-sm leading-6 ${diagnosticTone}`}>{selected.incongruenceReason}</p>
+                      <div className="mt-5 grid gap-3 md:grid-cols-2">
+                        <div className="rounded-[18px] border border-white/10 bg-black/20 p-4">
+                          <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-white/40">Timestamp</p>
+                          <p className="mt-2 text-2xl text-white">{selectedMoment}</p>
+                        </div>
+                        <div className="rounded-[18px] border border-white/10 bg-black/20 p-4">
+                          <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-white/40">Rule</p>
+                          <p className="mt-2 text-2xl text-white">Vocal / Facial Dissonance 14B</p>
+                        </div>
+                        <div className="rounded-[18px] border border-white/10 bg-black/20 p-4">
+                          <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-white/40">Confidence</p>
+                          <p className="mt-2 text-2xl text-white">{selected.incongruenceScore}%</p>
+                        </div>
+                        <div className="rounded-[18px] border border-white/10 bg-black/20 p-4">
+                          <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-white/40">Alignment Score</p>
+                          <p className="mt-2 text-2xl text-white">{alignmentScore}%</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+                      <article className="rounded-[32px] border border-cyan-300/12 bg-[linear-gradient(180deg,rgba(6,13,23,0.98),rgba(3,8,15,0.99))] p-5 shadow-[0_32px_120px_rgba(0,0,0,0.48)]">
+                        <p className="font-mono text-[12px] uppercase tracking-[0.28em] text-cyan-100/40">Temporal Alignment</p>
+                        <div className="mt-5 space-y-4">
+                          {timelineTracks.slice(-5).map((track) => (
+                            <div key={track.id} className="rounded-[20px] border border-white/8 bg-[#07111d] p-4">
+                              <div className="mb-3 flex items-center justify-between font-mono text-[11px] text-white/40">
+                                <span>{track.stamp}</span>
+                                <span>{track.simultaneous ? 'aligned' : 'partial'}</span>
+                              </div>
+                              <div className="relative h-[72px] rounded-[18px] border border-white/8 bg-[#091423]">
+                                <div className="absolute top-[12px] h-3 rounded-full bg-gradient-to-r from-cyan-400 to-emerald-300" style={{ left: `${track.audioStart}%`, width: `${track.audioWidth}%` }} />
+                                <div className="absolute top-[31px] h-3 rounded-full bg-gradient-to-r from-rose-400 to-red-400" style={{ left: `${track.facialStart}%`, width: `${track.facialWidth}%` }} />
+                                <div className="absolute top-[50px] h-3 rounded-full bg-gradient-to-r from-amber-300 to-orange-300" style={{ left: `${track.gestureStart}%`, width: `${track.gestureWidth}%` }} />
+                                <div className={`absolute top-0 h-full w-px ${track.simultaneous ? 'bg-rose-300/80' : 'bg-cyan-200/38'}`} style={{ left: `${track.marker}%` }} />
                               </div>
                             </div>
                           ))}
                         </div>
-                      </div>
+                      </article>
 
-                      <div className="space-y-5">
-                        <div className={`rounded-[28px] border p-5 ${strongFlag ? 'border-rose-300/38 bg-[linear-gradient(180deg,rgba(134,24,30,0.44),rgba(35,9,13,0.92))]' : 'border-cyan-300/16 bg-[linear-gradient(180deg,rgba(11,34,39,0.68),rgba(8,25,28,0.94))]'}`}>
-                          <p className="font-mono text-[12px] uppercase tracking-[0.28em] text-white/56">Incongruence Detection</p>
-                          <p className={`mt-3 text-[2.4rem] font-semibold leading-none ${diagnosticTone}`}>{strongFlag ? 'INCONGRUENCE DETECTED' : 'SIGNALS CONGRUENT'}</p>
-                          <p className={`mt-3 max-w-2xl text-sm leading-6 ${diagnosticTone}`}>{selected.incongruenceReason}</p>
-                          <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                            <div className="rounded-[18px] border border-white/10 bg-black/20 p-3">
-                              <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-white/42">Timestamp</p>
-                              <p className="mt-2 text-lg text-white">{selectedMoment}</p>
-                            </div>
-                            <div className="rounded-[18px] border border-white/10 bg-black/20 p-3">
-                              <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-white/42">Rule</p>
-                              <p className="mt-2 text-lg text-white">Vocal / Facial Dissonance 14B</p>
-                            </div>
-                            <div className="rounded-[18px] border border-white/10 bg-black/20 p-3">
-                              <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-white/42">Confidence</p>
-                              <p className="mt-2 text-lg text-white">{selected.incongruenceScore}%</p>
-                            </div>
-                            <div className="rounded-[18px] border border-white/10 bg-black/20 p-3">
-                              <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-white/42">Alignment Score</p>
-                              <p className="mt-2 text-lg text-white">{alignmentScore}%</p>
-                            </div>
-                          </div>
+                      <article className="rounded-[32px] border border-cyan-300/12 bg-[linear-gradient(180deg,rgba(6,13,23,0.98),rgba(3,8,15,0.99))] p-5 shadow-[0_32px_120px_rgba(0,0,0,0.48)]">
+                        <p className="font-mono text-[12px] uppercase tracking-[0.28em] text-cyan-100/40">Signal Correlation</p>
+                        <div className="mt-5 rounded-[22px] border border-white/8 bg-[#07111d] p-4">
+                          <svg viewBox="0 0 260 220" className="h-[220px] w-full">
+                            {chronologicalSeries.map((entry, index) => {
+                              const x = 20 + (entry.vocalWarmth / 100) * 220
+                              const y = 190 - (entry.facialTension / 100) * 160
+                              const active = entry.id === selected.id
+                              const opacity = active ? 1 : clamp(0.24 + index / Math.max(chronologicalSeries.length, 1), 0.24, 0.82)
+                              return <circle key={entry.id} cx={x} cy={y} r={active ? 6 : 3.2} fill={active ? '#d5fbff' : '#62d2ff'} opacity={opacity} />
+                            })}
+                          </svg>
                         </div>
-
-                        <div className="grid gap-5 lg:grid-cols-2">
-                          <article className="rounded-[28px] border border-white/10 bg-black/16 p-4">
-                            <p className="font-mono text-[12px] uppercase tracking-[0.24em] text-cyan-100/42">Temporal Alignment</p>
-                            <div className="mt-4 space-y-3">
-                              {timelineTracks.slice(-5).map((track) => (
-                                <div key={track.id} className="rounded-[18px] border border-white/8 bg-[#07111c] p-3">
-                                  <div className="mb-2 flex items-center justify-between font-mono text-[11px] text-white/42">
-                                    <span>{track.stamp}</span>
-                                    <span>{track.simultaneous ? 'linked' : 'partial'}</span>
-                                  </div>
-                                  <div className="relative h-[48px] rounded-xl border border-white/8 bg-[#081321]">
-                                    <div className="absolute top-[7px] h-2 rounded-full bg-gradient-to-r from-cyan-400 to-emerald-300" style={{ left: `${track.audioStart}%`, width: `${track.audioWidth}%` }} />
-                                    <div className="absolute top-[19px] h-2 rounded-full bg-gradient-to-r from-rose-400 to-red-400" style={{ left: `${track.facialStart}%`, width: `${track.facialWidth}%` }} />
-                                    <div className="absolute top-[31px] h-2 rounded-full bg-gradient-to-r from-amber-300 to-orange-300" style={{ left: `${track.gestureStart}%`, width: `${track.gestureWidth}%` }} />
-                                    <div className={`absolute top-0 h-full w-px ${track.simultaneous ? 'bg-rose-300/80' : 'bg-cyan-200/42'}`} style={{ left: `${track.marker}%` }} />
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </article>
-
-                          <article className="rounded-[28px] border border-white/10 bg-black/16 p-4">
-                            <p className="font-mono text-[12px] uppercase tracking-[0.24em] text-cyan-100/42">Signal Correlation</p>
-                            <div className="mt-4 rounded-[18px] border border-white/8 bg-[#07111c] p-3">
-                              <svg viewBox="0 0 280 180" className="h-[180px] w-full">
-                                {chronologicalSeries.map((entry, index) => {
-                                  const x = 18 + (entry.vocalWarmth / 100) * 244
-                                  const y = 160 - (entry.facialTension / 100) * 136
-                                  const active = entry.id === selected.id
-                                  const opacity = active ? 1 : clamp(0.25 + index / Math.max(chronologicalSeries.length, 1), 0.25, 0.84)
-                                  return <circle key={entry.id} cx={x} cy={y} r={active ? 5 : 3.1} fill={active ? '#d5fbff' : '#5bcfff'} opacity={opacity} />
-                                })}
-                              </svg>
-                            </div>
-                            <p className="mt-3 text-sm text-white/64">Correlation coefficient <span className="text-cyan-100">{corr.toFixed(2)}</span></p>
-                          </article>
-                        </div>
-                      </div>
+                        <p className="mt-4 text-[1.15rem] text-white/72">Correlation coefficient <span className="text-cyan-100">{corr.toFixed(2)}</span></p>
+                      </article>
                     </div>
                   </article>
 
                   <aside className="space-y-5">
-                    <article className="rounded-[34px] border border-cyan-300/16 bg-[linear-gradient(180deg,rgba(7,16,29,0.96),rgba(3,9,16,0.985))] p-5 shadow-[0_36px_130px_rgba(0,0,0,0.5)]">
+                    <article className="rounded-[32px] border border-cyan-300/12 bg-[linear-gradient(180deg,rgba(6,13,23,0.98),rgba(3,8,15,0.99))] p-5 shadow-[0_32px_120px_rgba(0,0,0,0.48)]">
                       <div className="flex items-center justify-between gap-3">
-                        <p className="font-mono text-[12px] uppercase tracking-[0.28em] text-cyan-100/42">Focused Event Feed</p>
-                        <p className="font-mono text-[11px] text-white/42">filtered only</p>
+                        <p className="font-mono text-[12px] uppercase tracking-[0.28em] text-cyan-100/40">Focused Event Feed</p>
+                        <p className="font-mono text-[11px] text-white/36">filtered</p>
                       </div>
                       <div className="mt-4 space-y-2">
-                        {filteredEntries.slice(0, 6).map((entry) => {
+                        {filteredEntries.slice(0, 5).map((entry) => {
                           const active = entry.id === selected.id
                           return (
                             <button
                               key={entry.id}
                               type="button"
                               onClick={() => setSelectedId(entry.id)}
-                              className={`w-full rounded-[18px] border p-3 text-left transition ${active ? 'border-cyan-300/42 bg-cyan-400/10' : 'border-white/10 bg-black/18 hover:border-cyan-300/24 hover:bg-white/[0.04]'}`}
+                              className={`w-full rounded-[18px] border p-3 text-left transition ${active ? 'border-cyan-300/42 bg-cyan-400/10' : 'border-white/8 bg-[#07111d] hover:border-cyan-300/22 hover:bg-white/[0.03]'}`}
                             >
                               <div className="flex items-center gap-3">
                                 <img src={entry.avatarImage} alt={entry.avatarName} className="h-11 w-11 rounded-xl object-cover ring-1 ring-white/10" />
                                 <div className="min-w-0 flex-1">
                                   <div className="flex items-center justify-between gap-2">
                                     <span className="truncate text-sm text-white">{entry.avatarName}</span>
-                                    <span className="font-mono text-[11px] text-white/42">{formatClock(entry.createdAt)}</span>
+                                    <span className="font-mono text-[11px] text-white/38">{formatClock(entry.createdAt)}</span>
                                   </div>
-                                  <p className="mt-1 truncate text-xs text-cyan-100/70">{entry.contactName}</p>
-                                  <div className="mt-2 flex items-center gap-2 font-mono text-[10px] text-white/60">
-                                    <span>W {entry.vocalWarmth}%</span>
-                                    <span>T {entry.facialTension}%</span>
-                                    <span>P {entry.physioArousal}%</span>
-                                  </div>
+                                  <p className="mt-1 truncate text-xs text-cyan-100/66">{entry.contactName}</p>
                                 </div>
                               </div>
                             </button>
@@ -1022,36 +995,11 @@ export default function ExtendedPerception() {
                       </div>
                     </article>
 
-                    <article className="rounded-[34px] border border-cyan-300/16 bg-[linear-gradient(180deg,rgba(7,16,29,0.96),rgba(3,9,16,0.985))] p-5 shadow-[0_36px_130px_rgba(0,0,0,0.5)]">
-                      <p className="font-mono text-[12px] uppercase tracking-[0.28em] text-cyan-100/42">LUCID Interpretation</p>
-                      <div className="mt-4 rounded-[20px] border border-white/10 bg-black/18 p-4">
-                        <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-white/42">Behavioral summary</p>
-                        <p className="mt-2 text-sm leading-6 text-white/76">{selected.behavioralSummary || 'No behavioral summary available for this log.'}</p>
-                      </div>
-                      <div className="mt-4 rounded-[20px] border border-white/10 bg-black/18 p-4">
-                        <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-white/42">Transcript extract</p>
-                        <p className="mt-2 text-sm leading-6 text-white/72">{selected.transcript || 'No transcript available.'}</p>
-                      </div>
-                    </article>
-
-                    <article className="rounded-[34px] border border-cyan-300/16 bg-[linear-gradient(180deg,rgba(7,16,29,0.96),rgba(3,9,16,0.985))] p-5 shadow-[0_36px_130px_rgba(0,0,0,0.5)]">
-                      <p className="font-mono text-[12px] uppercase tracking-[0.28em] text-cyan-100/42">Flagged Incongruence</p>
-                      <div className="mt-4 space-y-2">
-                        {incongruenceEvents.length > 0 ? (
-                          incongruenceEvents.map((eventEntry) => (
-                            <div key={eventEntry.id} className="rounded-[18px] border border-rose-300/26 bg-rose-500/10 p-3">
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="text-sm text-rose-50">{eventEntry.avatarName}</span>
-                                <span className="font-mono text-[11px] text-rose-100/68">{formatClock(eventEntry.createdAt)}</span>
-                              </div>
-                              <p className="mt-2 text-xs leading-5 text-rose-100/74">{eventEntry.incongruenceReason}</p>
-                            </div>
-                          ))
-                        ) : (
-                          <div className="rounded-[18px] border border-emerald-300/22 bg-emerald-500/10 p-3 text-sm text-emerald-100/82">
-                            No incongruence events in the active filter scope.
-                          </div>
-                        )}
+                    <article className="rounded-[32px] border border-cyan-300/12 bg-[linear-gradient(180deg,rgba(6,13,23,0.98),rgba(3,8,15,0.99))] p-5 shadow-[0_32px_120px_rgba(0,0,0,0.48)]">
+                      <p className="font-mono text-[12px] uppercase tracking-[0.28em] text-cyan-100/40">LUCID Interpretation</p>
+                      <div className="mt-4 rounded-[18px] border border-white/8 bg-[#07111d] p-4">
+                        <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-white/38">Behavioral summary</p>
+                        <p className="mt-3 text-sm leading-6 text-white/74">{selected.behavioralSummary || 'No behavioral summary available for this log.'}</p>
                       </div>
                     </article>
                   </aside>
