@@ -174,6 +174,30 @@ const RULE_DEFINITIONS: Record<string, string> = {
   bimodal_emotional_arc: 'Stress pattern with temporary mid-segment relief - tension that briefly resolves then returns',
 }
 
+const RULE_DEFINITIONS_ES: Record<string, string> = {
+  high_authenticity_composite: 'Variacion vocal natural con baja presion de actuacion: entrega espontanea y sin ensayo.',
+  hesitation_cluster: 'Las pausas y reformulaciones se agrupan en momentos concretos: incertidumbre localizada.',
+  emotional_escalation: 'Temblor, ritmo y volumen suben juntos: aumento de activacion emocional.',
+  topic_avoidance_signal: 'El ritmo de habla cae bruscamente en una seccion: posible evitacion de un tema especifico.',
+  rehearsed_delivery_pattern: 'Tono, ritmo y volumen excesivamente consistentes: la entrega suena ensayada mas que espontanea.',
+  vocal_incongruence: 'Tono y velocidad sugieren emociones distintas: senales vocales mixtas o en conflicto.',
+  low_authenticity_composite: 'Capa alta de performance con poca espontaneidad: entrega contenida o protegida.',
+  over_controlled_smoothness: 'Patrones de voz demasiado uniformes: posible sobre-regulacion de la expresion emocional.',
+  bimodal_emotional_arc: 'Patron de tension con alivio temporal en la mitad: la tension baja y luego regresa.',
+}
+
+const RULE_DEFINITIONS_DE: Record<string, string> = {
+  high_authenticity_composite: 'Natuerliche Stimmvariation bei geringem Performance-Druck: spontan und nicht einstudiert.',
+  hesitation_cluster: 'Pausen und Umformulierungen haeufen sich in bestimmten Momenten: lokalisiertes Zoegern.',
+  emotional_escalation: 'Stimmtremor, Tempo und Lautstaerke steigen gemeinsam: zunehmende emotionale Aktivierung.',
+  topic_avoidance_signal: 'Das Sprechtempo faellt in einem Abschnitt stark ab: moegliche Vermeidung eines konkreten Themas.',
+  rehearsed_delivery_pattern: 'Ungewoehnlich konstantes Ton-, Tempo- und Lautstaerkeniveau: wirkt eher einstudiert als spontan.',
+  vocal_incongruence: 'Tonlage und Sprechtempo deuten auf unterschiedliche Emotionen: gemischte oder widerspruechliche Signale.',
+  low_authenticity_composite: 'Starker Performance-Anteil bei reduzierter Spontaneitaet: eher kontrollierte, geschuetzte Lieferung.',
+  over_controlled_smoothness: 'Sprachmuster sind zu gleichmaessig: moegliche Ueberregulierung emotionaler Ausdrucksweise.',
+  bimodal_emotional_arc: 'Stressmuster mit kurzfristiger Entlastung in der Mitte: Spannung sinkt kurz und steigt dann wieder.',
+}
+
 function titleCase(value: string | null | undefined, fallback = 'Unknown') {
   const text = (value || '').trim()
   if (!text) return fallback
@@ -672,6 +696,12 @@ function localizeCategoryLabel(value: string | null | undefined, locale: Locale)
   const mapped = dictionary[key]
   if (!mapped) return base
   return locale === 'es' ? mapped.es : mapped.de
+}
+
+function localizedRuleDefinition(rawName: string, locale: Locale) {
+  if (locale === 'es') return RULE_DEFINITIONS_ES[rawName] || RULE_DEFINITIONS[rawName] || ''
+  if (locale === 'de') return RULE_DEFINITIONS_DE[rawName] || RULE_DEFINITIONS[rawName] || ''
+  return RULE_DEFINITIONS[rawName] || ''
 }
 
 export default function Perception() {
@@ -1400,7 +1430,7 @@ export default function Perception() {
                             <div className="pointer-events-none absolute left-4 top-full z-20 mt-3 hidden w-[min(26rem,calc(100vw-4rem))] rounded-[18px] border border-white/12 bg-[#07111b]/96 p-4 text-left shadow-[0_24px_80px_rgba(0,0,0,0.45)] group-hover:block">
                               <p className={`text-sm font-semibold ${ruleStyle(rule.rawName).color}`}>{localizeRuleName(rule.rawName, rule.name, locale)}</p>
                               <p className="mt-2 text-sm leading-6 text-white/78">
-                                {RULE_DEFINITIONS[rule.rawName] || T('No static definition available for this rule yet.', 'Aun no hay una definicion estatica para esta regla.')}
+                                {localizedRuleDefinition(rule.rawName, locale) || T('No static definition available for this rule yet.', 'Aun no hay una definicion estatica para esta regla.', 'Noch keine statische Definition fuer diese Regel verfuegbar.')}
                               </p>
                               <div className="mt-3 border-t border-white/8 pt-3">
                                 <div className="text-[10px] uppercase tracking-[0.22em] text-white/35">{T('Behavioral Interpretation', 'Interpretacion conductual')}</div>
