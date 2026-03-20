@@ -721,118 +721,124 @@ export default function ExtendedPerception() {
         ) : (
           <div className="mt-6">
             {selected ? (
-              <main className="space-y-6">
-                <section className="overflow-hidden rounded-[40px] border border-cyan-300/14 bg-[linear-gradient(180deg,rgba(5,11,21,0.985),rgba(3,8,15,0.995))] shadow-[0_50px_170px_rgba(0,0,0,0.6)]">
-                  <div className="flex items-center justify-between border-b border-white/6 px-5 py-4 sm:px-7">
+              <main>
+                <section className="overflow-hidden rounded-[42px] border border-cyan-300/14 bg-[linear-gradient(180deg,rgba(4,10,19,0.99),rgba(2,7,14,0.995))] shadow-[0_52px_180px_rgba(0,0,0,0.62)]">
+                  <div className="flex items-center justify-between border-b border-white/6 px-6 py-4 sm:px-8">
                     <div>
-                      <p className="font-mono text-[11px] uppercase tracking-[0.42em] text-cyan-100/36">Oracle / Pattern Recognition</p>
-                      <p className="mt-2 text-[2.25rem] font-semibold tracking-[0.03em] text-white sm:text-[2.7rem]">Crossmodal monitoring system</p>
+                      <p className="font-mono text-[11px] uppercase tracking-[0.44em] text-cyan-100/34">Oracle / Pattern Recognition</p>
+                      <p className="mt-2 text-[2.35rem] font-semibold tracking-[0.03em] text-white sm:text-[2.85rem]">Crossmodal monitoring system</p>
                     </div>
                     <div className="text-right">
-                      <p className={`font-mono text-[13px] uppercase tracking-[0.24em] ${strongFlag ? 'text-rose-300' : 'text-emerald-300'}`}>{strongFlag ? 'Incongruence flagged' : 'Pattern stable'}</p>
-                      <p className="mt-2 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 font-mono text-sm text-white/56">{selectedMoment}</p>
+                      <p className={`font-mono text-[13px] uppercase tracking-[0.25em] ${strongFlag ? 'text-rose-300' : 'text-emerald-300'}`}>{strongFlag ? 'Incongruence flagged' : 'Pattern stable'}</p>
+                      <p className="mt-3 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 font-mono text-sm text-white/54">{selectedMoment}</p>
                     </div>
                   </div>
 
-                  <div className="grid gap-0 xl:grid-cols-[390px_minmax(0,1fr)]">
+                  <div className="grid gap-0 xl:grid-cols-[360px_minmax(0,1fr)]">
                     <div className="border-b border-white/6 xl:border-b-0 xl:border-r xl:border-white/6">
-                      <div className="space-y-4 p-5 sm:p-6">
-                        <div className="relative overflow-hidden rounded-[30px] border border-cyan-300/12 bg-[radial-gradient(circle_at_50%_12%,rgba(82,199,255,0.17),transparent_24%),linear-gradient(180deg,#0a1424_0%,#050a12_100%)]">
-                          <div className="absolute inset-0 bg-[linear-gradient(transparent_0%,rgba(100,224,255,0.03)_49%,transparent_50%,transparent_100%)] bg-[length:100%_18px] opacity-70" />
+                      <div className="p-5 sm:p-6">
+                        <div className="relative overflow-hidden rounded-[28px] border border-cyan-300/12 bg-[radial-gradient(circle_at_52%_12%,rgba(86,203,255,0.16),transparent_25%),linear-gradient(180deg,#0a1423_0%,#040a12_100%)] shadow-[inset_0_0_0_1px_rgba(128,214,255,0.04)]">
+                          <div className="absolute inset-0 bg-[linear-gradient(transparent_0%,rgba(102,221,255,0.03)_49%,transparent_50%,transparent_100%)] bg-[length:100%_18px] opacity-70" />
                           {selected.mediaUrl && selected.mediaType === 'video' ? (
                             <video src={selected.mediaUrl} controls playsInline className="relative z-10 aspect-[4/5] w-full bg-black object-cover" />
                           ) : (
-                            <img src={selected.avatarImage} alt={selected.avatarName} className="relative z-10 aspect-[4/5] w-full object-cover opacity-78" />
+                            <img src={selected.avatarImage} alt={selected.avatarName} className="relative z-10 aspect-[4/5] w-full object-cover opacity-80" />
                           )}
                           <div className="absolute inset-x-4 top-4 z-20 flex items-center justify-between">
                             <div className="rounded-full border border-cyan-200/18 bg-[#0a1220]/82 px-3 py-1 font-mono text-[11px] uppercase tracking-[0.22em] text-cyan-100/76">Live subject frame</div>
                             <div className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-1 font-mono text-[11px] uppercase tracking-[0.18em] text-white/62">{selected.mediaType}</div>
                           </div>
-                          <div className="absolute inset-x-4 bottom-4 z-20 rounded-[22px] border border-white/12 bg-[#0a1020]/78 px-4 py-4 backdrop-blur-md">
+                          <div className="absolute inset-x-4 bottom-4 z-20 rounded-[22px] border border-white/12 bg-[#0a1020]/80 px-4 py-4 backdrop-blur-md">
                             <p className="text-[2rem] font-semibold tracking-[0.02em] text-white">{selected.avatarName}</p>
-                            <p className="mt-1 text-lg text-cyan-100/66">{selected.contactName} / {selectedMoment}</p>
+                            <p className="mt-1 text-lg text-cyan-100/64">{selected.contactName} / {selectedMoment}</p>
                           </div>
                         </div>
 
-                        {sensorWaveforms.map((panel) => (
-                          <div key={panel.key} className="rounded-[22px] border border-white/8 bg-[#060d17] px-4 py-4">
-                            <div className="flex items-start justify-between gap-3">
-                              <div>
-                                <p className="font-mono text-[11px] uppercase tracking-[0.24em] text-white/40">{panel.label}</p>
-                                <p className="mt-2 text-[1.8rem] leading-none text-white">{panel.metric}</p>
+                        <div className="mt-4 space-y-4">
+                          {sensorWaveforms.slice(0, 2).map((panel) => (
+                            <div key={panel.key} className="rounded-[22px] border border-white/8 bg-[#060d17] px-4 py-4">
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <p className="font-mono text-[11px] uppercase tracking-[0.24em] text-white/38">{panel.label}</p>
+                                  <p className="mt-2 text-[1.8rem] leading-none text-white">{panel.metric}</p>
+                                </div>
+                                <div className="text-right">
+                                  <p className="text-[2.2rem] font-semibold leading-none" style={{ color: panel.stroke }}>{panel.value}%</p>
+                                  <p className="mt-1 font-mono text-[11px] text-white/34">{levelDescriptor(panel.value)}</p>
+                                </div>
                               </div>
-                              <div className="text-right">
-                                <p className="text-[2.2rem] font-semibold leading-none" style={{ color: panel.stroke }}>{panel.value}%</p>
-                                <p className="mt-1 font-mono text-[11px] text-white/36">{levelDescriptor(panel.value)}</p>
-                              </div>
+                              <svg viewBox="0 0 290 40" className="mt-4 h-10 w-full">
+                                <path d={linePath(panel.trace, 290, 40)} fill="none" stroke={panel.stroke} strokeWidth="2.5" />
+                              </svg>
                             </div>
-                            <svg viewBox="0 0 300 42" className="mt-4 h-10 w-full">
-                              <path d={linePath(panel.trace, 300, 42)} fill="none" stroke={panel.stroke} strokeWidth="2.5" />
-                            </svg>
-                          </div>
-                        ))}
+                          ))}
+                        </div>
                       </div>
                     </div>
 
                     <div className="p-5 sm:p-6">
-                      <div className="overflow-hidden rounded-[30px] border border-white/8 bg-[linear-gradient(180deg,rgba(7,15,27,0.98),rgba(4,9,17,0.995))]">
+                      <div className="rounded-[30px] border border-white/8 bg-[linear-gradient(180deg,rgba(7,15,27,0.98),rgba(4,9,17,0.995))]">
                         <div className="flex items-center justify-between border-b border-white/6 px-5 py-4">
-                          <div className="flex-1 text-center text-[2.4rem] font-semibold tracking-[0.03em] text-white">ORACLE CROSSMODAL ENGINE</div>
-                          <div className={`font-mono text-sm ${strongFlag ? 'text-rose-300' : 'text-cyan-100/36'}`}>{strongFlag ? 'Alert' : 'Monitoring'}</div>
+                          <div className="flex-1 text-center text-[2.5rem] font-semibold tracking-[0.03em] text-white">ORACLE CROSSMODAL ENGINE</div>
+                          <div className={`font-mono text-sm ${strongFlag ? 'text-rose-300' : 'text-cyan-100/34'}`}>{strongFlag ? 'Alert' : 'Monitoring'}</div>
                         </div>
 
-                        <div className="relative overflow-hidden px-5 py-5">
-                          <div className="absolute inset-0 bg-[linear-gradient(180deg,transparent_0%,rgba(91,182,255,0.03)_50%,transparent_100%)]" />
-                          <div className="absolute inset-0 bg-[linear-gradient(transparent_0%,rgba(103,222,255,0.022)_49%,transparent_50%,transparent_100%)] bg-[length:100%_15px] opacity-70" />
-                          <svg className="absolute inset-0 h-full w-full" viewBox="0 0 980 420" preserveAspectRatio="none" aria-hidden>
-                            {engineNodes.map((node) => (
+                        <div className="grid gap-0 xl:grid-cols-[minmax(0,1fr)_320px]">
+                          <div className="relative overflow-hidden border-b border-white/6 px-5 py-5 xl:border-b-0 xl:border-r xl:border-white/6">
+                            <div className="absolute inset-0 bg-[linear-gradient(180deg,transparent_0%,rgba(91,182,255,0.03)_50%,transparent_100%)]" />
+                            <div className="absolute inset-0 bg-[linear-gradient(transparent_0%,rgba(103,222,255,0.022)_49%,transparent_50%,transparent_100%)] bg-[length:100%_15px] opacity-70" />
+                            <svg className="absolute inset-0 h-full w-full" viewBox="0 0 920 420" preserveAspectRatio="none" aria-hidden>
+                              {engineNodes.map((node) => (
+                                <path
+                                  key={node.key}
+                                  d={drawCurve(node.x + 220, node.y, 470, 205)}
+                                  fill="none"
+                                  stroke={node.key === 'auditory' ? '#8cf4b8' : node.key === 'facial' ? '#ff6f8d' : node.key === 'physio' ? '#f4dc6c' : '#f3a758'}
+                                  strokeWidth="3.5"
+                                  opacity="0.96"
+                                />
+                              ))}
                               <path
-                                key={node.key}
-                                d={drawCurve(node.x + 245, node.y, 550, 210)}
+                                d={drawCurve(575, 205, 810, 205)}
                                 fill="none"
-                                stroke={node.key === 'auditory' ? '#8cf4b8' : node.key === 'facial' ? '#ff6f8d' : node.key === 'physio' ? '#f4dc6c' : '#f3a758'}
-                                strokeWidth="3.4"
+                                stroke={strongFlag ? '#ff6f82' : '#7df0b3'}
+                                strokeWidth="4.2"
                                 opacity="0.96"
                               />
-                            ))}
-                            <path
-                              d={drawCurve(650, 210, 860, 210)}
-                              fill="none"
-                              stroke={strongFlag ? '#ff6f82' : '#7df0b3'}
-                              strokeWidth="4.2"
-                              opacity="0.96"
-                            />
-                          </svg>
+                            </svg>
 
-                          <div className="relative z-10 grid gap-6 xl:grid-cols-[360px_1fr_310px]">
-                            <div className="space-y-4 pt-5">
-                              {sensorWaveforms.map((panel) => (
-                                <div key={panel.key} className="grid grid-cols-[84px_minmax(0,1fr)] items-center gap-3">
-                                  <div className="rounded-[20px] border border-white/10 bg-[#0a1422] p-3 text-center">
-                                    <div className="mx-auto mb-3 h-9 w-9 rounded-full border border-white/10 bg-white/[0.04]" />
-                                    <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-white/56">{panel.label}</p>
-                                  </div>
-                                  <div className="rounded-[22px] border border-white/10 bg-[#0a1422] px-4 py-3">
-                                    <div className="flex items-center justify-between gap-3">
-                                      <p className="text-[2rem] leading-none text-white">{panel.label === 'Physio' ? 'Heart Rate' : panel.label === 'Gesture' ? 'Gesture' : panel.label === 'Facial' ? 'Tension' : 'Warmth'}</p>
-                                      <span className="font-mono text-lg text-white/58">{panel.value}%</span>
+                            <div className="relative z-10 grid gap-6 xl:grid-cols-[340px_1fr]">
+                              <div className="space-y-4 pt-4">
+                                {sensorWaveforms.map((panel) => (
+                                  <div key={panel.key} className="grid grid-cols-[80px_minmax(0,1fr)] items-center gap-3">
+                                    <div className="rounded-[18px] border border-white/10 bg-[#0a1422] p-3 text-center">
+                                      <div className="mx-auto mb-3 h-9 w-9 rounded-full border border-white/10 bg-white/[0.04]" />
+                                      <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-white/56">{panel.label}</p>
                                     </div>
-                                    <svg viewBox="0 0 210 34" className="mt-3 h-9 w-full">
-                                      <path d={linePath(panel.trace, 210, 34)} fill="none" stroke={panel.stroke} strokeWidth="2.5" />
-                                    </svg>
+                                    <div className="rounded-[22px] border border-white/10 bg-[#0a1422] px-4 py-3">
+                                      <div className="flex items-center justify-between gap-3">
+                                        <p className="text-[1.95rem] leading-none text-white">{panel.label === 'Physio' ? 'Heart Rate' : panel.label === 'Gesture' ? 'Gesture' : panel.label === 'Facial' ? 'Tension' : 'Warmth'}</p>
+                                        <span className="font-mono text-lg text-white/56">{panel.value}%</span>
+                                      </div>
+                                      <svg viewBox="0 0 200 34" className="mt-3 h-9 w-full">
+                                        <path d={linePath(panel.trace, 200, 34)} fill="none" stroke={panel.stroke} strokeWidth="2.5" />
+                                      </svg>
+                                    </div>
                                   </div>
-                                </div>
-                              ))}
-                            </div>
+                                ))}
+                              </div>
 
-                            <div className="flex items-center justify-center">
-                              <div className="relative w-full max-w-[300px] rounded-[30px] border border-cyan-200/26 bg-[linear-gradient(180deg,rgba(117,161,234,0.24),rgba(97,140,207,0.12))] px-6 py-10 text-center shadow-[0_0_0_1px_rgba(157,220,255,0.16),0_0_64px_rgba(87,180,255,0.11)]">
-                                <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full border border-white/14 bg-white/[0.05] text-white/80">◎</div>
-                                <p className="text-[3rem] font-semibold tracking-[0.02em] text-white">ORACLE</p>
-                                <p className="mt-2 text-[1.8rem] leading-tight text-white/88">Crossmodal Engine</p>
+                              <div className="flex items-center justify-center py-8">
+                                <div className="relative w-full max-w-[285px] rounded-[30px] border border-cyan-200/26 bg-[linear-gradient(180deg,rgba(117,161,234,0.24),rgba(97,140,207,0.12))] px-6 py-10 text-center shadow-[0_0_0_1px_rgba(157,220,255,0.16),0_0_64px_rgba(87,180,255,0.11)]">
+                                  <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full border border-white/14 bg-white/[0.05] text-white/80">◎</div>
+                                  <p className="text-[3rem] font-semibold tracking-[0.02em] text-white">ORACLE</p>
+                                  <p className="mt-2 text-[1.8rem] leading-tight text-white/88">Crossmodal Engine</p>
+                                </div>
                               </div>
                             </div>
+                          </div>
 
+                          <div className="p-5">
                             <div className={`rounded-[28px] border px-5 py-5 ${strongFlag ? 'border-rose-300/46 bg-[linear-gradient(180deg,rgba(167,53,57,0.72),rgba(92,22,27,0.38))]' : 'border-emerald-300/24 bg-[linear-gradient(180deg,rgba(17,64,51,0.54),rgba(7,25,20,0.34))]'}`}>
                               <p className={`font-mono text-[14px] uppercase tracking-[0.18em] ${diagnosticTone}`}>{strongFlag ? '!! INCONGRUENCE DETECTED !!' : 'Crossmodal congruence stable'}</p>
                               <p className={`mt-3 text-[3rem] font-semibold leading-none ${diagnosticTone}`}>{formatClock(selected.createdAt)}</p>
@@ -857,21 +863,19 @@ export default function ExtendedPerception() {
                                 </div>
                               </div>
                             </div>
-                          </div>
-                        </div>
 
-                        <div className="border-t border-white/6 px-5 py-5">
-                          <div className="rounded-[24px] border border-white/8 bg-[#06101b] p-4">
-                            <div className="mb-4 flex items-center justify-between">
-                              <p className="font-mono text-[12px] uppercase tracking-[0.24em] text-white/42">Crossmodal Rules / Simultaneous Comparison</p>
-                              <p className={`font-mono text-[12px] ${strongFlag ? 'text-rose-300' : 'text-emerald-300'}`}>{primaryDiagnostic}</p>
-                            </div>
-                            <div className="relative h-[235px] rounded-[20px] border border-white/8 bg-[#07111d] px-3 py-3">
-                              {strongFlag ? <div className="absolute inset-y-4 left-[38%] w-[18%] rounded-lg bg-rose-500/16" /> : null}
-                              <svg viewBox="0 0 760 180" className="relative z-10 h-full w-full">
-                                <path d={linePath(warmthSeries, 760, 180)} fill="none" stroke="#8cf4b8" strokeWidth="3.4" />
-                                <path d={linePath(facialSeries, 760, 180)} fill="none" stroke="#ff6f8d" strokeWidth="2.7" />
-                              </svg>
+                            <div className="mt-5 rounded-[24px] border border-white/8 bg-[#06101b] p-4">
+                              <div className="mb-4 flex items-center justify-between">
+                                <p className="font-mono text-[12px] uppercase tracking-[0.24em] text-white/42">Crossmodal Rules / Simultaneous Comparison</p>
+                                <p className={`font-mono text-[12px] ${strongFlag ? 'text-rose-300' : 'text-emerald-300'}`}>{primaryDiagnostic}</p>
+                              </div>
+                              <div className="relative h-[220px] rounded-[20px] border border-white/8 bg-[#07111d] px-3 py-3">
+                                {strongFlag ? <div className="absolute inset-y-4 left-[42%] w-[18%] rounded-lg bg-rose-500/16" /> : null}
+                                <svg viewBox="0 0 640 170" className="relative z-10 h-full w-full">
+                                  <path d={linePath(warmthSeries, 640, 170)} fill="none" stroke="#8cf4b8" strokeWidth="3.4" />
+                                  <path d={linePath(facialSeries, 640, 170)} fill="none" stroke="#ff6f8d" strokeWidth="2.7" />
+                                </svg>
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -880,26 +884,26 @@ export default function ExtendedPerception() {
                   </div>
                 </section>
 
-                <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_300px]">
-                  <article className="grid gap-5 xl:grid-cols-[300px_minmax(0,1fr)_300px]">
-                    <div className="rounded-[30px] border border-cyan-300/12 bg-[linear-gradient(180deg,rgba(6,13,23,0.98),rgba(3,8,15,0.99))] p-5">
-                      <p className="font-mono text-[12px] uppercase tracking-[0.28em] text-cyan-100/40">Signal Comparison</p>
-                      <div className="mt-5 space-y-5">
-                        {comparisonMeters.map((item) => (
-                          <div key={item.label} className="rounded-[22px] border border-white/8 bg-[#08111d] px-4 py-5">
-                            <p className="font-mono text-[13px] uppercase tracking-[0.22em] text-white/56">{item.label}</p>
-                            <p className="mt-2 text-lg text-white/42">{item.sublabel}</p>
-                            <div className="mt-7 flex flex-col items-center">
-                              <div className="flex h-[210px] w-[132px] items-end rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.015))] p-3">
-                                <div className={`w-full rounded-[18px] bg-gradient-to-t ${item.accent}`} style={{ height: `${Math.max(item.value, 4)}%` }} />
-                              </div>
-                              <div className={`mt-5 text-[4rem] font-semibold leading-none ${item.text}`}>{item.value}%</div>
+                <section className="grid gap-5 xl:grid-cols-[300px_minmax(0,1fr)_300px]">
+                  <article className="rounded-[30px] border border-cyan-300/12 bg-[linear-gradient(180deg,rgba(6,13,23,0.98),rgba(3,8,15,0.99))] p-5">
+                    <p className="font-mono text-[12px] uppercase tracking-[0.28em] text-cyan-100/40">Signal Comparison</p>
+                    <div className="mt-5 space-y-5">
+                      {comparisonMeters.map((item) => (
+                        <div key={item.label} className="rounded-[22px] border border-white/8 bg-[#08111d] px-4 py-5">
+                          <p className="font-mono text-[13px] uppercase tracking-[0.22em] text-white/56">{item.label}</p>
+                          <p className="mt-2 text-lg text-white/42">{item.sublabel}</p>
+                          <div className="mt-7 flex flex-col items-center">
+                            <div className="flex h-[210px] w-[132px] items-end rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.015))] p-3">
+                              <div className={`w-full rounded-[18px] bg-gradient-to-t ${item.accent}`} style={{ height: `${Math.max(item.value, 4)}%` }} />
                             </div>
+                            <div className={`mt-5 text-[4rem] font-semibold leading-none ${item.text}`}>{item.value}%</div>
                           </div>
-                        ))}
-                      </div>
+                        </div>
+                      ))}
                     </div>
+                  </article>
 
+                  <article className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_300px]">
                     <div className="space-y-5">
                       <div className={`rounded-[30px] border p-5 ${strongFlag ? 'border-rose-300/32 bg-[linear-gradient(180deg,rgba(131,22,29,0.48),rgba(33,8,12,0.94))]' : 'border-emerald-300/18 bg-[linear-gradient(180deg,rgba(9,37,35,0.62),rgba(5,14,18,0.94))]'}`}>
                         <p className="font-mono text-[12px] uppercase tracking-[0.28em] text-white/56">Incongruence Detection</p>
@@ -925,86 +929,84 @@ export default function ExtendedPerception() {
                         </div>
                       </div>
 
-                      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_300px]">
-                        <article className="rounded-[30px] border border-cyan-300/12 bg-[linear-gradient(180deg,rgba(6,13,23,0.98),rgba(3,8,15,0.99))] p-5">
-                          <p className="font-mono text-[12px] uppercase tracking-[0.28em] text-cyan-100/40">Temporal Alignment</p>
-                          <div className="mt-5 space-y-4">
-                            {timelineTracks.slice(-5).map((track) => (
-                              <div key={track.id} className="rounded-[20px] border border-white/8 bg-[#07111d] p-4">
-                                <div className="mb-3 flex items-center justify-between font-mono text-[11px] text-white/40">
-                                  <span>{track.stamp}</span>
-                                  <span>{track.simultaneous ? 'aligned' : 'partial'}</span>
-                                </div>
-                                <div className="relative h-[72px] rounded-[18px] border border-white/8 bg-[#091423]">
-                                  <div className="absolute top-[12px] h-3 rounded-full bg-gradient-to-r from-cyan-400 to-emerald-300" style={{ left: `${track.audioStart}%`, width: `${track.audioWidth}%` }} />
-                                  <div className="absolute top-[31px] h-3 rounded-full bg-gradient-to-r from-rose-400 to-red-400" style={{ left: `${track.facialStart}%`, width: `${track.facialWidth}%` }} />
-                                  <div className="absolute top-[50px] h-3 rounded-full bg-gradient-to-r from-amber-300 to-orange-300" style={{ left: `${track.gestureStart}%`, width: `${track.gestureWidth}%` }} />
-                                  <div className={`absolute top-0 h-full w-px ${track.simultaneous ? 'bg-rose-300/80' : 'bg-cyan-200/38'}`} style={{ left: `${track.marker}%` }} />
-                                </div>
+                      <article className="rounded-[30px] border border-cyan-300/12 bg-[linear-gradient(180deg,rgba(6,13,23,0.98),rgba(3,8,15,0.99))] p-5">
+                        <p className="font-mono text-[12px] uppercase tracking-[0.28em] text-cyan-100/40">Temporal Alignment</p>
+                        <div className="mt-5 space-y-4">
+                          {timelineTracks.slice(-5).map((track) => (
+                            <div key={track.id} className="rounded-[20px] border border-white/8 bg-[#07111d] p-4">
+                              <div className="mb-3 flex items-center justify-between font-mono text-[11px] text-white/40">
+                                <span>{track.stamp}</span>
+                                <span>{track.simultaneous ? 'aligned' : 'partial'}</span>
                               </div>
-                            ))}
-                          </div>
-                        </article>
-
-                        <article className="rounded-[30px] border border-cyan-300/12 bg-[linear-gradient(180deg,rgba(6,13,23,0.98),rgba(3,8,15,0.99))] p-5">
-                          <p className="font-mono text-[12px] uppercase tracking-[0.28em] text-cyan-100/40">Signal Correlation</p>
-                          <div className="mt-5 rounded-[22px] border border-white/8 bg-[#07111d] p-4">
-                            <svg viewBox="0 0 260 220" className="h-[220px] w-full">
-                              {chronologicalSeries.map((entry, index) => {
-                                const x = 20 + (entry.vocalWarmth / 100) * 220
-                                const y = 190 - (entry.facialTension / 100) * 160
-                                const active = entry.id === selected.id
-                                const opacity = active ? 1 : clamp(0.24 + index / Math.max(chronologicalSeries.length, 1), 0.24, 0.82)
-                                return <circle key={entry.id} cx={x} cy={y} r={active ? 6 : 3.2} fill={active ? '#d5fbff' : '#62d2ff'} opacity={opacity} />
-                              })}
-                            </svg>
-                          </div>
-                          <p className="mt-4 text-[1.1rem] text-white/72">Correlation coefficient <span className="text-cyan-100">{corr.toFixed(2)}</span></p>
-                        </article>
-                      </div>
+                              <div className="relative h-[72px] rounded-[18px] border border-white/8 bg-[#091423]">
+                                <div className="absolute top-[12px] h-3 rounded-full bg-gradient-to-r from-cyan-400 to-emerald-300" style={{ left: `${track.audioStart}%`, width: `${track.audioWidth}%` }} />
+                                <div className="absolute top-[31px] h-3 rounded-full bg-gradient-to-r from-rose-400 to-red-400" style={{ left: `${track.facialStart}%`, width: `${track.facialWidth}%` }} />
+                                <div className="absolute top-[50px] h-3 rounded-full bg-gradient-to-r from-amber-300 to-orange-300" style={{ left: `${track.gestureStart}%`, width: `${track.gestureWidth}%` }} />
+                                <div className={`absolute top-0 h-full w-px ${track.simultaneous ? 'bg-rose-300/80' : 'bg-cyan-200/38'}`} style={{ left: `${track.marker}%` }} />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </article>
                     </div>
 
-                    <aside className="space-y-5">
-                      <article className="rounded-[30px] border border-cyan-300/12 bg-[linear-gradient(180deg,rgba(6,13,23,0.98),rgba(3,8,15,0.99))] p-5">
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="font-mono text-[12px] uppercase tracking-[0.28em] text-cyan-100/40">Focused Event Feed</p>
-                          <p className="font-mono text-[11px] text-white/34">filtered</p>
-                        </div>
-                        <div className="mt-4 space-y-2">
-                          {filteredEntries.slice(0, 5).map((entry) => {
+                    <article className="rounded-[30px] border border-cyan-300/12 bg-[linear-gradient(180deg,rgba(6,13,23,0.98),rgba(3,8,15,0.99))] p-5">
+                      <p className="font-mono text-[12px] uppercase tracking-[0.28em] text-cyan-100/40">Signal Correlation</p>
+                      <div className="mt-5 rounded-[22px] border border-white/8 bg-[#07111d] p-4">
+                        <svg viewBox="0 0 260 220" className="h-[220px] w-full">
+                          {chronologicalSeries.map((entry, index) => {
+                            const x = 20 + (entry.vocalWarmth / 100) * 220
+                            const y = 190 - (entry.facialTension / 100) * 160
                             const active = entry.id === selected.id
-                            return (
-                              <button
-                                key={entry.id}
-                                type="button"
-                                onClick={() => setSelectedId(entry.id)}
-                                className={`w-full rounded-[18px] border p-3 text-left transition ${active ? 'border-cyan-300/42 bg-cyan-400/10' : 'border-white/8 bg-[#07111d] hover:border-cyan-300/22 hover:bg-white/[0.03]'}`}
-                              >
-                                <div className="flex items-center gap-3">
-                                  <img src={entry.avatarImage} alt={entry.avatarName} className="h-11 w-11 rounded-xl object-cover ring-1 ring-white/10" />
-                                  <div className="min-w-0 flex-1">
-                                    <div className="flex items-center justify-between gap-2">
-                                      <span className="truncate text-sm text-white">{entry.avatarName}</span>
-                                      <span className="font-mono text-[11px] text-white/36">{formatClock(entry.createdAt)}</span>
-                                    </div>
-                                    <p className="mt-1 truncate text-xs text-cyan-100/64">{entry.contactName}</p>
-                                  </div>
-                                </div>
-                              </button>
-                            )
+                            const opacity = active ? 1 : clamp(0.24 + index / Math.max(chronologicalSeries.length, 1), 0.24, 0.82)
+                            return <circle key={entry.id} cx={x} cy={y} r={active ? 6 : 3.2} fill={active ? '#d5fbff' : '#62d2ff'} opacity={opacity} />
                           })}
-                        </div>
-                      </article>
-
-                      <article className="rounded-[30px] border border-cyan-300/12 bg-[linear-gradient(180deg,rgba(6,13,23,0.98),rgba(3,8,15,0.99))] p-5">
-                        <p className="font-mono text-[12px] uppercase tracking-[0.28em] text-cyan-100/40">LUCID Interpretation</p>
-                        <div className="mt-4 rounded-[18px] border border-white/8 bg-[#07111d] p-4">
-                          <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-white/38">Behavioral summary</p>
-                          <p className="mt-3 text-sm leading-6 text-white/74">{selected.behavioralSummary || 'No behavioral summary available for this log.'}</p>
-                        </div>
-                      </article>
-                    </aside>
+                        </svg>
+                      </div>
+                      <p className="mt-4 text-[1.1rem] text-white/72">Correlation coefficient <span className="text-cyan-100">{corr.toFixed(2)}</span></p>
+                    </article>
                   </article>
+
+                  <aside className="space-y-5">
+                    <article className="rounded-[30px] border border-cyan-300/12 bg-[linear-gradient(180deg,rgba(6,13,23,0.98),rgba(3,8,15,0.99))] p-5">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="font-mono text-[12px] uppercase tracking-[0.28em] text-cyan-100/40">Focused Event Feed</p>
+                        <p className="font-mono text-[11px] text-white/34">filtered</p>
+                      </div>
+                      <div className="mt-4 space-y-2">
+                        {filteredEntries.slice(0, 5).map((entry) => {
+                          const active = entry.id === selected.id
+                          return (
+                            <button
+                              key={entry.id}
+                              type="button"
+                              onClick={() => setSelectedId(entry.id)}
+                              className={`w-full rounded-[18px] border p-3 text-left transition ${active ? 'border-cyan-300/42 bg-cyan-400/10' : 'border-white/8 bg-[#07111d] hover:border-cyan-300/22 hover:bg-white/[0.03]'}`}
+                            >
+                              <div className="flex items-center gap-3">
+                                <img src={entry.avatarImage} alt={entry.avatarName} className="h-11 w-11 rounded-xl object-cover ring-1 ring-white/10" />
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="truncate text-sm text-white">{entry.avatarName}</span>
+                                    <span className="font-mono text-[11px] text-white/36">{formatClock(entry.createdAt)}</span>
+                                  </div>
+                                  <p className="mt-1 truncate text-xs text-cyan-100/64">{entry.contactName}</p>
+                                </div>
+                              </div>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </article>
+
+                    <article className="rounded-[30px] border border-cyan-300/12 bg-[linear-gradient(180deg,rgba(6,13,23,0.98),rgba(3,8,15,0.99))] p-5">
+                      <p className="font-mono text-[12px] uppercase tracking-[0.28em] text-cyan-100/40">LUCID Interpretation</p>
+                      <div className="mt-4 rounded-[18px] border border-white/8 bg-[#07111d] p-4">
+                        <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-white/38">Behavioral summary</p>
+                        <p className="mt-3 text-sm leading-6 text-white/74">{selected.behavioralSummary || 'No behavioral summary available for this log.'}</p>
+                      </div>
+                    </article>
+                  </aside>
                 </section>
               </main>
             ) : null}
