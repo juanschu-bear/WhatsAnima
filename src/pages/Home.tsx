@@ -10,7 +10,6 @@ export default function Home() {
   const [checking, setChecking] = useState(true)
   const [accountOpen, setAccountOpen] = useState(false)
   const [profileName, setProfileName] = useState('')
-  const [profileEmail, setProfileEmail] = useState('')
   const [savingAccount, setSavingAccount] = useState(false)
   const [accountMessage, setAccountMessage] = useState<string | null>(null)
 
@@ -18,7 +17,6 @@ export default function Home() {
     profileName.trim() ||
     [user?.user_metadata?.first_name, user?.user_metadata?.last_name].filter(Boolean).join(' ') ||
     user?.user_metadata?.full_name ||
-    profileEmail ||
     user?.email ||
     'WhatsAnima'
 
@@ -31,7 +29,6 @@ export default function Home() {
       '',
     ).trim()
     setProfileName(initialName)
-    setProfileEmail(String(user.email || '').trim())
   }, [user])
 
   useEffect(() => {
@@ -92,25 +89,17 @@ export default function Home() {
     setAccountMessage(null)
     try {
       const nextName = profileName.trim()
-      const nextEmail = profileEmail.trim()
       const currentEmail = String(user.email || '').trim()
       const payload: Record<string, unknown> = {
         data: {
           full_name: nextName || currentEmail || 'WhatsAnima User',
         },
       }
-      if (nextEmail && nextEmail.toLowerCase() !== currentEmail.toLowerCase()) {
-        payload.email = nextEmail
-      }
 
       const { error } = await supabase.auth.updateUser(payload)
       if (error) throw error
 
-      setAccountMessage(
-        payload.email
-          ? 'Account saved. Check your inbox to confirm the new email address.'
-          : 'Account saved.',
-      )
+      setAccountMessage('Account saved.')
     } catch (saveError) {
       setAccountMessage(saveError instanceof Error ? saveError.message : 'Could not save account changes.')
     } finally {
@@ -168,13 +157,9 @@ export default function Home() {
                 </label>
                 <label className="mt-3 block text-[11px] uppercase tracking-[0.18em] text-white/45">
                   Email
-                  <input
-                    type="email"
-                    value={profileEmail}
-                    onChange={(event) => setProfileEmail(event.target.value)}
-                    className="mt-2 w-full rounded-xl border border-white/12 bg-[#08111a] px-3 py-2 text-sm text-white outline-none transition focus:border-[#00a884]/60"
-                    placeholder="you@example.com"
-                  />
+                  <div className="mt-2 w-full rounded-xl border border-white/12 bg-[#08111a] px-3 py-2 text-sm text-white/75">
+                    {String(user?.email || 'No email')}
+                  </div>
                 </label>
                 {accountMessage ? (
                   <p className="mt-3 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-white/75">
@@ -201,7 +186,7 @@ export default function Home() {
               </div>
             ) : null}
           </div>
-          <div className="mt-8 flex w-full max-w-sm flex-col gap-3">
+          <div className="mt-8 flex w-full max-w-md flex-col gap-3">
             <button
               type="button"
               onClick={() => navigate('/avatars')}
@@ -212,32 +197,32 @@ export default function Home() {
               </svg>
               Chat
             </button>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3">
               <button
                 type="button"
                 onClick={() => navigate('/dashboard')}
-                className="rounded-2xl border border-white/10 bg-[#1f2c34]/80 px-6 py-3 text-sm font-medium transition hover:border-[#00a884]/60 hover:text-[#00a884]"
+                className="min-h-[52px] rounded-2xl border border-white/10 bg-[#1f2c34]/80 px-4 py-3 text-sm font-medium transition hover:border-[#00a884]/60 hover:text-[#00a884]"
               >
                 Dashboard
               </button>
               <button
                 type="button"
                 onClick={() => navigate('/perception')}
-                className="rounded-2xl border border-white/10 bg-[#1f2c34]/80 px-4 py-3 text-sm font-medium transition hover:border-[#00a884]/60 hover:text-[#00a884]"
+                className="min-h-[52px] rounded-2xl border border-white/10 bg-[#1f2c34]/80 px-4 py-3 text-sm font-medium transition hover:border-[#00a884]/60 hover:text-[#00a884]"
               >
                 Perception
               </button>
               <button
                 type="button"
                 onClick={() => navigate('/meeting-host')}
-                className="rounded-2xl border border-white/10 bg-[#1f2c34]/80 px-4 py-3 text-sm font-medium transition hover:border-[#00a884]/60 hover:text-[#00a884]"
+                className="min-h-[52px] rounded-2xl border border-white/10 bg-[#1f2c34]/80 px-4 py-3 text-sm font-medium transition hover:border-[#00a884]/60 hover:text-[#00a884]"
               >
                 Meeting
               </button>
               <button
                 type="button"
                 onClick={() => navigate('/settings')}
-                className="rounded-2xl border border-white/10 bg-[#1f2c34]/80 px-6 py-3 text-sm font-medium transition hover:border-[#00a884]/60 hover:text-[#00a884]"
+                className="min-h-[52px] rounded-2xl border border-white/10 bg-[#1f2c34]/80 px-4 py-3 text-sm font-medium transition hover:border-[#00a884]/60 hover:text-[#00a884]"
               >
                 Settings
               </button>
