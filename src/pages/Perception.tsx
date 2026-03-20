@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { resolveAvatarUrl } from '../lib/avatars'
-import { getStoredLocale, type Locale } from '../lib/i18n'
+import { getStoredLocale, setStoredLocale, type Locale } from '../lib/i18n'
 
 type LanguageFilter = 'All' | 'English' | 'German' | 'Spanish'
 type AnalysisTab = 'voice' | 'video'
@@ -592,7 +592,7 @@ function displayFilterOption(value: string, locale: Locale) {
 export default function Perception() {
   const navigate = useNavigate()
   const { user } = useAuth()
-  const locale = useMemo(() => getStoredLocale(), [])
+  const [locale, setLocale] = useState<Locale>(getStoredLocale)
   const T = (en: string, es: string) => (locale === 'es' ? es : en)
 
   const [entries, setEntries] = useState<PerceptionEntry[]>([])
@@ -608,6 +608,12 @@ export default function Perception() {
   const [ruleFilter, setRuleFilter] = useState('All')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
+
+  const toggleLocale = () => {
+    const nextLocale: Locale = locale === 'es' ? 'en' : 'es'
+    setLocale(nextLocale)
+    setStoredLocale(nextLocale)
+  }
 
   useEffect(() => {
     const storedAvatar = getStoredValue('perception_avatarFilter', 'All')
@@ -883,7 +889,15 @@ export default function Perception() {
                 </button>
               </div>
             </div>
-            <div className="flex gap-3">
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={toggleLocale}
+                title={locale === 'en' ? 'Cambiar a Espanol' : 'Switch to English'}
+                className="rounded-2xl border border-[#75f0df]/25 bg-[#07131c] px-3 py-2.5 text-sm font-medium text-[#7cf0e1] transition hover:border-[#75f0df]/45 hover:text-white"
+              >
+                {locale === 'en' ? 'ES' : 'EN'}
+              </button>
               <button
                 type="button"
                 onClick={() => navigate('/dashboard')}
