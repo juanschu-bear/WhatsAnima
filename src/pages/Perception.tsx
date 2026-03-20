@@ -92,7 +92,16 @@ interface PerceptionDashboardPayload {
 
 const LANGUAGE_OPTIONS: LanguageFilter[] = ['All', 'English', 'German', 'Spanish']
 
-const METRIC_CONFIG = [
+type MetricConfigEntry = {
+  key: string
+  label: string
+  unit: string
+  reference: string
+  accent: string
+  transform: (value: number) => number
+}
+
+const METRIC_CONFIG: MetricConfigEntry[] = [
   { key: 'speaking_rate_wps', label: 'Speaking Rate', unit: 'wps', reference: 'Normal: 1.5–2.5', accent: 'text-cyan-300', transform: (value: number) => value },
   { key: 'voice_stability', label: 'Voice Stability', unit: '%', reference: 'High >85%, Low <70%', accent: 'text-emerald-300', transform: (value: number) => value * 100 },
   { key: 'voice_tremor', label: 'Voice Tremor', unit: '%', reference: 'Low <10%, High >20%', accent: 'text-amber-300', transform: (value: number) => value * 100 },
@@ -102,7 +111,7 @@ const METRIC_CONFIG = [
   { key: 'speech_ratio', label: 'Speech Ratio', unit: '%', reference: '>95% = continuous', accent: 'text-teal-300', transform: (value: number) => value * 100 },
   { key: 'longest_pause_ms', label: 'Longest Pause', unit: 's', reference: '>3s = deliberate', accent: 'text-violet-300', transform: (value: number) => value / 1000 },
   { key: 'average_pause_ms', label: 'Avg Pause', unit: 'ms', reference: 'Normal: 500–1500', accent: 'text-orange-300', transform: (value: number) => value },
-] as const
+]
 
 const EMOTION_STYLES: Record<string, { color: string; bg: string; border: string; emoji: string }> = {
   frustrated: { color: 'text-red-300', bg: 'bg-red-500/12', border: 'border-red-400/20', emoji: '😤' },
@@ -384,7 +393,7 @@ function formatClock(totalSeconds: number) {
   return `${minutes}:${String(seconds).padStart(2, '0')}`
 }
 
-function metricValue(entry: PerceptionEntry, metric: typeof METRIC_CONFIG[number]) {
+function metricValue(entry: PerceptionEntry, metric: MetricConfigEntry) {
   const raw = toNumber(entry.prosodicSummary[metric.key])
   if (raw == null) return null
   return metric.transform(raw)
