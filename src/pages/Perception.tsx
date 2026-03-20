@@ -581,11 +581,20 @@ function bodyLanguageSummary(source: Record<string, unknown>) {
 }
 
 function displayFilterOption(value: string, locale: Locale) {
-  if (locale !== 'es') return value
-  if (value === 'All') return 'Todo'
-  if (value === 'English') return 'Ingles'
-  if (value === 'German') return 'Aleman'
-  if (value === 'Spanish') return 'Espanol'
+  if (locale === 'es') {
+    if (value === 'All') return 'Todo'
+    if (value === 'English') return 'Ingles'
+    if (value === 'German') return 'Aleman'
+    if (value === 'Spanish') return 'Espanol'
+    return value
+  }
+  if (locale === 'de') {
+    if (value === 'All') return 'Alle'
+    if (value === 'English') return 'Englisch'
+    if (value === 'German') return 'Deutsch'
+    if (value === 'Spanish') return 'Spanisch'
+    return value
+  }
   return value
 }
 
@@ -593,7 +602,7 @@ export default function Perception() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const [locale, setLocale] = useState<Locale>(getStoredLocale)
-  const T = (en: string, es: string) => (locale === 'es' ? es : en)
+  const T = (en: string, es: string, de = en) => (locale === 'es' ? es : locale === 'de' ? de : en)
 
   const [entries, setEntries] = useState<PerceptionEntry[]>([])
   const [loading, setLoading] = useState(true)
@@ -610,7 +619,7 @@ export default function Perception() {
   const [dateTo, setDateTo] = useState('')
 
   const toggleLocale = () => {
-    const nextLocale: Locale = locale === 'es' ? 'en' : 'es'
+    const nextLocale: Locale = locale === 'en' ? 'es' : locale === 'es' ? 'de' : 'en'
     setLocale(nextLocale)
     setStoredLocale(nextLocale)
   }
@@ -832,15 +841,15 @@ export default function Perception() {
   const metricConfig = useMemo(() => {
     if (locale !== 'es') return METRIC_CONFIG
     const localized: Record<string, { label: string; reference: string }> = {
-      speaking_rate_wps: { label: 'Ritmo de habla', reference: 'Normal: 1.5–2.5' },
-      voice_stability: { label: 'Estabilidad de voz', reference: 'Alta >85%, Baja <70%' },
-      voice_tremor: { label: 'Temblor de voz', reference: 'Bajo <10%, Alto >20%' },
-      pitch_range_hz: { label: 'Rango de tono', reference: 'Estrecho <50, Amplio >100' },
-      estimated_fundamental_hz: { label: 'Frecuencia fund.', reference: 'Hombre: 85–155' },
-      mean_volume_db: { label: 'Volumen', reference: 'Mas bajo ← -50 · -35 → Mas alto' },
-      speech_ratio: { label: 'Ratio de voz', reference: '>95% = continuo' },
-      longest_pause_ms: { label: 'Pausa mas larga', reference: '>3s = deliberada' },
-      average_pause_ms: { label: 'Pausa prom.', reference: 'Normal: 500–1500' },
+      speaking_rate_wps: { label: T('Speaking Rate', 'Ritmo de habla', 'Sprechtempo'), reference: T('Normal: 1.5–2.5', 'Normal: 1.5–2.5', 'Normal: 1.5–2.5') },
+      voice_stability: { label: T('Voice Stability', 'Estabilidad de voz', 'Stimmstabilitat'), reference: T('High >85%, Low <70%', 'Alta >85%, Baja <70%', 'Hoch >85%, Niedrig <70%') },
+      voice_tremor: { label: T('Voice Tremor', 'Temblor de voz', 'Stimmtremor'), reference: T('Low <10%, High >20%', 'Bajo <10%, Alto >20%', 'Niedrig <10%, Hoch >20%') },
+      pitch_range_hz: { label: T('Pitch Range', 'Rango de tono', 'Tonumfang'), reference: T('Narrow <50, Wide >100', 'Estrecho <50, Amplio >100', 'Eng <50, Breit >100') },
+      estimated_fundamental_hz: { label: T('Fund. Frequency', 'Frecuencia fund.', 'Grundfrequenz'), reference: T('Male: 85–155', 'Hombre: 85–155', 'Mannlich: 85–155') },
+      mean_volume_db: { label: T('Volume', 'Volumen', 'Lautstarke'), reference: T('Lower <-50 · -35-> Higher', 'Mas bajo <-50 · -35-> Mas alto', 'Leiser <-50 · -35-> Lauter') },
+      speech_ratio: { label: T('Speech Ratio', 'Ratio de voz', 'Sprechanteil'), reference: T('>95% = continuous', '>95% = continuo', '>95% = durchgehend') },
+      longest_pause_ms: { label: T('Longest Pause', 'Pausa mas larga', 'Langste Pause'), reference: T('>3s = deliberate', '>3s = deliberada', '>3s = bewusst') },
+      average_pause_ms: { label: T('Avg Pause', 'Pausa prom.', 'Durchschn. Pause'), reference: T('Normal: 500–1500', 'Normal: 500–1500', 'Normal: 500–1500') },
     }
     return METRIC_CONFIG.map((metric) =>
       localized[metric.key] ? { ...metric, ...localized[metric.key] } : metric
@@ -859,10 +868,10 @@ export default function Perception() {
         <header className="flex flex-col gap-4 rounded-[28px] border border-white/10 bg-[linear-gradient(180deg,rgba(9,20,31,0.94),rgba(4,10,18,0.98))] p-5 shadow-[0_30px_120px_rgba(0,0,0,0.35)] sm:p-6">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
-              <p className="text-[11px] uppercase tracking-[0.35em] text-[#82f8e3]/55">{T('Perception Dashboard', 'Panel de Percepcion')}</p>
-              <h1 className="mt-2 text-3xl font-semibold tracking-[-0.03em] text-white sm:text-4xl">{T('Live Reading Archive', 'Archivo de Lecturas')}</h1>
+              <p className="text-[11px] uppercase tracking-[0.35em] text-[#82f8e3]/55">{T('Perception Dashboard', 'Panel de Percepcion', 'Perception Dashboard')}</p>
+              <h1 className="mt-2 text-3xl font-semibold tracking-[-0.03em] text-white sm:text-4xl">{T('Live Reading Archive', 'Archivo de Lecturas', 'Live Reading Archiv')}</h1>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-white/62 sm:text-[15px]">
-                {T('Filter and inspect perception logs across avatars, languages, rules, and time windows.', 'Filtra e inspecciona logs de percepcion por avatar, idioma, reglas y ventana de tiempo.')}
+                {T('Filter and inspect perception logs across avatars, languages, rules, and time windows.', 'Filtra e inspecciona logs de percepcion por avatar, idioma, reglas y ventana de tiempo.', 'Filtere und analysiere Perception-Logs nach Avataren, Sprachen, Regeln und Zeitraum.')}
               </p>
               <div className="mt-4 inline-flex rounded-2xl border border-white/10 bg-[#08111a] p-1.5">
                 <button
@@ -874,7 +883,7 @@ export default function Perception() {
                       : 'text-white/70 hover:bg-white/6 hover:text-white'
                   }`}
                 >
-                  {T('Voice Analysis', 'Analisis de Voz')}
+                  {T('Voice Analysis', 'Analisis de Voz', 'Sprachanalyse')}
                 </button>
                 <button
                   type="button"
@@ -885,7 +894,7 @@ export default function Perception() {
                       : 'text-white/70 hover:bg-white/6 hover:text-white'
                   }`}
                 >
-                  {T('Video Analysis', 'Analisis de Video')}
+                  {T('Video Analysis', 'Analisis de Video', 'Videoanalyse')}
                 </button>
               </div>
             </div>
@@ -893,60 +902,60 @@ export default function Perception() {
               <button
                 type="button"
                 onClick={toggleLocale}
-                title={locale === 'en' ? 'Cambiar a Espanol' : 'Switch to English'}
+                title={locale === 'en' ? 'Cambiar a Espanol' : locale === 'es' ? 'Zu Deutsch wechseln' : 'Switch to English'}
                 className="rounded-2xl border border-[#75f0df]/25 bg-[#07131c] px-3 py-2.5 text-sm font-medium text-[#7cf0e1] transition hover:border-[#75f0df]/45 hover:text-white"
               >
-                {locale === 'en' ? 'ES' : 'EN'}
+                {locale === 'en' ? 'ES' : locale === 'es' ? 'DE' : 'EN'}
               </button>
               <button
                 type="button"
                 onClick={() => navigate('/dashboard')}
                 className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white/78 transition hover:bg-white/8"
               >
-                {T('Dashboard', 'Dashboard')}
+                {T('Dashboard', 'Dashboard', 'Dashboard')}
               </button>
               <button
                 type="button"
                 onClick={() => navigate('/')}
                 className="rounded-2xl border border-[#75f0df]/25 bg-[#0c8a6d]/20 px-4 py-2.5 text-sm text-[#9af8ea] transition hover:border-[#75f0df]/45 hover:text-white"
               >
-                {T('Home', 'Inicio')}
+                {T('Home', 'Inicio', 'Start')}
               </button>
             </div>
           </div>
 
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
             <label className="flex flex-col gap-2 text-xs uppercase tracking-[0.18em] text-white/45">
-              {T('Avatar', 'Avatar')}
+              {T('Avatar', 'Avatar', 'Avatar')}
               <select value={avatarFilter} onChange={(event) => setAvatarFilter(event.target.value)} className="rounded-2xl border border-white/10 bg-[#08111a] px-4 py-3 text-sm tracking-normal text-white outline-none transition focus:border-[#7cf0e1]/50">
                 {avatarOptions.map((option) => <option key={option} value={option}>{displayFilterOption(option, locale)}</option>)}
               </select>
             </label>
             <label className="flex flex-col gap-2 text-xs uppercase tracking-[0.18em] text-white/45">
-              {T('Language', 'Idioma')}
+              {T('Language', 'Idioma', 'Sprache')}
               <select value={languageFilter} onChange={(event) => setLanguageFilter(event.target.value as LanguageFilter)} className="rounded-2xl border border-white/10 bg-[#08111a] px-4 py-3 text-sm tracking-normal text-white outline-none transition focus:border-[#7cf0e1]/50">
                 {LANGUAGE_OPTIONS.map((option) => <option key={option} value={option}>{displayFilterOption(option, locale)}</option>)}
               </select>
             </label>
             <label className="flex flex-col gap-2 text-xs uppercase tracking-[0.18em] text-white/45">
-              {T('Emotion', 'Emocion')}
+              {T('Emotion', 'Emocion', 'Emotion')}
               <select value={emotionFilter} onChange={(event) => setEmotionFilter(event.target.value)} className="rounded-2xl border border-white/10 bg-[#08111a] px-4 py-3 text-sm tracking-normal text-white outline-none transition focus:border-[#7cf0e1]/50">
                 {emotionOptions.map((option) => <option key={option} value={option}>{displayFilterOption(option, locale)}</option>)}
               </select>
             </label>
             <label className="flex flex-col gap-2 text-xs uppercase tracking-[0.18em] text-white/45">
-              {T('Rule', 'Regla')}
+              {T('Rule', 'Regla', 'Regel')}
               <select value={ruleFilter} onChange={(event) => setRuleFilter(event.target.value)} className="rounded-2xl border border-white/10 bg-[#08111a] px-4 py-3 text-sm tracking-normal text-white outline-none transition focus:border-[#7cf0e1]/50">
                 {ruleOptions.map((option) => <option key={option} value={option}>{displayFilterOption(option, locale)}</option>)}
               </select>
             </label>
             <div className="grid grid-cols-2 gap-3">
               <label className="flex flex-col gap-2 text-xs uppercase tracking-[0.18em] text-white/45">
-                {T('From', 'Desde')}
+                {T('From', 'Desde', 'Von')}
                 <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} className="rounded-2xl border border-white/10 bg-[#08111a] px-4 py-3 text-sm tracking-normal text-white outline-none transition focus:border-[#7cf0e1]/50" />
               </label>
               <label className="flex flex-col gap-2 text-xs uppercase tracking-[0.18em] text-white/45">
-                {T('To', 'Hasta')}
+                {T('To', 'Hasta', 'Bis')}
                 <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} className="rounded-2xl border border-white/10 bg-[#08111a] px-4 py-3 text-sm tracking-normal text-white outline-none transition focus:border-[#7cf0e1]/50" />
               </label>
             </div>
@@ -955,12 +964,12 @@ export default function Perception() {
 
         <section className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
           {[
-            { label: T('Messages', 'Mensajes'), value: String(stats.messages) },
-            { label: T('Total duration', 'Duracion total'), value: formatDuration(stats.totalDuration) },
-            { label: T('Avg speaking rate', 'Ritmo promedio'), value: stats.avgSpeakingRate != null ? `${stats.avgSpeakingRate.toFixed(2)} wps` : '—' },
-            { label: T('Avg stability', 'Estabilidad prom.'), value: stats.avgStability != null ? stats.avgStability.toFixed(2) : '—' },
-            { label: T('Avg tremor', 'Temblor prom.'), value: stats.avgTremor != null ? stats.avgTremor.toFixed(3) : '—' },
-            { label: T('Rules fired', 'Reglas activadas'), value: String(stats.rulesFired) },
+            { label: T('Messages', 'Mensajes', 'Nachrichten'), value: String(stats.messages) },
+            { label: T('Total duration', 'Duracion total', 'Gesamtdauer'), value: formatDuration(stats.totalDuration) },
+            { label: T('Avg speaking rate', 'Ritmo promedio', 'Durchschn. Sprechtempo'), value: stats.avgSpeakingRate != null ? `${stats.avgSpeakingRate.toFixed(2)} wps` : '—' },
+            { label: T('Avg stability', 'Estabilidad prom.', 'Durchschn. Stabilitat'), value: stats.avgStability != null ? stats.avgStability.toFixed(2) : '—' },
+            { label: T('Avg tremor', 'Temblor prom.', 'Durchschn. Tremor'), value: stats.avgTremor != null ? stats.avgTremor.toFixed(3) : '—' },
+            { label: T('Rules fired', 'Reglas activadas', 'Ausgeloste Regeln'), value: String(stats.rulesFired) },
           ].map((stat) => (
             <div key={stat.label} className="rounded-[24px] border border-white/8 bg-[linear-gradient(180deg,rgba(8,18,28,0.92),rgba(5,11,18,0.96))] px-4 py-4 shadow-[0_20px_60px_rgba(0,0,0,0.28)]">
               <div className="text-[11px] uppercase tracking-[0.24em] text-white/40">{stat.label}</div>
@@ -982,8 +991,8 @@ export default function Perception() {
             <aside className="rounded-[28px] border border-white/8 bg-[linear-gradient(180deg,rgba(8,18,28,0.92),rgba(5,11,18,0.96))] p-3 shadow-[0_30px_90px_rgba(0,0,0,0.3)] xl:sticky xl:top-5 xl:max-h-[calc(100vh-300px)] xl:self-start">
               <div className="flex items-center justify-between px-2 pb-3 pt-1">
                 <div>
-                  <p className="text-[11px] uppercase tracking-[0.25em] text-white/35">{T('Timeline', 'Linea de tiempo')}</p>
-                  <p className="mt-1 text-sm text-white/58">{filteredEntries.length} {T('filtered logs', 'logs filtrados')}</p>
+                  <p className="text-[11px] uppercase tracking-[0.25em] text-white/35">{T('Timeline', 'Linea de tiempo', 'Zeitachse')}</p>
+                  <p className="mt-1 text-sm text-white/58">{filteredEntries.length} {T('filtered logs', 'logs filtrados', 'gefilterte Logs')}</p>
                 </div>
               </div>
 

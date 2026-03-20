@@ -311,7 +311,7 @@ export default function Dashboard() {
   const L = useCallback((key: Parameters<typeof t>[1]) => t(locale, key), [locale])
 
   const toggleLocale = () => {
-    const next: Locale = locale === 'en' ? 'es' : 'en'
+    const next: Locale = locale === 'en' ? 'es' : locale === 'es' ? 'de' : 'en'
     setLocale(next)
     setStoredLocale(next)
   }
@@ -667,9 +667,9 @@ export default function Dashboard() {
                 type="button"
                 onClick={toggleLocale}
                 className="brand-inset rounded-2xl px-4 py-3 text-sm font-medium transition hover:border-[#00a884]/60 hover:text-[#00a884]"
-                title={locale === 'en' ? 'Cambiar a Espanol' : 'Switch to English'}
+                title={locale === 'en' ? 'Cambiar a Espanol' : locale === 'es' ? 'Zu Deutsch wechseln' : 'Switch to English'}
               >
-                {locale === 'en' ? 'ES' : 'EN'}
+                {locale === 'en' ? 'ES' : locale === 'es' ? 'DE' : 'EN'}
               </button>
               <Link
                 to="/"
