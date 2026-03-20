@@ -486,7 +486,6 @@ export default function ExtendedPerception() {
 
   const warmthSeries = useMemo(() => chronologicalSeries.map((entry) => entry.vocalWarmth), [chronologicalSeries])
   const facialSeries = useMemo(() => chronologicalSeries.map((entry) => entry.facialTension), [chronologicalSeries])
-  const physioSeries = useMemo(() => chronologicalSeries.map((entry) => entry.physioArousal), [chronologicalSeries])
 
   const corr = useMemo(() => correlation(warmthSeries, facialSeries), [facialSeries, warmthSeries])
 
@@ -536,7 +535,6 @@ export default function ExtendedPerception() {
   const strongFlag = selected?.incongruence ?? false
   const selectedMoment = selected ? formatEventStamp(selected.createdAt) : ''
   const alignmentScore = selected ? Math.round((selected.vocalWarmth * 0.32) + ((100 - selected.facialTension) * 0.28) + (selected.gestureLoad * 0.14) + ((1 - Math.abs(corr)) * 26)) : 0
-  const routingConfidence = selected ? Math.round((selected.incongruenceScore * 0.58) + (Math.abs(corr) * 100 * 0.42)) : 0
   const sensorWaveforms = selected
     ? [
         {
