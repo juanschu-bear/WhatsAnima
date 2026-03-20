@@ -82,9 +82,9 @@ export default function App() {
           <Route
             path="/meeting-host"
             element={
-              <OwnerRoute>
+              <ProtectedRoute>
                 <MeetingHost />
-              </OwnerRoute>
+              </ProtectedRoute>
             }
           />
         </Routes>
