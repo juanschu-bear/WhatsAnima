@@ -393,6 +393,82 @@ function getYouTubeRecommendationProfile(
   return null
 }
 
+function getYouTubeChannelSearchQuery(profile: YouTubeRecommendationProfile, userMessage: string): string {
+  const topic = userMessage.trim()
+  if (profile === 'adri') {
+    return `site:youtube.com adrikastelpro ${topic}`.trim()
+  }
+  return `site:youtube.com "Brian Cox" youtube.com/@profbriancoxofficial ${topic}`.trim()
+}
+
+function extractAnthropicText(result: any): string {
+  if (!result || !Array.isArray(result.content)) return ''
+  const textBlocks = result.content
+    .filter((block: any) => block?.type === 'text' && typeof block?.text === 'string')
+    .map((block: any) => block.text.trim())
+    .filter(Boolean)
+  return textBlocks.join('\n').trim()
+}
+
+async function callAnthropicVideoWebSearch(
+  apiKey: string,
+  profile: YouTubeRecommendationProfile,
+  ownerName: string,
+  userMessage: string,
+  priorMessages: ChatMessage[]
+): Promise<string> {
+  const language = resolveReplyLanguage(userMessage, priorMessages)
+  const query = getYouTubeChannelSearchQuery(profile, userMessage)
+  const payload = {
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 450,
+    tools: [
+      {
+        type: 'web_search_20250305',
+        name: 'youtube_search',
+        max_uses: 2,
+        allowed_domains: ['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be'],
+      },
+    ],
+    system: `You are ${ownerName}. Find ONE relevant video recommendation from your YouTube channel.
+Never mention tools or search process.
+Output only 2-3 lines:
+1) video title
+2) full YouTube URL
+3) one short sentence for relevance
+Language: ${language}.`,
+    messages: [
+      {
+        role: 'user',
+        content: `Use web search now and restrict the search to this query: "${query}".
+Return exactly one best matching YouTube video from that restricted search.`,
+      },
+    ],
+  }
+
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-beta': 'web-search-2025-03-05',
+    },
+    body: JSON.stringify(payload),
+  })
+
+  const result = await response.json()
+  if (!response.ok) {
+    throw new Error(result.error?.message || `Anthropic web_search error ${response.status}`)
+  }
+
+  const text = extractAnthropicText(result)
+  if (!text) {
+    throw new Error('Anthropic web_search returned empty text')
+  }
+  return text.replace(/^\[(?:Voice\s*(?:Response|message)|Text|Audio)\]\s*/i, '').trim()
+}
+
 function buildForcedVideoReply(lang: string, video: YouTubeVideoIndexItem, profile: YouTubeRecommendationProfile): string {
   const cleanedTitle = (video.title || 'Video recomendado').trim()
   const sourceHint =
@@ -740,9 +816,9 @@ export async function loadOwnerPromptAndMemory(
   conversationId: string | undefined,
   ownerIdHint?: string | null,
   ownerNameHint?: string | null
-): Promise<{ ownerPrompt: string; memory: string; stylePrompt: string; behavioralMemory: string; ownerId: string | null; ownerName: string; youtubeVideos: YouTubeVideoIndexItem[] }> {
+): Promise<{ ownerPrompt: string; memory: string; stylePrompt: string; behavioralMemory: string; ownerId: string | null; ownerName: string }> {
   const databaseUrl = getDatabaseUrl()
-  if (!databaseUrl) return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '', stylePrompt: '', behavioralMemory: '', ownerId: null, ownerName: 'Avatar', youtubeVideos: [] }
+  if (!databaseUrl) return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '', stylePrompt: '', behavioralMemory: '', ownerId: null, ownerName: 'Avatar' }
 
   const client = new Client({ connectionString: databaseUrl, ssl: { rejectUnauthorized: false } })
   try {
@@ -760,7 +836,7 @@ export async function loadOwnerPromptAndMemory(
     if (conversationId) {
       const [ownerResultByConversation, memoryResultByConversation] = await Promise.all([
         client.query(
-          `select o.id, o.display_name, o.system_prompt, o.is_self_avatar, o.communication_style, o.youtube_videos
+          `select o.id, o.display_name, o.system_prompt, o.is_self_avatar, o.communication_style
            from public.wa_conversations c
            join public.wa_owners o on o.id = c.owner_id
            where c.id = $1 and o.deleted_at is null
@@ -781,7 +857,7 @@ export async function loadOwnerPromptAndMemory(
 
     if (!ownerRow && normalizedOwnerIdHint) {
       const ownerResultById = await client.query(
-        `select id, display_name, system_prompt, is_self_avatar, communication_style, youtube_videos
+        `select id, display_name, system_prompt, is_self_avatar, communication_style
          from public.wa_owners
          where id = $1 and deleted_at is null
          limit 1`,
@@ -792,7 +868,7 @@ export async function loadOwnerPromptAndMemory(
 
     if (!ownerRow && normalizedOwnerNameHint) {
       const ownerResultByName = await client.query(
-        `select id, display_name, system_prompt, is_self_avatar, communication_style, youtube_videos
+        `select id, display_name, system_prompt, is_self_avatar, communication_style
          from public.wa_owners
          where lower(display_name) = lower($1) and deleted_at is null
          order by updated_at desc nulls last
@@ -804,7 +880,7 @@ export async function loadOwnerPromptAndMemory(
 
     if (!ownerRow && normalizedOwnerNameHint) {
       const ownerResultByNameLike = await client.query(
-        `select id, display_name, system_prompt, is_self_avatar, communication_style, youtube_videos
+        `select id, display_name, system_prompt, is_self_avatar, communication_style
          from public.wa_owners
          where lower(display_name) like lower($1) and deleted_at is null
          order by updated_at desc nulls last
@@ -819,10 +895,10 @@ export async function loadOwnerPromptAndMemory(
       normalizedOwnerNameHint,
       null
     )
-    if ((!ownerRow || !Array.isArray(ownerRow.youtube_videos) || ownerRow.youtube_videos.length === 0) && hintedProfile) {
+    if (!ownerRow && hintedProfile) {
       const canonicalOwnerId = hintedProfile === 'adri' ? ADRI_KASTEL_OWNER_ID : BRIAN_COX_OWNER_ID
       const ownerResultByCanonicalId = await client.query(
-        `select id, display_name, system_prompt, is_self_avatar, communication_style, youtube_videos
+        `select id, display_name, system_prompt, is_self_avatar, communication_style
          from public.wa_owners
          where id = $1 and deleted_at is null
          limit 1`,
@@ -836,7 +912,6 @@ export async function loadOwnerPromptAndMemory(
     const ownerId = ownerRow?.id ? String(ownerRow.id) : null
     const ownerName = ownerRow?.display_name?.trim() || 'Avatar'
     const ownerPrompt = ownerRow?.system_prompt?.trim() || DEFAULT_SYSTEM_PROMPT
-    const youtubeVideos = normalizeYouTubeVideoIndex(ownerRow?.youtube_videos)
 
     // Build communication style injection (only for self-avatars)
     let stylePrompt = ''
@@ -898,7 +973,7 @@ export async function loadOwnerPromptAndMemory(
       behavioralMemory = '\n\n' + bLines.join('\n')
     }
 
-    return { ownerPrompt, memory, stylePrompt, behavioralMemory, ownerId, ownerName, youtubeVideos }
+    return { ownerPrompt, memory, stylePrompt, behavioralMemory, ownerId, ownerName }
   } finally {
     await client.end().catch(() => undefined)
   }
@@ -1103,9 +1178,6 @@ export function buildSystemPrompt(
   perception: any,
   ownerId?: string | null,
   profileName?: string,
-  youtubeVideos: YouTubeVideoIndexItem[] = [],
-  matchedYouTubeVideo: YouTubeVideoIndexItem | null = null,
-  enableYouTubeRules = false,
 ): string {
   const nameMatch = ownerPrompt.match(/(?:^#.*?—\s*(.+)|^I am (.+?)[.\n])/m)
   const ownerName = profileName?.trim() || nameMatch?.[1]?.trim() || nameMatch?.[2]?.trim() || 'the person described below'
@@ -1117,32 +1189,8 @@ If anyone asks who you are, what you are, or whether you are an AI: you answer a
 When greeting or introducing yourself, use the name ${ownerName}. First-person statements like "I am..." must always refer to ${ownerName}.`
 
   const IDENTITY_REMINDER = `\n\nREMINDER: You are ${ownerName}. Never identify as Claude or as an AI. Respond only as ${ownerName}.`
-  const ownVideoCount = youtubeVideos.filter((video) => video.source === 'own').length
-  const externalVideoCount = youtubeVideos.filter((video) => video.source === 'external').length
-  const youtubeRecommendationInstruction =
-    enableYouTubeRules && youtubeVideos.length > 0
-      ? `\n\n[YOUTUBE VIDEO INDEX — ${ownerName}]
-You have ${ownVideoCount} own YouTube videos and ${externalVideoCount} curated external videos where you appear.
-When the user's topic DIRECTLY matches a video, share title + URL + one sentence why.
-Recommendation priority: source=own first, source=external second.
-When no video directly matches, ask ONE short clarifying question to understand better.
-Never say you cannot share videos. Never share the same video twice in one conversation.
 
-VIDEO INDEX:
-${youtubeVideos.map((video) => `- [${video.source}] ${video.title} | ${video.url} | keywords: ${video.keywords.join(', ')}`).join('\n')}`
-      : ''
-  const forcedMatchedVideoInstruction =
-    enableYouTubeRules && matchedYouTubeVideo
-      ? `\n\n[STRONG VIDEO MATCH FOR CURRENT USER TOPIC]
-This user message strongly matches this video:
-- source: ${matchedYouTubeVideo.source}
-- ${matchedYouTubeVideo.title}
-- ${matchedYouTubeVideo.url}
-
-Keep your reply short (2-3 lines): title, URL, and one sentence why it is relevant.`
-      : ''
-
-  return `${IDENTITY_OVERRIDE}\n\n${LANGUAGE_INSTRUCTION}\n\n${ownerPrompt}\n\n${RESPONSE_FORMAT_MATCHING}\n\n${FORMATTING_INSTRUCTION}\n\n${FLASHCARD_INSTRUCTION}\n\n${IMAGE_GENERATION_INSTRUCTION}\n\n${MESSAGE_TYPE_AWARENESS}${stylePrompt}${memory}${behavioralMemory}${youtubeRecommendationInstruction}${forcedMatchedVideoInstruction}${buildPerceptionPrompt(perception)}${IDENTITY_REMINDER}`
+  return `${IDENTITY_OVERRIDE}\n\n${LANGUAGE_INSTRUCTION}\n\n${ownerPrompt}\n\n${RESPONSE_FORMAT_MATCHING}\n\n${FORMATTING_INSTRUCTION}\n\n${FLASHCARD_INSTRUCTION}\n\n${IMAGE_GENERATION_INSTRUCTION}\n\n${MESSAGE_TYPE_AWARENESS}${stylePrompt}${memory}${behavioralMemory}${buildPerceptionPrompt(perception)}${IDENTITY_REMINDER}`
 }
 
 /** Prepare the messages array for the Claude API, including language switch detection. */
@@ -1300,7 +1348,7 @@ export default async function handler(req: any, res: any) {
     : []
 
   try {
-    const { ownerPrompt, memory, stylePrompt, behavioralMemory, ownerId, ownerName, youtubeVideos } = await loadOwnerPromptAndMemory(conversationId, ownerIdHint, ownerNameHint)
+    const { ownerPrompt, memory, stylePrompt, behavioralMemory, ownerId, ownerName } = await loadOwnerPromptAndMemory(conversationId, ownerIdHint, ownerNameHint)
     const normalizedOwnerIdHint = typeof ownerIdHint === 'string' && ownerIdHint.trim().length > 0
       ? ownerIdHint.trim()
       : null
@@ -1314,62 +1362,16 @@ export default async function handler(req: any, res: any) {
         : (normalizedOwnerNameHint || ownerName || 'Avatar')
     const youtubeProfile = getYouTubeRecommendationProfile(effectiveOwnerId, effectiveOwnerName, ownerPrompt)
     const hasYouTubeProfile = Boolean(youtubeProfile)
-    const hasIndexedYouTubeVideos = youtubeVideos.length > 0
-    const contextForVideoMatch = [
-      ...priorMessages.filter((entry) => entry.role === 'user').slice(-3).map((entry) => entry.content),
-      message,
-    ].join('\n')
-    const previouslySharedUrls = new Set<string>()
-    for (const entry of priorMessages) {
-      if (entry.role !== 'assistant') continue
-      extractUrlsFromText(entry.content).forEach((url) => previouslySharedUrls.add(url))
-    }
-    const candidateVideos = youtubeVideos.filter((video) => !previouslySharedUrls.has(video.url))
-    const singleWordTopic = hasYouTubeProfile && youtubeProfile === 'adri'
-      ? extractSingleWordSalesTopic(message)
-      : null
-    const userAskedForVideo = hasYouTubeProfile
-      ? (isVideoRecommendationRequest(message) || isTopicSelectionMessage(message, youtubeProfile!) || Boolean(singleWordTopic))
-      : false
-    const isFollowUpRequest = hasYouTubeProfile ? isFollowUpVideoRequest(message) : false
-    const multiVideoRequest = hasYouTubeProfile ? requestsMultipleVideos(message) : false
-    const topicChips = hasYouTubeProfile ? deriveTopicChips(youtubeVideos) : []
-    const selectedTopic = hasYouTubeProfile
-      ? (singleWordTopic || resolveSelectedTopicFromMessage(message, topicChips))
-      : null
-    const videoFlowActive = hasYouTubeProfile ? hasRecentVideoContext(priorMessages, youtubeVideos) : false
     const clarifyingAlreadyAsked = hasYouTubeProfile ? hasClarifyingQuestionAlready(priorMessages, youtubeProfile!) : false
-    const contextualVideoIntent = hasYouTubeProfile
-      ? (
-          (youtubeProfile === 'adri' && isSalesTopicRequest(message)) ||
-          (videoFlowActive && (isFollowUpRequest || Boolean(selectedTopic)))
-        )
+    const explicitVideoIntent = hasYouTubeProfile
+      ? isVideoRecommendationRequest(message)
       : false
-    const shouldUseVideoFlow = hasYouTubeProfile && hasIndexedYouTubeVideos
-      ? (userAskedForVideo || contextualVideoIntent || Boolean(selectedTopic))
+    const topicSelectionReply = hasYouTubeProfile
+      ? isTopicSelectionMessage(message, youtubeProfile!)
       : false
-    const videoMatchContext = selectedTopic
-      ? `${contextForVideoMatch}\n${selectedTopic}`
-      : contextForVideoMatch
-    const matchedYouTubeVideo = hasYouTubeProfile
-      ? findBestYouTubeVideoMatch(videoMatchContext, candidateVideos)
-      : null
-    const closestYouTubeVideo = hasYouTubeProfile
-      ? findClosestYouTubeVideoMatch(videoMatchContext, candidateVideos.length > 0 ? candidateVideos : youtubeVideos)
-      : null
-    const shouldFallbackToClosest = Boolean(selectedTopic) || clarifyingAlreadyAsked
-    const forcedYouTubeVideo = hasYouTubeProfile
-      ? (matchedYouTubeVideo?.video ?? (shouldFallbackToClosest ? (closestYouTubeVideo?.video ?? null) : null))
-      : null
-    const shelfSuggestions = hasYouTubeProfile
-      ? findTopYouTubeVideoMatches(
-          videoMatchContext,
-          candidateVideos,
-          previouslySharedUrls,
-          3,
-          4
-        )
-      : []
+    const shouldUseVideoWebSearch = hasYouTubeProfile
+      ? (explicitVideoIntent || (clarifyingAlreadyAsked && topicSelectionReply))
+      : false
     const systemPrompt = buildSystemPrompt(
       ownerPrompt,
       memory,
@@ -1378,33 +1380,17 @@ export default async function handler(req: any, res: any) {
       perception,
       effectiveOwnerId,
       effectiveOwnerName,
-      youtubeVideos,
-      forcedYouTubeVideo,
-      hasYouTubeProfile && hasIndexedYouTubeVideos,
     )
-    if (hasYouTubeProfile) {
-      const youtubeBlockStart = systemPrompt.indexOf('[YOUTUBE VIDEO INDEX')
-      const injectedSnippet = youtubeBlockStart >= 0
-        ? systemPrompt.slice(youtubeBlockStart, youtubeBlockStart + 200)
-        : 'NO_YOUTUBE_BLOCK_IN_PROMPT'
+    if (hasYouTubeProfile && shouldUseVideoWebSearch) {
       console.log(
-        '[chat][youtube_prompt]',
+        '[chat][youtube_web_search]',
         JSON.stringify({
           ownerId: effectiveOwnerId || null,
           ownerName: effectiveOwnerName,
           youtubeProfile,
-          youtubeVideosCount: youtubeVideos.length,
-          matchedVideo: matchedYouTubeVideo?.video?.url || null,
-          forcedVideo: forcedYouTubeVideo?.url || null,
-          matchedScore: matchedYouTubeVideo?.score || 0,
-          matchedKeywords: matchedYouTubeVideo?.matchedKeywords || [],
-          askedForVideo: userAskedForVideo,
-          singleWordTopic,
-          followUpVideoRequest: isFollowUpRequest,
-          multiVideoRequest,
+          explicitVideoIntent,
+          topicSelectionReply,
           clarifyingAlreadyAsked,
-          shelfSuggestionsCount: shelfSuggestions.length,
-          injectedSnippet,
         })
       )
     }
@@ -1412,12 +1398,29 @@ export default async function handler(req: any, res: any) {
 
     let content = ''
     let lastError: Error | null = null
-    if (anthropicApiKey) {
+    if (anthropicApiKey && hasYouTubeProfile && shouldUseVideoWebSearch) {
       try {
-        content = await callAnthropic(anthropicApiKey, systemPrompt, messages)
+        content = await callAnthropicVideoWebSearch(
+          anthropicApiKey,
+          youtubeProfile!,
+          effectiveOwnerName,
+          message,
+          priorMessages
+        )
+        content = enforceMaxChars(content, VIDEO_FLOW_MAX_CHARS)
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error))
-        console.error('[chat] Anthropic failed, falling back if available:', lastError.message)
+        console.error('[chat] Anthropic web_search failed, falling back to normal chat:', lastError.message)
+      }
+    }
+    if (anthropicApiKey) {
+      if (!content) {
+        try {
+          content = await callAnthropic(anthropicApiKey, systemPrompt, messages)
+        } catch (error) {
+          lastError = error instanceof Error ? error : new Error(String(error))
+          console.error('[chat] Anthropic failed, falling back if available:', lastError.message)
+        }
       }
     }
     if (!content && openaiApiKey) {
@@ -1428,47 +1431,6 @@ export default async function handler(req: any, res: any) {
     }
     if (!content) {
       return res.status(502).json({ error: 'Empty response from AI' })
-    }
-    let responseVideoTopics: string[] | null = null
-    let responseVideoSuggestions: YouTubeVideoSuggestion[] | null = null
-    if (hasYouTubeProfile && shouldUseVideoFlow) {
-      const lang = resolveReplyLanguage(message, priorMessages)
-      const fallbackClosestVideo = closestYouTubeVideo?.video ?? candidateVideos[0] ?? youtubeVideos[0] ?? null
-      if (forcedYouTubeVideo?.url) {
-        content = buildForcedVideoReply(lang, forcedYouTubeVideo, youtubeProfile!)
-      } else if (isFollowUpRequest) {
-        content = buildTopicSelectionPrompt(lang, youtubeProfile!)
-        responseVideoTopics = topicChips
-      } else if (clarifyingAlreadyAsked && fallbackClosestVideo) {
-        content = buildForcedVideoReply(
-          lang,
-          fallbackClosestVideo,
-          youtubeProfile!
-        )
-      } else {
-        content = buildClarifyingQuestion(lang, youtubeProfile!)
-      }
-      if ((multiVideoRequest || Boolean(selectedTopic)) && shelfSuggestions.length >= 2) {
-        responseVideoSuggestions = shelfSuggestions
-      }
-      content = enforceMaxChars(content, VIDEO_FLOW_MAX_CHARS)
-    }
-    if (hasYouTubeProfile) {
-      const urlsInContent = extractUrlsFromText(content)
-      const hasForeignYouTubeUrl = urlsInContent.some((url) => {
-        const isYouTube = /(?:youtube\.com|youtu\.be)/i.test(url)
-        return isYouTube && !isOwnedYouTubeUrl(url, youtubeVideos)
-      })
-      if (hasForeignYouTubeUrl) {
-        const lang = resolveReplyLanguage(message, priorMessages)
-        if (forcedYouTubeVideo?.url) {
-          content = buildForcedVideoReply(lang, forcedYouTubeVideo, youtubeProfile!)
-        } else if (shouldUseVideoFlow) {
-          content = buildClarifyingQuestion(lang, youtubeProfile!)
-        } else {
-          content = content.replace(/https?:\/\/[^\s)]+/g, '').replace(/\s{2,}/g, ' ').trim()
-        }
-      }
     }
 
     // Check for generate_image block and generate image server-side
@@ -1487,11 +1449,7 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json({ content: fallbackText })
     }
 
-    return res.status(200).json({
-      content,
-      ...(responseVideoTopics ? { video_topics: responseVideoTopics } : {}),
-      ...(responseVideoSuggestions ? { video_suggestions: responseVideoSuggestions } : {}),
-    })
+    return res.status(200).json({ content })
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     console.error('Chat API error:', err.message, err.stack)
