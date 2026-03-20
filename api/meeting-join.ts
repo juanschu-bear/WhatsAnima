@@ -33,7 +33,7 @@ export default async function handler(req: any, res: any) {
 
     const { data, error } = await supabase
       .from('wa_meeting_sessions')
-      .select('id, owner_id, token, topic, participants, status, created_at, expires_at, recording_url')
+      .select('id, owner_id, token, topic, participants, status, created_at, expires_at, recording_url, live_session_id, live_join_url, live_started_at')
       .eq('token', token)
       .maybeSingle()
     if (error) return res.status(500).json({ error: error.message || 'Failed to load meeting' })
@@ -58,6 +58,9 @@ export default async function handler(req: any, res: any) {
         topic: data.topic || '',
         participants: Array.isArray(data.participants) ? data.participants : [],
         recording_url: data.recording_url || null,
+        live_session_id: String(data.live_session_id || '').trim() || null,
+        live_join_url: String(data.live_join_url || '').trim() || null,
+        live_started_at: data.live_started_at || null,
         owner: owner || null,
       },
     })
@@ -79,7 +82,7 @@ export default async function handler(req: any, res: any) {
 
   const { data: session, error: sessionError } = await supabase
     .from('wa_meeting_sessions')
-    .select('id, owner_id, token, topic, participants, status, created_at, expires_at, recording_url')
+    .select('id, owner_id, token, topic, participants, status, created_at, expires_at, recording_url, live_session_id, live_join_url, live_started_at')
     .eq('token', token)
     .maybeSingle()
 
@@ -112,7 +115,7 @@ export default async function handler(req: any, res: any) {
       status: nextStatus,
     })
     .eq('id', session.id)
-    .select('id, owner_id, token, topic, participants, status, created_at, expires_at, recording_url')
+    .select('id, owner_id, token, topic, participants, status, created_at, expires_at, recording_url, live_session_id, live_join_url, live_started_at')
     .single()
 
   if (updateError) {
@@ -134,6 +137,9 @@ export default async function handler(req: any, res: any) {
       topic: updated.topic || '',
       participants: Array.isArray(updated.participants) ? updated.participants : [],
       recording_url: updated.recording_url || null,
+      live_session_id: String(updated.live_session_id || '').trim() || null,
+      live_join_url: String(updated.live_join_url || '').trim() || null,
+      live_started_at: updated.live_started_at || null,
       owner: owner || null,
     },
   })

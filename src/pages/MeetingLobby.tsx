@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { resolveAvatarUrl } from '../lib/avatars'
 
 type LobbyOwner = {
@@ -13,10 +13,11 @@ type MeetingContext = {
   topic: string
   participants: Array<{ name: string; role: string }>
   owner: LobbyOwner | null
+  live_join_url?: string | null
+  live_session_id?: string | null
 }
 
 export default function MeetingLobby() {
-  const navigate = useNavigate()
   const { token } = useParams<{ token: string }>()
   const meetingToken = (token || '').trim()
   const [name, setName] = useState('')
@@ -99,8 +100,13 @@ export default function MeetingLobby() {
           ...payload.meeting_context,
           self: { name: name.trim(), role: role.trim() || 'Participant' },
         }))
+        const liveJoinUrl = String(payload.meeting_context.live_join_url || '').trim()
+        if (liveJoinUrl) {
+          window.location.assign(liveJoinUrl)
+          return
+        }
       }
-      navigate(`/video-call/meeting-${meetingToken}?meeting_token=${encodeURIComponent(meetingToken)}`, { replace: true })
+      setError('Meeting is not live yet. Please wait for the host to start the live call.')
     } catch (joinError) {
       setError(joinError instanceof Error ? joinError.message : 'Unable to join meeting')
     } finally {

@@ -105,7 +105,7 @@ export default async function handler(req: any, res: any) {
     }
 
     if (supabase && meetingToken) {
-      await supabase
+      const { error: meetingUpdateError } = await supabase
         .from('wa_meeting_sessions')
         .update({
           status: 'ended',
@@ -113,6 +113,9 @@ export default async function handler(req: any, res: any) {
           live_join_url: null,
         })
         .eq('token', meetingToken)
+      if (meetingUpdateError) {
+        console.error('[live-session-end] failed to clear meeting live room fields', meetingUpdateError)
+      }
     }
 
     return res.status(200).json({

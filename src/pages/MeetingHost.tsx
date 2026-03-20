@@ -4,11 +4,17 @@ import { useAuth } from '../contexts/AuthContext'
 import { createOwnerIfNeeded, listAllOwners } from '../lib/api'
 import { resolveAvatarUrl } from '../lib/avatars'
 
+const LIVE_CALL_API_BASE =
+  (import.meta.env.VITE_LIVE_CALL_API_BASE as string | undefined) || 'https://anima.onioko.com'
+
 type MeetingSession = {
   token: string
   topic: string
   participants: Array<{ name: string; role: string }>
   recording_url?: string | null
+  live_join_url?: string | null
+  live_session_id?: string | null
+  live_started_at?: string | null
   owner?: {
     id: string
     display_name: string | null
@@ -44,6 +50,7 @@ export default function MeetingHost() {
   const [hostJoinName, setHostJoinName] = useState('')
   const [hostJoinRole, setHostJoinRole] = useState('Host')
   const [joiningAsHost, setJoiningAsHost] = useState(false)
+  const [startingLive, setStartingLive] = useState(false)
 
   useEffect(() => {
     if (!user) return
@@ -127,7 +134,7 @@ export default function MeetingHost() {
   }, [session?.token])
 
   const avatarImage = useMemo(() => resolveAvatarUrl(ownerName), [ownerName])
-  const inviteLink = session?.join_url || (session?.token ? `${window.location.origin}/meeting/${session.token}` : '')
+  const inviteLink = session?.live_join_url || session?.join_url || (session?.token ? `${window.location.origin}/meeting/${session.token}` : '')
   const participantCount = session?.participants?.length || 0
 
   async function createMeeting() {
@@ -167,6 +174,9 @@ export default function MeetingHost() {
         ...current,
         participants: payload.meeting_context?.participants || [],
         recording_url: payload.meeting_context?.recording_url || current.recording_url || null,
+        live_join_url: payload.meeting_context?.live_join_url || current.live_join_url || null,
+        live_session_id: payload.meeting_context?.live_session_id || current.live_session_id || null,
+        live_started_at: payload.meeting_context?.live_started_at || current.live_started_at || null,
       } : current)
     } catch (refreshError) {
       setError(refreshError instanceof Error ? refreshError.message : 'Unable to refresh participants')
@@ -211,6 +221,9 @@ export default function MeetingHost() {
           ...current,
           participants: payload.meeting_context?.participants || [],
           recording_url: payload.meeting_context?.recording_url || current.recording_url || null,
+          live_join_url: payload.meeting_context?.live_join_url || current.live_join_url || null,
+          live_session_id: payload.meeting_context?.live_session_id || current.live_session_id || null,
+          live_started_at: payload.meeting_context?.live_started_at || current.live_started_at || null,
         } : current)
       }
     } catch (joinError) {
@@ -239,7 +252,45 @@ export default function MeetingHost() {
         role: selfRole,
       },
     }))
-    navigate(`/video-call/meeting-${session.token}?meeting_token=${encodeURIComponent(session.token)}`)
+    setStartingLive(true)
+    setError(null)
+    void fetch('/api/video-call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        persona_name: selectedOwner?.display_name || ownerName,
+        persona: selectedOwner?.display_name || ownerName,
+        language: 'en',
+        user_name: selfName,
+        conversation_id: `meeting-${session.token}`,
+        owner_id: selectedOwnerId,
+        contact_name: selfName,
+        meeting_token: session.token,
+        backendBaseUrl: LIVE_CALL_API_BASE,
+      }),
+    })
+      .then(async (response) => {
+        const payload = await response.json() as { error?: string; detail?: string; join_url?: string; session_id?: string }
+        if (!response.ok) throw new Error(payload.detail || payload.error || 'Unable to start live meeting')
+        const nextJoinUrl = String(payload.join_url || '').trim()
+        const nextSessionId = String(payload.session_id || '').trim()
+        if (!nextJoinUrl) throw new Error('Live join URL missing from session start')
+
+        setSession((current) => current ? {
+          ...current,
+          live_join_url: nextJoinUrl,
+          live_session_id: nextSessionId || current.live_session_id || null,
+          live_started_at: new Date().toISOString(),
+        } as MeetingSession : current)
+
+        window.location.assign(nextJoinUrl)
+      })
+      .catch((startError) => {
+        setError(startError instanceof Error ? startError.message : 'Unable to start live call')
+      })
+      .finally(() => {
+        setStartingLive(false)
+      })
   }
 
   return (
@@ -332,10 +383,10 @@ export default function MeetingHost() {
                   <button
                     type="button"
                     onClick={startLiveCall}
-                    disabled={participantCount < 1}
+                    disabled={participantCount < 1 || startingLive}
                     className="rounded-xl bg-[#00a884] px-3 py-2 text-xs font-semibold text-[#08111a] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    Start Live Call {participantCount > 0 ? `(${participantCount})` : ''}
+                    {startingLive ? 'Starting…' : `Start Live Call ${participantCount > 0 ? `(${participantCount})` : ''}`}
                   </button>
                 </div>
               </div>
