@@ -599,20 +599,34 @@ export default function Perception() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [filtersHydrated, setFiltersHydrated] = useState(false)
 
-  const [avatarFilter, setAvatarFilter] = useState(() => getStoredValue('perception_avatarFilter', 'All'))
-  const [languageFilter, setLanguageFilter] = useState<LanguageFilter>(() => {
-    const value = getStoredValue('perception_languageFilter', 'All')
-    return value === 'English' || value === 'German' || value === 'Spanish' ? value : 'All'
-  })
-  const [analysisTab, setAnalysisTab] = useState<AnalysisTab>(() => {
-    const value = getStoredValue('perception_analysisTab', 'voice')
-    return value === 'video' ? 'video' : 'voice'
-  })
-  const [emotionFilter, setEmotionFilter] = useState(() => getStoredValue('perception_emotionFilter', 'All'))
-  const [ruleFilter, setRuleFilter] = useState(() => getStoredValue('perception_ruleFilter', 'All'))
-  const [dateFrom, setDateFrom] = useState(() => getStoredValue('perception_dateFrom', ''))
-  const [dateTo, setDateTo] = useState(() => getStoredValue('perception_dateTo', ''))
+  const [avatarFilter, setAvatarFilter] = useState('All')
+  const [languageFilter, setLanguageFilter] = useState<LanguageFilter>('All')
+  const [analysisTab, setAnalysisTab] = useState<AnalysisTab>('voice')
+  const [emotionFilter, setEmotionFilter] = useState('All')
+  const [ruleFilter, setRuleFilter] = useState('All')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
+
+  useEffect(() => {
+    const storedAvatar = getStoredValue('perception_avatarFilter', 'All')
+    const storedLanguage = getStoredValue('perception_languageFilter', 'All')
+    const storedTab = getStoredValue('perception_analysisTab', 'voice')
+    const storedEmotion = getStoredValue('perception_emotionFilter', 'All')
+    const storedRule = getStoredValue('perception_ruleFilter', 'All')
+    const storedDateFrom = getStoredValue('perception_dateFrom', '')
+    const storedDateTo = getStoredValue('perception_dateTo', '')
+
+    setAvatarFilter(storedAvatar)
+    setLanguageFilter(storedLanguage === 'English' || storedLanguage === 'German' || storedLanguage === 'Spanish' ? storedLanguage : 'All')
+    setAnalysisTab(storedTab === 'video' ? 'video' : 'voice')
+    setEmotionFilter(storedEmotion)
+    setRuleFilter(storedRule)
+    setDateFrom(storedDateFrom)
+    setDateTo(storedDateTo)
+    setFiltersHydrated(true)
+  }, [])
 
   useEffect(() => {
     if (!user) {
@@ -709,46 +723,56 @@ export default function Perception() {
     }
   }, [user])
 
-  const avatarOptions = useMemo(
-    () => ['All', ...Array.from(new Set(entries.map((entry) => entry.avatarName))).sort()],
-    [entries],
-  )
-  const emotionOptions = useMemo(
-    () => ['All', ...Array.from(new Set(entries.flatMap((entry) => [entry.primaryEmotion, entry.secondaryEmotion]).filter((emotion) => emotion && emotion !== 'Unclassified'))).sort()],
-    [entries],
-  )
-  const ruleOptions = useMemo(
-    () => ['All', ...Array.from(new Set(entries.flatMap((entry) => entry.firedRules.map((rule) => rule.category || rule.name)).filter(Boolean))).sort()],
-    [entries],
-  )
+  const avatarOptions = useMemo(() => {
+    const options = ['All', ...Array.from(new Set(entries.map((entry) => entry.avatarName))).sort()]
+    if (avatarFilter !== 'All' && !options.includes(avatarFilter)) options.push(avatarFilter)
+    return options
+  }, [avatarFilter, entries])
+  const emotionOptions = useMemo(() => {
+    const options = ['All', ...Array.from(new Set(entries.flatMap((entry) => [entry.primaryEmotion, entry.secondaryEmotion]).filter((emotion) => emotion && emotion !== 'Unclassified'))).sort()]
+    if (emotionFilter !== 'All' && !options.includes(emotionFilter)) options.push(emotionFilter)
+    return options
+  }, [emotionFilter, entries])
+  const ruleOptions = useMemo(() => {
+    const options = ['All', ...Array.from(new Set(entries.flatMap((entry) => entry.firedRules.map((rule) => rule.category || rule.name)).filter(Boolean))).sort()]
+    if (ruleFilter !== 'All' && !options.includes(ruleFilter)) options.push(ruleFilter)
+    return options
+  }, [entries, ruleFilter])
 
   useEffect(() => {
+    if (!filtersHydrated) return
     try { localStorage.setItem('perception_avatarFilter', avatarFilter) } catch {}
-  }, [avatarFilter])
+  }, [avatarFilter, filtersHydrated])
 
   useEffect(() => {
+    if (!filtersHydrated) return
     try { localStorage.setItem('perception_languageFilter', languageFilter) } catch {}
-  }, [languageFilter])
+  }, [filtersHydrated, languageFilter])
 
   useEffect(() => {
+    if (!filtersHydrated) return
     try { localStorage.setItem('perception_analysisTab', analysisTab) } catch {}
-  }, [analysisTab])
+  }, [analysisTab, filtersHydrated])
 
   useEffect(() => {
+    if (!filtersHydrated) return
     try { localStorage.setItem('perception_emotionFilter', emotionFilter) } catch {}
-  }, [emotionFilter])
+  }, [emotionFilter, filtersHydrated])
 
   useEffect(() => {
+    if (!filtersHydrated) return
     try { localStorage.setItem('perception_ruleFilter', ruleFilter) } catch {}
-  }, [ruleFilter])
+  }, [filtersHydrated, ruleFilter])
 
   useEffect(() => {
+    if (!filtersHydrated) return
     try { localStorage.setItem('perception_dateFrom', dateFrom) } catch {}
-  }, [dateFrom])
+  }, [dateFrom, filtersHydrated])
 
   useEffect(() => {
+    if (!filtersHydrated) return
     try { localStorage.setItem('perception_dateTo', dateTo) } catch {}
-  }, [dateTo])
+  }, [dateTo, filtersHydrated])
 
   const filteredEntries = useMemo(() => {
     return entries.filter((entry) => {
