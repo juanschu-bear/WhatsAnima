@@ -3,6 +3,9 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { resolveAvatarUrl } from '../lib/avatars'
 
+type MediaFilter = 'all' | 'audio' | 'video' | 'text'
+type TimeWindow = '24h' | '7d' | '30d' | 'all'
+
 interface OwnerRow {
   id: string
   display_name: string | null
@@ -54,6 +57,7 @@ interface PerceptionDashboardPayload {
 interface SignalEntry {
   id: string
   createdAt: string
+  createdAtMs: number
   avatarName: string
   avatarImage: string
   contactName: string
@@ -62,15 +66,32 @@ interface SignalEntry {
   prosodicSummary: Record<string, unknown>
   facialAnalysis: Record<string, unknown>
   bodyLanguage: Record<string, unknown>
-  mediaType: string
+  mediaType: MediaFilter
+  mediaUrl: string | null
   durationSec: number
   vocalWarmth: number
   facialTension: number
-  bodyActivation: number
+  physioArousal: number
+  gestureLoad: number
   incongruence: boolean
+  incongruenceScore: number
+  incongruenceReason: string
 }
 
-const FLOW_NODES = ['Auditory', 'Facial', 'Body Language', 'ORACLE Engine', 'Result']
+interface EngineNode {
+  key: string
+  label: string
+  value: number
+  accent: string
+  x: number
+  y: number
+}
+
+const timeWindowCutoffMs: Record<Exclude<TimeWindow, 'all'>, number> = {
+  '24h': 24 * 60 * 60 * 1000,
+  '7d': 7 * 24 * 60 * 60 * 1000,
+  '30d': 30 * 24 * 60 * 60 * 1000,
+}
 
 function toNumber(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return value
@@ -81,16 +102,8 @@ function toNumber(value: unknown): number | null {
   return null
 }
 
-function clamp(value: number, min: number, max: number) {
+function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value))
-}
-
-function pickFirstNumber(source: Record<string, unknown>, keys: string[]): number | null {
-  for (const key of keys) {
-    const value = toNumber(source[key])
-    if (value != null) return value
-  }
-  return null
 }
 
 function normalizePercentLike(value: number | null, fallback = 50): number {
@@ -99,140 +112,186 @@ function normalizePercentLike(value: number | null, fallback = 50): number {
   return clamp(value, 0, 100)
 }
 
-function normalizeBodyLanguageSummary(source: Record<string, unknown>): string {
-  const summary = source.summary
-  if (typeof summary === 'string' && summary.trim()) return summary.trim()
+function firstNumber(source: Record<string, unknown>, keys: string[]): number | null {
+  for (const key of keys) {
+    const value = toNumber(source[key])
+    if (value != null) return value
+  }
+  return null
+}
+
+function normalizeBodySummary(source: Record<string, unknown>): string {
+  if (typeof source.summary === 'string' && source.summary.trim()) return source.summary.trim()
   const parts = [source.posture_summary, source.hand_gesture_summary, source.movement_summary]
     .map((value) => (typeof value === 'string' ? value.trim() : ''))
     .filter(Boolean)
   return parts.join(' • ')
 }
 
-function computeVocalWarmth(prosodicSummary: Record<string, unknown>): number {
-  const stabilityRaw = pickFirstNumber(prosodicSummary, ['voice_stability', 'harmonic_to_noise_ratio'])
-  const tremorRaw = pickFirstNumber(prosodicSummary, ['voice_tremor', 'jitter', 'shimmer'])
-  const rateRaw = pickFirstNumber(prosodicSummary, ['speaking_rate_wps', 'speaking_rate'])
-  const pauseRaw = pickFirstNumber(prosodicSummary, ['average_pause_ms', 'mean_pause_duration'])
+function computeVocalWarmth(prosody: Record<string, unknown>): number {
+  const stability = normalizePercentLike(firstNumber(prosody, ['voice_stability', 'harmonic_to_noise_ratio']), 58) / 100
+  const tremor = normalizePercentLike(firstNumber(prosody, ['voice_tremor', 'jitter', 'shimmer']), 20) / 100
+  const pace = firstNumber(prosody, ['speaking_rate_wps', 'speaking_rate'])
+  const pauseMs = firstNumber(prosody, ['average_pause_ms', 'mean_pause_duration'])
+  const volume = firstNumber(prosody, ['mean_volume_db', 'volume_mean'])
 
-  const stability = normalizePercentLike(stabilityRaw, 58) / 100
-  const tremor = normalizePercentLike(tremorRaw, 18) / 100
-  const rate = rateRaw != null ? clamp(1 - Math.abs(rateRaw - 2) / 2, 0, 1) : 0.55
-  const pause = pauseRaw != null ? clamp(1 - pauseRaw / 2500, 0, 1) : 0.52
+  const paceScore = pace != null ? clamp(1 - Math.abs(pace - 2) / 2, 0, 1) : 0.55
+  const pauseScore = pauseMs != null ? clamp(1 - pauseMs / 2400, 0, 1) : 0.52
+  const volumeScore = volume != null ? clamp((volume + 54) / 26, 0, 1) : 0.5
 
-  const score = (stability * 0.42 + (1 - tremor) * 0.26 + rate * 0.2 + pause * 0.12) * 100
-  return Math.round(clamp(score, 0, 100))
+  const total = stability * 0.36 + (1 - tremor) * 0.24 + paceScore * 0.18 + pauseScore * 0.12 + volumeScore * 0.1
+  return Math.round(clamp(total * 100, 0, 100))
 }
 
-function readActionUnitMap(facialAnalysis: Record<string, unknown>): Record<string, number> {
-  const source = (facialAnalysis.au_averages || facialAnalysis.action_units || facialAnalysis.au_scores || {}) as Record<string, unknown>
-  const result: Record<string, number> = {}
-  for (const [key, raw] of Object.entries(source)) {
-    const value = toNumber(raw)
-    if (value == null) continue
-    const normalizedValue = value <= 1 ? value : value / 100
-    result[key.toLowerCase().replace(/[^a-z0-9]/g, '')] = clamp(normalizedValue, 0, 1)
-  }
-  return result
-}
-
-function readEmotionProfile(facialAnalysis: Record<string, unknown>): Record<string, number> {
-  const source = (
-    facialAnalysis.emotion_profile ||
-    facialAnalysis.emotion_percentages ||
-    facialAnalysis.emotions ||
-    facialAnalysis.emotion_distribution ||
-    {}
-  ) as Record<string, unknown>
-  const result: Record<string, number> = {}
+function readActionUnits(facial: Record<string, unknown>): Record<string, number> {
+  const source = (facial.au_averages || facial.action_units || facial.au_scores || {}) as Record<string, unknown>
+  const mapped: Record<string, number> = {}
   for (const [key, raw] of Object.entries(source)) {
     const value = toNumber(raw)
     if (value == null) continue
     const normalized = value <= 1 ? value : value / 100
-    result[key.toLowerCase()] = clamp(normalized, 0, 1)
+    mapped[key.toLowerCase().replace(/[^a-z0-9]/g, '')] = clamp(normalized, 0, 1)
   }
-  return result
+  return mapped
 }
 
-function computeBodyActivation(bodyLanguage: Record<string, unknown>): number {
-  const numeric = pickFirstNumber(bodyLanguage, ['movement_intensity', 'gesture_intensity', 'posture_tension'])
-  if (numeric != null) {
-    return Math.round(normalizePercentLike(numeric, 45))
+function readEmotionMap(facial: Record<string, unknown>): Record<string, number> {
+  const source = (
+    facial.emotion_profile ||
+    facial.emotion_percentages ||
+    facial.emotions ||
+    facial.emotion_distribution ||
+    {}
+  ) as Record<string, unknown>
+
+  const mapped: Record<string, number> = {}
+  for (const [key, raw] of Object.entries(source)) {
+    const value = toNumber(raw)
+    if (value == null) continue
+    mapped[key.toLowerCase()] = clamp(value <= 1 ? value : value / 100, 0, 1)
   }
-  const summary = normalizeBodyLanguageSummary(bodyLanguage).toLowerCase()
-  if (!summary) return 45
-  let score = 45
-  if (/(rigid|closed|guarded|stiff|tense|fidget|restless)/.test(summary)) score += 18
-  if (/(open|relaxed|steady|calm|fluid)/.test(summary)) score -= 10
+  return mapped
+}
+
+function computePhysioArousal(prosody: Record<string, unknown>, body: Record<string, unknown>): number {
+  const volume = firstNumber(prosody, ['mean_volume_db', 'volume_mean'])
+  const pace = firstNumber(prosody, ['speaking_rate_wps', 'speaking_rate'])
+  const bodyIntensity = firstNumber(body, ['movement_intensity', 'gesture_intensity', 'posture_tension'])
+  const summary = normalizeBodySummary(body).toLowerCase()
+
+  const volumeScore = volume != null ? clamp((volume + 60) / 30, 0, 1) : 0.5
+  const paceScore = pace != null ? clamp(pace / 3.4, 0, 1) : 0.5
+  const bodyScore = normalizePercentLike(bodyIntensity, 46) / 100
+
+  let lexicalBoost = 0
+  if (/(tense|rigid|restless|fidget|agitated|rapid)/.test(summary)) lexicalBoost += 0.12
+  if (/(calm|steady|relaxed|open)/.test(summary)) lexicalBoost -= 0.08
+
+  const total = clamp(volumeScore * 0.34 + paceScore * 0.24 + bodyScore * 0.42 + lexicalBoost, 0, 1)
+  return Math.round(total * 100)
+}
+
+function computeGestureLoad(body: Record<string, unknown>): number {
+  const gestureValue = firstNumber(body, ['gesture_intensity', 'hand_gesture_intensity', 'gesture_load'])
+  if (gestureValue != null) return Math.round(normalizePercentLike(gestureValue, 44))
+
+  const summary = normalizeBodySummary(body).toLowerCase()
+  if (!summary) return 44
+  let score = 44
+  if (/(hand|gesture|movement|animated|expressive)/.test(summary)) score += 18
+  if (/(still|minimal|contained|controlled)/.test(summary)) score -= 12
   return Math.round(clamp(score, 0, 100))
 }
 
-function computeFacialTension(
-  facialAnalysis: Record<string, unknown>,
-  bodyLanguage: Record<string, unknown>,
-): number {
-  const aus = readActionUnitMap(facialAnalysis)
-  const emotions = readEmotionProfile(facialAnalysis)
+function computeFacialTension(facial: Record<string, unknown>, body: Record<string, unknown>): number {
+  const aus = readActionUnits(facial)
+  const emotions = readEmotionMap(facial)
 
   const auScore =
-    (aus.au4 ?? 0) * 0.3 +
+    (aus.au4 ?? 0) * 0.30 +
     (aus.au7 ?? 0) * 0.18 +
-    (aus.au17 ?? 0) * 0.16 +
+    (aus.au17 ?? 0) * 0.15 +
     (aus.au23 ?? 0) * 0.18 +
-    (aus.au24 ?? 0) * 0.18
+    (aus.au24 ?? 0) * 0.19
 
   const emotionScore =
-    (emotions.anger ?? 0) * 0.45 +
-    (emotions.fear ?? 0) * 0.2 +
-    (emotions.disgust ?? 0) * 0.15 +
-    (emotions.sadness ?? 0) * 0.1 +
-    (emotions.surprise ?? 0) * 0.1
+    (emotions.anger ?? 0) * 0.44 +
+    (emotions.fear ?? 0) * 0.22 +
+    (emotions.disgust ?? 0) * 0.14 +
+    (emotions.sadness ?? 0) * 0.10 +
+    (emotions.surprise ?? 0) * 0.10
 
-  const bodyActivation = computeBodyActivation(bodyLanguage) / 100
-  const score = (auScore * 0.58 + emotionScore * 0.28 + bodyActivation * 0.14) * 100
-  return Math.round(clamp(score, 0, 100))
+  const bodyActivation = computePhysioArousal({}, body) / 100
+  const total = auScore * 0.56 + emotionScore * 0.30 + bodyActivation * 0.14
+  return Math.round(clamp(total * 100, 0, 100))
 }
 
-function formatTime(timestamp: string) {
-  const date = new Date(timestamp)
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+function detectIncongruence(vocalWarmth: number, facialTension: number, physioArousal: number): { flag: boolean; score: number; reason: string } {
+  const warmthNorm = vocalWarmth / 100
+  const tensionNorm = facialTension / 100
+  const physioNorm = physioArousal / 100
+
+  const contradictionStrength = warmthNorm * 0.44 + tensionNorm * 0.44 + physioNorm * 0.12
+  const score = Math.round(clamp(contradictionStrength * 100, 0, 100))
+  const flag = vocalWarmth >= 66 && facialTension >= 60
+  const reason = flag
+    ? `Vocal warmth ${vocalWarmth}% conflicts with facial tension ${facialTension}% while physiologic arousal is ${physioArousal}%.`
+    : 'Signals are not strongly contradictory in this window.'
+
+  return { flag, score, reason }
 }
 
-function linePath(values: number[], width: number, height: number, min = 0, max = 100): string {
+function formatClock(timestamp: string): string {
+  return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+}
+
+function linePath(values: number[], width: number, height: number): string {
   if (values.length === 0) return ''
-  const range = max - min || 1
   const stepX = values.length > 1 ? width / (values.length - 1) : 0
   return values
     .map((value, index) => {
       const x = index * stepX
-      const normalized = clamp((value - min) / range, 0, 1)
-      const y = height - normalized * height
+      const y = height - clamp(value, 0, 100) / 100 * height
       return `${index === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`
     })
     .join(' ')
 }
 
-function correlation(entries: SignalEntry[]): number {
-  if (entries.length < 2) return 0
-  const x = entries.map((entry) => entry.vocalWarmth)
-  const y = entries.map((entry) => entry.facialTension)
-  const meanX = x.reduce((sum, value) => sum + value, 0) / x.length
-  const meanY = y.reduce((sum, value) => sum + value, 0) / y.length
+function correlation(valuesA: number[], valuesB: number[]): number {
+  if (valuesA.length < 2 || valuesA.length !== valuesB.length) return 0
+  const meanA = valuesA.reduce((sum, value) => sum + value, 0) / valuesA.length
+  const meanB = valuesB.reduce((sum, value) => sum + value, 0) / valuesB.length
+
   let numerator = 0
-  let denX = 0
-  let denY = 0
-  for (let index = 0; index < x.length; index += 1) {
-    const dx = x[index] - meanX
-    const dy = y[index] - meanY
-    numerator += dx * dy
-    denX += dx * dx
-    denY += dy * dy
+  let denA = 0
+  let denB = 0
+
+  for (let index = 0; index < valuesA.length; index += 1) {
+    const da = valuesA[index] - meanA
+    const db = valuesB[index] - meanB
+    numerator += da * db
+    denA += da * da
+    denB += db * db
   }
-  const denominator = Math.sqrt(denX * denY)
+
+  const denominator = Math.sqrt(denA * denB)
   if (!Number.isFinite(denominator) || denominator <= 0) return 0
   return clamp(numerator / denominator, -1, 1)
 }
 
-function deriveEntries(payload: PerceptionDashboardPayload): SignalEntry[] {
+function drawCurve(fromX: number, fromY: number, toX: number, toY: number): string {
+  const delta = Math.max(40, Math.abs(toX - fromX) * 0.45)
+  return `M ${fromX} ${fromY} C ${fromX + delta} ${fromY}, ${toX - delta} ${toY}, ${toX} ${toY}`
+}
+
+function parseMediaType(typeRaw: string): MediaFilter {
+  const lowered = typeRaw.toLowerCase()
+  if (lowered.includes('video')) return 'video'
+  if (lowered.includes('audio') || lowered.includes('voice')) return 'audio'
+  return 'text'
+}
+
+function deriveSignalEntries(payload: PerceptionDashboardPayload): SignalEntry[] {
   const ownerById = new Map(payload.owners.map((owner) => [owner.id, owner]))
   const contactById = new Map(payload.contacts.map((contact) => [contact.id, contact]))
   const conversationById = new Map(payload.conversations.map((conversation) => [conversation.id, conversation]))
@@ -250,18 +309,20 @@ function deriveEntries(payload: PerceptionDashboardPayload): SignalEntry[] {
     const prosodicSummary = log.prosodic_summary ?? {}
     const facialAnalysis = log.facial_analysis ?? {}
     const bodyLanguage = log.body_language ?? {}
-    const durationSec =
-      log.video_duration_sec ?? log.audio_duration_sec ?? message?.duration_sec ?? 0
-    const mediaType = (log.media_type || message?.type || 'text').toLowerCase()
+    const mediaType = parseMediaType(log.media_type || message?.type || 'text')
+    const durationSec = log.video_duration_sec ?? log.audio_duration_sec ?? message?.duration_sec ?? 0
 
     const vocalWarmth = computeVocalWarmth(prosodicSummary)
+    const physioArousal = computePhysioArousal(prosodicSummary, bodyLanguage)
     const facialTension = computeFacialTension(facialAnalysis, bodyLanguage)
-    const bodyActivation = computeBodyActivation(bodyLanguage)
-    const incongruence = vocalWarmth >= 65 && facialTension >= 60
+    const gestureLoad = computeGestureLoad(bodyLanguage)
+
+    const detection = detectIncongruence(vocalWarmth, facialTension, physioArousal)
 
     return {
       id: log.id,
       createdAt: log.created_at,
+      createdAtMs: new Date(log.created_at).getTime(),
       avatarName,
       avatarImage: resolveAvatarUrl(avatarName),
       contactName: contact?.display_name?.trim() || contact?.email?.trim() || 'Guest',
@@ -271,11 +332,15 @@ function deriveEntries(payload: PerceptionDashboardPayload): SignalEntry[] {
       facialAnalysis,
       bodyLanguage,
       mediaType,
+      mediaUrl: message?.media_url ?? null,
       durationSec,
       vocalWarmth,
       facialTension,
-      bodyActivation,
-      incongruence,
+      physioArousal,
+      gestureLoad,
+      incongruence: detection.flag,
+      incongruenceScore: detection.score,
+      incongruenceReason: detection.reason,
     }
   })
 }
@@ -283,9 +348,18 @@ function deriveEntries(payload: PerceptionDashboardPayload): SignalEntry[] {
 export default function ExtendedPerception() {
   const navigate = useNavigate()
   const { user } = useAuth()
+
   const [entries, setEntries] = useState<SignalEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  const [avatarFilter, setAvatarFilter] = useState('All')
+  const [contactFilter, setContactFilter] = useState('All')
+  const [mediaFilter, setMediaFilter] = useState<MediaFilter>('all')
+  const [timeWindow, setTimeWindow] = useState<TimeWindow>('7d')
+  const [searchText, setSearchText] = useState('')
+  const [incongruenceOnly, setIncongruenceOnly] = useState(false)
+
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
   useEffect(() => {
@@ -306,15 +380,17 @@ export default function ExtendedPerception() {
           throw new Error(payload.error || `Failed to load perception dashboard (${response.status})`)
         }
 
-        const nextEntries = deriveEntries(payload)
+        const nextEntries = deriveSignalEntries(payload)
+          .sort((left, right) => right.createdAtMs - left.createdAtMs)
+          .slice(0, 250)
+
         if (!cancelled) {
           setEntries(nextEntries)
           setSelectedId(nextEntries[0]?.id ?? null)
         }
       } catch (loadError) {
         if (!cancelled) {
-          const message = loadError instanceof Error ? loadError.message : 'Failed to load extended perception dashboard.'
-          setError(message)
+          setError(loadError instanceof Error ? loadError.message : 'Failed to load extended perception dashboard.')
         }
       } finally {
         if (!cancelled) setLoading(false)
@@ -322,80 +398,231 @@ export default function ExtendedPerception() {
     }
 
     void load()
+
     return () => {
       cancelled = true
     }
   }, [user])
 
-  const selected = useMemo(() => entries.find((entry) => entry.id === selectedId) ?? entries[0] ?? null, [entries, selectedId])
+  const avatarOptions = useMemo(
+    () => ['All', ...Array.from(new Set(entries.map((entry) => entry.avatarName))).sort()],
+    [entries],
+  )
 
-  const recentSeries = useMemo(() => {
-    const sorted = [...entries].sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime())
-    return sorted.slice(-24)
-  }, [entries])
+  const contactOptions = useMemo(
+    () => ['All', ...Array.from(new Set(entries.map((entry) => entry.contactName))).sort()],
+    [entries],
+  )
 
-  const warmthSeries = useMemo(() => recentSeries.map((entry) => entry.vocalWarmth), [recentSeries])
-  const tensionSeries = useMemo(() => recentSeries.map((entry) => entry.facialTension), [recentSeries])
+  const filteredEntries = useMemo(() => {
+    const now = Date.now()
+    const normalizedQuery = searchText.trim().toLowerCase()
 
-  const strongIncongruence = selected?.incongruence ?? false
-  const corr = useMemo(() => correlation(recentSeries), [recentSeries])
+    return entries.filter((entry) => {
+      if (avatarFilter !== 'All' && entry.avatarName !== avatarFilter) return false
+      if (contactFilter !== 'All' && entry.contactName !== contactFilter) return false
+      if (mediaFilter !== 'all' && entry.mediaType !== mediaFilter) return false
+      if (incongruenceOnly && !entry.incongruence) return false
+
+      if (timeWindow !== 'all') {
+        const delta = now - entry.createdAtMs
+        if (delta > timeWindowCutoffMs[timeWindow]) return false
+      }
+
+      if (!normalizedQuery) return true
+      const haystack = [entry.avatarName, entry.contactName, entry.transcript, entry.behavioralSummary]
+        .join(' ')
+        .toLowerCase()
+      return haystack.includes(normalizedQuery)
+    })
+  }, [avatarFilter, contactFilter, entries, incongruenceOnly, mediaFilter, searchText, timeWindow])
+
+  useEffect(() => {
+    if (filteredEntries.length === 0) {
+      setSelectedId(null)
+      return
+    }
+    if (!selectedId || !filteredEntries.some((entry) => entry.id === selectedId)) {
+      setSelectedId(filteredEntries[0].id)
+    }
+  }, [filteredEntries, selectedId])
+
+  const selected = useMemo(
+    () => filteredEntries.find((entry) => entry.id === selectedId) ?? filteredEntries[0] ?? null,
+    [filteredEntries, selectedId],
+  )
+
+  const chronologicalSeries = useMemo(
+    () => [...filteredEntries].sort((left, right) => left.createdAtMs - right.createdAtMs).slice(-36),
+    [filteredEntries],
+  )
+
+  const warmthSeries = useMemo(() => chronologicalSeries.map((entry) => entry.vocalWarmth), [chronologicalSeries])
+  const facialSeries = useMemo(() => chronologicalSeries.map((entry) => entry.facialTension), [chronologicalSeries])
+  const physioSeries = useMemo(() => chronologicalSeries.map((entry) => entry.physioArousal), [chronologicalSeries])
+
+  const corr = useMemo(() => correlation(warmthSeries, facialSeries), [facialSeries, warmthSeries])
+
+  const incongruenceEvents = useMemo(
+    () => filteredEntries.filter((entry) => entry.incongruence).slice(0, 8),
+    [filteredEntries],
+  )
+
+  const engineNodes: EngineNode[] = useMemo(
+    () => [
+      {
+        key: 'auditory',
+        label: 'Auditory · Warmth',
+        value: selected?.vocalWarmth ?? 0,
+        accent: 'from-emerald-300 to-lime-300',
+        x: 120,
+        y: 86,
+      },
+      {
+        key: 'facial',
+        label: 'Facial · Tension',
+        value: selected?.facialTension ?? 0,
+        accent: 'from-rose-300 to-red-400',
+        x: 120,
+        y: 178,
+      },
+      {
+        key: 'physio',
+        label: 'Physio · Arousal',
+        value: selected?.physioArousal ?? 0,
+        accent: 'from-amber-300 to-yellow-300',
+        x: 120,
+        y: 270,
+      },
+      {
+        key: 'gesture',
+        label: 'Gesture · Load',
+        value: selected?.gestureLoad ?? 0,
+        accent: 'from-cyan-300 to-sky-300',
+        x: 120,
+        y: 362,
+      },
+    ],
+    [selected],
+  )
+
+  const strongFlag = selected?.incongruence ?? false
 
   return (
-    <div className="min-h-[100dvh] bg-[radial-gradient(circle_at_top,rgba(30,190,255,0.18),transparent_34%),radial-gradient(circle_at_88%_14%,rgba(40,214,171,0.14),transparent_28%),linear-gradient(180deg,#020710_0%,#040b16_45%,#050d19_100%)] text-white">
+    <div className="min-h-[100dvh] bg-[radial-gradient(circle_at_18%_0%,rgba(29,197,255,0.16),transparent_32%),radial-gradient(circle_at_96%_12%,rgba(34,213,188,0.15),transparent_24%),linear-gradient(180deg,#02070f_0%,#030b16_48%,#05101d_100%)] text-white">
       <div
-        className="mx-auto w-full max-w-[1640px] px-4 sm:px-6 lg:px-8"
+        className="mx-auto w-full max-w-[1680px] px-4 sm:px-6 lg:px-8"
         style={{
-          paddingTop: 'max(1.25rem, env(safe-area-inset-top))',
-          paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))',
+          paddingTop: 'max(1.1rem, env(safe-area-inset-top))',
+          paddingBottom: 'max(1.4rem, env(safe-area-inset-bottom))',
         }}
       >
-        <header className="rounded-[28px] border border-cyan-300/20 bg-[linear-gradient(180deg,rgba(7,18,33,0.95),rgba(4,10,20,0.98))] p-5 shadow-[0_34px_120px_rgba(0,0,0,0.45)] sm:p-6">
-          <div className="flex flex-wrap items-center justify-between gap-4">
+        <header className="rounded-[30px] border border-cyan-300/24 bg-[linear-gradient(180deg,rgba(7,18,34,0.96),rgba(4,10,20,0.98))] p-5 shadow-[0_38px_130px_rgba(0,0,0,0.45)] sm:p-6">
+          <div className="flex flex-wrap items-start justify-between gap-5">
             <div>
-              <p className="text-[11px] uppercase tracking-[0.34em] text-cyan-200/65">Extended Perception Dashboard</p>
-              <h1 className="mt-2 text-3xl font-semibold tracking-[-0.03em] text-white sm:text-4xl">ORACLE Crossmodal Monitoring</h1>
+              <p className="text-[11px] uppercase tracking-[0.34em] text-cyan-100/65">Extended Perception Dashboard</p>
+              <h1 className="mt-2 text-3xl font-semibold tracking-[-0.03em] text-white sm:text-4xl">ORACLE: Crossmodal Pattern Recognition</h1>
               <p className="mt-2 max-w-4xl text-sm text-white/64 sm:text-[15px]">
-                Real-time comparison of vocal warmth, facial tension, body language activation, and crossmodal incongruence signals from perception logs.
+                Signal-comparison and incongruence diagnostics between vocal prosody, facial Action Units, body language, and temporal alignment.
               </p>
             </div>
             <div className="flex gap-3">
               <button
                 type="button"
                 onClick={() => navigate('/perception')}
-                className="rounded-2xl border border-white/14 bg-white/5 px-4 py-2.5 text-sm text-white/80 transition hover:bg-white/10"
+                className="rounded-2xl border border-white/14 bg-white/[0.06] px-4 py-2.5 text-sm text-white/80 transition hover:bg-white/[0.1]"
               >
                 Perception
               </button>
               <button
                 type="button"
                 onClick={() => navigate('/')}
-                className="rounded-2xl border border-cyan-300/30 bg-cyan-400/15 px-4 py-2.5 text-sm text-cyan-100 transition hover:border-cyan-200/60 hover:text-white"
+                className="rounded-2xl border border-cyan-300/30 bg-cyan-400/15 px-4 py-2.5 text-sm text-cyan-100 transition hover:border-cyan-200/70 hover:text-white"
               >
                 Home
               </button>
             </div>
           </div>
+
+          <div className="mt-5 grid gap-3 lg:grid-cols-6">
+            <label className="flex flex-col gap-2 text-[11px] uppercase tracking-[0.18em] text-white/45">
+              Avatar
+              <select value={avatarFilter} onChange={(event) => setAvatarFilter(event.target.value)} className="rounded-2xl border border-white/14 bg-[#091322] px-3 py-2.5 text-sm tracking-normal text-white outline-none transition focus:border-cyan-300/60">
+                {avatarOptions.map((option) => (
+                  <option key={option}>{option}</option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-2 text-[11px] uppercase tracking-[0.18em] text-white/45">
+              User / Contact
+              <select value={contactFilter} onChange={(event) => setContactFilter(event.target.value)} className="rounded-2xl border border-white/14 bg-[#091322] px-3 py-2.5 text-sm tracking-normal text-white outline-none transition focus:border-cyan-300/60">
+                {contactOptions.map((option) => (
+                  <option key={option}>{option}</option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-2 text-[11px] uppercase tracking-[0.18em] text-white/45">
+              Media
+              <select value={mediaFilter} onChange={(event) => setMediaFilter(event.target.value as MediaFilter)} className="rounded-2xl border border-white/14 bg-[#091322] px-3 py-2.5 text-sm tracking-normal text-white outline-none transition focus:border-cyan-300/60">
+                <option value="all">All</option>
+                <option value="audio">Audio</option>
+                <option value="video">Video</option>
+                <option value="text">Text</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-2 text-[11px] uppercase tracking-[0.18em] text-white/45">
+              Time Window
+              <select value={timeWindow} onChange={(event) => setTimeWindow(event.target.value as TimeWindow)} className="rounded-2xl border border-white/14 bg-[#091322] px-3 py-2.5 text-sm tracking-normal text-white outline-none transition focus:border-cyan-300/60">
+                <option value="24h">Last 24h</option>
+                <option value="7d">Last 7d</option>
+                <option value="30d">Last 30d</option>
+                <option value="all">All</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-2 text-[11px] uppercase tracking-[0.18em] text-white/45 lg:col-span-2">
+              Search
+              <input
+                value={searchText}
+                onChange={(event) => setSearchText(event.target.value)}
+                placeholder="Search transcript, summary, name..."
+                className="rounded-2xl border border-white/14 bg-[#091322] px-3 py-2.5 text-sm text-white placeholder:text-white/35 outline-none transition focus:border-cyan-300/60"
+              />
+            </label>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setIncongruenceOnly((current) => !current)}
+              className={`rounded-full border px-3 py-1.5 text-xs transition ${incongruenceOnly ? 'border-rose-300/55 bg-rose-500/20 text-rose-100' : 'border-white/14 bg-white/[0.05] text-white/70 hover:bg-white/[0.08]'}`}
+            >
+              {incongruenceOnly ? 'Incongruence Only: ON' : 'Incongruence Only'}
+            </button>
+            <span className="rounded-full border border-cyan-300/30 bg-cyan-500/10 px-3 py-1.5 text-xs text-cyan-100/90">
+              Filtered logs: {filteredEntries.length}
+            </span>
+          </div>
         </header>
 
         {loading ? (
-          <div className="flex min-h-[40vh] items-center justify-center">
-            <div className="h-10 w-10 animate-spin rounded-full border-4 border-white/12 border-t-cyan-300" />
+          <div className="flex min-h-[38vh] items-center justify-center">
+            <div className="h-10 w-10 animate-spin rounded-full border-4 border-white/10 border-t-cyan-300" />
           </div>
         ) : error ? (
-          <div className="mt-6 rounded-3xl border border-rose-400/30 bg-rose-500/10 p-5 text-sm text-rose-100">{error}</div>
-        ) : entries.length === 0 ? (
-          <div className="mt-6 rounded-3xl border border-white/12 bg-white/[0.03] p-6 text-sm text-white/65">
-            No perception logs available yet.
+          <div className="mt-6 rounded-[24px] border border-rose-400/30 bg-rose-500/10 p-5 text-sm text-rose-100">{error}</div>
+        ) : filteredEntries.length === 0 ? (
+          <div className="mt-6 rounded-[24px] border border-white/12 bg-white/[0.03] p-6 text-sm text-white/68">
+            No matching entries for the current filters.
           </div>
         ) : (
-          <div className="mt-6 grid gap-5 xl:grid-cols-[330px_minmax(0,1fr)]">
-            <aside className="rounded-[26px] border border-cyan-300/15 bg-[linear-gradient(180deg,rgba(6,14,26,0.94),rgba(3,8,16,0.98))] p-3 shadow-[0_30px_80px_rgba(0,0,0,0.35)] xl:max-h-[calc(100vh-190px)] xl:overflow-y-auto">
+          <div className="mt-6 grid gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
+            <aside className="rounded-[26px] border border-cyan-300/14 bg-[linear-gradient(180deg,rgba(6,14,26,0.94),rgba(3,8,16,0.98))] p-3 shadow-[0_34px_90px_rgba(0,0,0,0.4)] xl:max-h-[calc(100vh-210px)] xl:overflow-y-auto">
               <div className="px-2 pb-3 pt-1">
                 <p className="text-[11px] uppercase tracking-[0.24em] text-cyan-100/45">Signal Feed</p>
-                <p className="mt-1 text-xs text-white/52">{entries.length} logs</p>
+                <p className="mt-1 text-xs text-white/52">newest → oldest</p>
               </div>
               <div className="space-y-2">
-                {entries.map((entry) => {
+                {filteredEntries.map((entry) => {
                   const active = selected?.id === entry.id
                   return (
                     <button
@@ -404,7 +631,7 @@ export default function ExtendedPerception() {
                       onClick={() => setSelectedId(entry.id)}
                       className={`w-full rounded-[20px] border px-3 py-3 text-left transition ${
                         active
-                          ? 'border-cyan-300/45 bg-cyan-400/14 shadow-[0_0_0_1px_rgba(74,222,255,0.12)]'
+                          ? 'border-cyan-300/55 bg-cyan-400/14 shadow-[0_0_0_1px_rgba(74,222,255,0.15)]'
                           : 'border-white/8 bg-white/[0.03] hover:border-cyan-300/28 hover:bg-white/[0.06]'
                       }`}
                     >
@@ -413,16 +640,15 @@ export default function ExtendedPerception() {
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center justify-between gap-2">
                             <p className="truncate text-sm font-medium text-white">{entry.avatarName}</p>
-                            <span className="text-[10px] text-white/42">{formatTime(entry.createdAt)}</span>
+                            <span className="text-[10px] text-white/45">{formatClock(entry.createdAt)}</span>
                           </div>
-                          <p className="mt-1 truncate text-xs text-cyan-100/70">{entry.contactName}</p>
-                          <div className="mt-2 flex items-center gap-2 text-[10px]">
-                            <span className="rounded-full border border-emerald-300/35 bg-emerald-400/12 px-2 py-0.5 text-emerald-100">
-                              Warmth {entry.vocalWarmth}%
-                            </span>
-                            <span className="rounded-full border border-rose-300/35 bg-rose-400/12 px-2 py-0.5 text-rose-100">
-                              Tension {entry.facialTension}%
-                            </span>
+                          <p className="mt-1 truncate text-xs text-cyan-100/72">{entry.contactName}</p>
+                          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px]">
+                            <span className="rounded-full border border-emerald-300/35 bg-emerald-400/12 px-2 py-0.5 text-emerald-100">Warmth {entry.vocalWarmth}%</span>
+                            <span className="rounded-full border border-rose-300/35 bg-rose-400/12 px-2 py-0.5 text-rose-100">Tension {entry.facialTension}%</span>
+                            {entry.incongruence ? (
+                              <span className="rounded-full border border-rose-200/55 bg-rose-500/25 px-2 py-0.5 text-rose-50">INCONGRUENCE</span>
+                            ) : null}
                           </div>
                         </div>
                       </div>
@@ -434,137 +660,206 @@ export default function ExtendedPerception() {
 
             {selected ? (
               <main className="space-y-5">
-                <section className="grid gap-5 lg:grid-cols-2">
-                  <article className="rounded-[26px] border border-cyan-300/22 bg-[linear-gradient(180deg,rgba(8,18,33,0.95),rgba(4,10,19,0.98))] p-5 shadow-[0_24px_90px_rgba(0,0,0,0.35)]">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-[11px] uppercase tracking-[0.24em] text-cyan-100/55">Signal Comparison Panel</p>
-                      <span className="rounded-full border border-white/12 bg-white/[0.05] px-2.5 py-1 text-[10px] text-white/60">
-                        {formatTime(selected.createdAt)}
-                      </span>
+                <section className="grid gap-5 lg:grid-cols-[300px_minmax(0,1fr)]">
+                  <article className="rounded-[26px] border border-cyan-300/22 bg-[linear-gradient(180deg,rgba(8,18,33,0.95),rgba(4,10,19,0.98))] p-4 shadow-[0_24px_90px_rgba(0,0,0,0.35)]">
+                    <div className="flex items-center gap-3">
+                      <img src={selected.avatarImage} alt={selected.avatarName} className="h-14 w-14 rounded-2xl object-cover ring-1 ring-white/12" />
+                      <div>
+                        <p className="text-sm font-semibold text-white">{selected.avatarName}</p>
+                        <p className="text-xs text-cyan-100/75">{selected.contactName}</p>
+                      </div>
                     </div>
-                    <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                      {[
-                        { label: 'Vocal Warmth', value: selected.vocalWarmth, gradient: 'from-emerald-300 via-lime-300 to-yellow-300', detail: 'Prosody Audio' },
-                        { label: 'Facial Tension', value: selected.facialTension, gradient: 'from-rose-300 via-red-400 to-orange-400', detail: 'Action Units' },
-                      ].map((bar) => (
-                        <div key={bar.label} className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                          <div className="text-xs uppercase tracking-[0.15em] text-white/58">{bar.label}</div>
-                          <div className="mt-1 text-[11px] text-white/42">{bar.detail}</div>
-                          <div className="mt-4 h-48 rounded-xl border border-white/10 bg-[#040b14] p-3">
-                            <div className="flex h-full flex-col items-center justify-end gap-3">
-                              <div className="relative h-full w-20 overflow-hidden rounded-[12px] border border-white/15 bg-white/5">
-                                <div
-                                  className={`absolute bottom-0 left-0 w-full rounded-[10px] bg-gradient-to-t ${bar.gradient} transition-all duration-700`}
-                                  style={{ height: `${bar.value}%` }}
-                                />
-                              </div>
-                              <div className="text-2xl font-semibold tracking-[-0.02em] text-white">{bar.value}%</div>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
+                    <div className="mt-3 rounded-2xl border border-white/10 bg-black/25 p-3">
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-white/45">Media</p>
+                      {selected.mediaUrl ? (
+                        selected.mediaType === 'video' ? (
+                          <video src={selected.mediaUrl} controls playsInline className="mt-2 h-[200px] w-full rounded-xl bg-black object-cover" />
+                        ) : selected.mediaType === 'audio' ? (
+                          <audio controls src={selected.mediaUrl} className="mt-2 w-full" />
+                        ) : (
+                          <div className="mt-2 rounded-xl border border-white/10 bg-[#070d16] p-3 text-xs text-white/65">Text-only signal (no media file)</div>
+                        )
+                      ) : (
+                        <div className="mt-2 rounded-xl border border-white/10 bg-[#070d16] p-3 text-xs text-white/65">No media available</div>
+                      )}
                     </div>
+                    <p className="mt-3 text-xs text-white/52">{new Date(selected.createdAt).toLocaleString()} • {selected.mediaType.toUpperCase()} • {Math.round(selected.durationSec)}s</p>
                   </article>
 
-                  <article className="rounded-[26px] border border-cyan-300/22 bg-[linear-gradient(180deg,rgba(8,18,33,0.95),rgba(4,10,19,0.98))] p-5 shadow-[0_24px_90px_rgba(0,0,0,0.35)]">
-                    <p className="text-[11px] uppercase tracking-[0.24em] text-cyan-100/55">Crossmodal Engine</p>
-                    <div className="mt-4 grid grid-cols-5 items-center gap-2 text-center text-[11px] sm:text-xs">
-                      {FLOW_NODES.map((node, index) => (
-                        <div key={node} className="relative">
-                          <div className={`rounded-xl border px-2 py-3 ${index < 4 ? 'border-cyan-300/35 bg-cyan-400/12 text-cyan-100' : strongIncongruence ? 'border-rose-300/45 bg-rose-400/16 text-rose-100' : 'border-emerald-300/45 bg-emerald-400/14 text-emerald-100'}`}>
-                            {node}
+                  <article className="rounded-[26px] border border-cyan-300/24 bg-[linear-gradient(180deg,rgba(8,18,33,0.96),rgba(4,10,20,0.98))] p-5 shadow-[0_24px_90px_rgba(0,0,0,0.35)]">
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <div>
+                        <p className="text-[11px] uppercase tracking-[0.22em] text-cyan-100/58">Signal Comparison</p>
+                        <div className="mt-3 grid grid-cols-2 gap-3">
+                          {[
+                            { label: 'Vocal Warmth', value: selected.vocalWarmth, grad: 'from-emerald-300 via-lime-300 to-yellow-300', text: 'text-emerald-100' },
+                            { label: 'Facial Tension', value: selected.facialTension, grad: 'from-rose-300 via-red-400 to-orange-400', text: 'text-rose-100' },
+                          ].map((item) => (
+                            <div key={item.label} className="rounded-2xl border border-white/10 bg-black/24 p-3">
+                              <p className="text-[11px] uppercase tracking-[0.14em] text-white/52">{item.label}</p>
+                              <div className="mt-2 h-36 rounded-xl border border-white/10 bg-[#060d16] p-2">
+                                <div className="flex h-full flex-col items-center justify-end gap-2">
+                                  <div className="relative h-full w-16 overflow-hidden rounded-[10px] border border-white/14 bg-white/5">
+                                    <div className={`absolute bottom-0 left-0 w-full rounded-[9px] bg-gradient-to-t ${item.grad} transition-all duration-700`} style={{ height: `${item.value}%` }} />
+                                  </div>
+                                  <span className={`text-xl font-semibold ${item.text}`}>{item.value}%</span>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <p className="text-[11px] uppercase tracking-[0.22em] text-cyan-100/58">Incongruence Detection</p>
+                        <div className={`mt-3 rounded-2xl border p-4 ${strongFlag ? 'border-rose-300/50 bg-rose-500/14' : 'border-emerald-300/40 bg-emerald-500/12'}`}>
+                          <p className={`text-lg font-semibold ${strongFlag ? 'text-rose-100' : 'text-emerald-100'}`}>
+                            {strongFlag ? 'INCONGRUENCE DETECTED' : 'SIGNALS CONGRUENT'}
+                          </p>
+                          <p className={`mt-1 text-sm ${strongFlag ? 'text-rose-100/80' : 'text-emerald-100/80'}`}>{selected.incongruenceReason}</p>
+                          <div className="mt-3 flex items-center justify-between text-sm">
+                            <span className="text-white/65">Timestamp</span>
+                            <span className="text-white">{new Date(selected.createdAt).toLocaleString()}</span>
                           </div>
-                          {index < 4 ? <div className="absolute -right-2 top-1/2 hidden -translate-y-1/2 text-cyan-300/70 sm:block">→</div> : null}
-                        </div>
-                      ))}
-                    </div>
-                    <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-3 text-sm text-white/76">
-                      <div className="grid gap-2 sm:grid-cols-3">
-                        <div>
-                          <span className="text-[10px] uppercase tracking-[0.18em] text-white/45">Auditory</span>
-                          <p className="mt-1 text-cyan-100">Warmth {selected.vocalWarmth}%</p>
-                        </div>
-                        <div>
-                          <span className="text-[10px] uppercase tracking-[0.18em] text-white/45">Facial</span>
-                          <p className="mt-1 text-cyan-100">Tension {selected.facialTension}%</p>
-                        </div>
-                        <div>
-                          <span className="text-[10px] uppercase tracking-[0.18em] text-white/45">Body</span>
-                          <p className="mt-1 text-cyan-100">Activation {selected.bodyActivation}%</p>
+                          <div className="mt-2 flex items-center justify-between text-sm">
+                            <span className="text-white/65">Rule</span>
+                            <span className="text-white">Vocal/Facial Dissonance (14B)</span>
+                          </div>
+                          <div className="mt-2 flex items-center justify-between text-sm">
+                            <span className="text-white/65">Confidence</span>
+                            <span className="text-white">{selected.incongruenceScore}%</span>
+                          </div>
                         </div>
                       </div>
                     </div>
                   </article>
                 </section>
 
-                {strongIncongruence ? (
-                  <section className="rounded-[24px] border border-rose-300/40 bg-[linear-gradient(90deg,rgba(98,14,28,0.6),rgba(48,7,15,0.82))] p-4 shadow-[0_18px_60px_rgba(0,0,0,0.35)]">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <p className="text-[11px] uppercase tracking-[0.24em] text-rose-100/75">Incongruence Detection</p>
-                        <p className="mt-1 text-lg font-semibold text-rose-100">INCONGRUENCE DETECTED</p>
-                        <p className="mt-1 text-sm text-rose-100/72">
-                          Vocal warmth ({selected.vocalWarmth}%) is high while facial tension ({selected.facialTension}%) is also high.
-                        </p>
-                      </div>
-                      <span className="rounded-full border border-rose-200/40 bg-rose-500/20 px-3 py-1 text-sm text-rose-100">
-                        {new Date(selected.createdAt).toLocaleString()}
-                      </span>
-                    </div>
-                  </section>
-                ) : null}
+                <section className="rounded-[26px] border border-cyan-300/24 bg-[linear-gradient(180deg,rgba(8,18,33,0.96),rgba(4,10,20,0.98))] p-5 shadow-[0_24px_90px_rgba(0,0,0,0.35)]">
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-cyan-100/58">ORACLE Crossmodal Engine</p>
+                  <div className="mt-3 relative overflow-x-auto">
+                    <div className="relative min-w-[860px] rounded-2xl border border-white/10 bg-black/20 p-4">
+                      <svg className="absolute inset-0 h-full w-full" viewBox="0 0 900 440" preserveAspectRatio="none" aria-hidden>
+                        {engineNodes.map((node) => (
+                          <path
+                            key={node.key}
+                            d={drawCurve(node.x + 160, node.y, 470, 220)}
+                            fill="none"
+                            stroke={node.key === 'facial' ? '#ff6b8a' : node.key === 'auditory' ? '#7fffb6' : node.key === 'physio' ? '#f6e36e' : '#6be5ff'}
+                            strokeWidth="2.5"
+                            strokeDasharray="8 8"
+                            opacity="0.85"
+                          />
+                        ))}
+                        <path
+                          d={drawCurve(590, 220, 760, 220)}
+                          fill="none"
+                          stroke={strongFlag ? '#ff6b8a' : '#70efad'}
+                          strokeWidth="3.3"
+                        />
+                      </svg>
 
-                <section className="grid gap-5 lg:grid-cols-2">
-                  <article className="rounded-[26px] border border-cyan-300/22 bg-[linear-gradient(180deg,rgba(8,18,33,0.95),rgba(4,10,19,0.98))] p-5 shadow-[0_24px_90px_rgba(0,0,0,0.35)]">
-                    <p className="text-[11px] uppercase tracking-[0.24em] text-cyan-100/55">Signal Correlation Chart</p>
-                    <div className="mt-3 grid gap-4 md:grid-cols-2">
+                      <div className="relative z-10 grid grid-cols-[220px_1fr_260px] gap-5">
+                        <div className="space-y-3">
+                          {engineNodes.map((node) => (
+                            <div key={node.key} className="rounded-xl border border-white/14 bg-[#081222] p-3">
+                              <div className="flex items-center justify-between text-xs text-white/62">
+                                <span>{node.label}</span>
+                                <span>{node.value}%</span>
+                              </div>
+                              <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10">
+                                <div className={`h-full rounded-full bg-gradient-to-r ${node.accent}`} style={{ width: `${node.value}%` }} />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="flex items-center justify-center">
+                          <div className="w-[230px] rounded-2xl border border-cyan-300/40 bg-cyan-500/12 p-4 text-center shadow-[0_0_0_1px_rgba(77,199,255,0.18)]">
+                            <p className="text-sm font-semibold tracking-wide text-cyan-100">ORACLE</p>
+                            <p className="text-xs uppercase tracking-[0.17em] text-cyan-100/70">Crossmodal Engine</p>
+                            <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-white/75">
+                              <div className="rounded-lg border border-white/12 bg-black/20 p-2">
+                                Temporal Alignment
+                              </div>
+                              <div className="rounded-lg border border-white/12 bg-black/20 p-2">
+                                Pattern Fusion
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className={`rounded-2xl border p-4 ${strongFlag ? 'border-rose-300/50 bg-rose-500/14' : 'border-emerald-300/45 bg-emerald-500/12'}`}>
+                          <p className={`text-sm font-semibold ${strongFlag ? 'text-rose-100' : 'text-emerald-100'}`}>
+                            {strongFlag ? '!! INCONGRUENCE DETECTED !!' : 'Crossmodal Congruence Stable'}
+                          </p>
+                          <p className={`mt-1 text-xs ${strongFlag ? 'text-rose-100/80' : 'text-emerald-100/80'}`}>
+                            {selected.incongruenceReason}
+                          </p>
+                          <div className="mt-3 space-y-2 text-xs text-white/76">
+                            <div className="flex items-center justify-between">
+                              <span>Temporal alignment</span>
+                              <span className="text-cyan-100">Confirmed</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span>Signal correlation</span>
+                              <span className={corr < 0 ? 'text-rose-200' : 'text-emerald-200'}>{corr.toFixed(2)}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span>Expression pattern</span>
+                              <span className={strongFlag ? 'text-rose-200' : 'text-emerald-200'}>{strongFlag ? 'Non-congruent' : 'Congruent'}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="grid gap-5 xl:grid-cols-2">
+                  <article className="rounded-[26px] border border-cyan-300/24 bg-[linear-gradient(180deg,rgba(8,18,33,0.96),rgba(4,10,20,0.98))] p-5 shadow-[0_24px_90px_rgba(0,0,0,0.35)]">
+                    <p className="text-[11px] uppercase tracking-[0.22em] text-cyan-100/58">Signal Correlation</p>
+                    <div className="mt-3 grid gap-4 lg:grid-cols-2">
                       <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                        <svg viewBox="0 0 340 180" className="h-[180px] w-full">
-                          <rect x="0" y="0" width="340" height="180" fill="transparent" />
-                          <path d={linePath(warmthSeries, 340, 180)} fill="none" stroke="#6ef2b2" strokeWidth="3" />
-                          <path d={linePath(tensionSeries, 340, 180)} fill="none" stroke="#ff6b8a" strokeWidth="2.6" />
+                        <svg viewBox="0 0 360 190" className="h-[190px] w-full">
+                          <path d={linePath(warmthSeries, 360, 190)} fill="none" stroke="#7af3b6" strokeWidth="3" />
+                          <path d={linePath(facialSeries, 360, 190)} fill="none" stroke="#ff6b8a" strokeWidth="2.5" />
+                          <path d={linePath(physioSeries, 360, 190)} fill="none" stroke="#f6e36e" strokeWidth="2.1" opacity="0.9" />
                         </svg>
-                        <div className="mt-2 flex items-center gap-3 text-[11px] text-white/60">
-                          <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#6ef2b2]" /> Vocal Warmth</span>
-                          <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#ff6b8a]" /> Facial Tension</span>
+                        <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-white/62">
+                          <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#7af3b6]" /> Warmth</span>
+                          <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#ff6b8a]" /> Tension</span>
+                          <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#f6e36e]" /> Physio</span>
                         </div>
                       </div>
                       <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                        <svg viewBox="0 0 240 180" className="h-[180px] w-full">
-                          <rect x="0" y="0" width="240" height="180" fill="transparent" />
-                          {recentSeries.map((entry, index) => {
+                        <svg viewBox="0 0 240 190" className="h-[190px] w-full">
+                          <rect x="0" y="0" width="240" height="190" fill="transparent" />
+                          {chronologicalSeries.map((entry, index) => {
                             const x = (entry.vocalWarmth / 100) * 220 + 10
-                            const y = 170 - (entry.facialTension / 100) * 160
+                            const y = 180 - (entry.facialTension / 100) * 165
                             const isCurrent = entry.id === selected.id
-                            return (
-                              <circle
-                                key={entry.id}
-                                cx={x}
-                                cy={y}
-                                r={isCurrent ? 5.4 : 3.5}
-                                fill={isCurrent ? '#9ee7ff' : '#4dc7ff'}
-                                opacity={isCurrent ? 1 : clamp(0.32 + index / recentSeries.length, 0.32, 0.9)}
-                              />
-                            )
+                            const opacity = isCurrent ? 1 : clamp(0.25 + index / Math.max(chronologicalSeries.length, 1), 0.25, 0.85)
+                            return <circle key={entry.id} cx={x} cy={y} r={isCurrent ? 5.4 : 3.4} fill={isCurrent ? '#b7f1ff' : '#4dc7ff'} opacity={opacity} />
                           })}
                         </svg>
-                        <p className="mt-2 text-[11px] text-white/60">
+                        <p className="mt-2 text-[11px] text-white/64">
                           Correlation coefficient: <span className="text-cyan-100">{corr.toFixed(2)}</span>
                         </p>
                       </div>
                     </div>
                   </article>
 
-                  <article className="rounded-[26px] border border-cyan-300/22 bg-[linear-gradient(180deg,rgba(8,18,33,0.95),rgba(4,10,19,0.98))] p-5 shadow-[0_24px_90px_rgba(0,0,0,0.35)]">
-                    <p className="text-[11px] uppercase tracking-[0.24em] text-cyan-100/55">Temporal Alignment</p>
+                  <article className="rounded-[26px] border border-cyan-300/24 bg-[linear-gradient(180deg,rgba(8,18,33,0.96),rgba(4,10,20,0.98))] p-5 shadow-[0_24px_90px_rgba(0,0,0,0.35)]">
+                    <p className="text-[11px] uppercase tracking-[0.22em] text-cyan-100/58">Temporal Alignment</p>
                     <div className="mt-3 space-y-2">
-                      {recentSeries.slice(-10).map((entry) => {
+                      {chronologicalSeries.slice(-12).map((entry) => {
                         const simultaneous = entry.vocalWarmth >= 60 && entry.facialTension >= 60
                         return (
                           <div key={entry.id} className="rounded-xl border border-white/10 bg-black/20 p-3">
                             <div className="mb-2 flex items-center justify-between text-[11px] text-white/55">
-                              <span>{formatTime(entry.createdAt)}</span>
-                              <span>{entry.mediaType.toUpperCase()} • {Math.round(entry.durationSec || 0)}s</span>
+                              <span>{formatClock(entry.createdAt)}</span>
+                              <span>{entry.mediaType.toUpperCase()} • {Math.round(entry.durationSec)}s</span>
                             </div>
                             <div className="space-y-1.5">
                               <div className="h-2 overflow-hidden rounded-full bg-white/8">
@@ -574,7 +869,7 @@ export default function ExtendedPerception() {
                                 <div className="h-full rounded-full bg-gradient-to-r from-rose-300 to-red-400" style={{ width: `${entry.facialTension}%` }} />
                               </div>
                               <div className={`text-[10px] ${simultaneous ? 'text-rose-200' : 'text-emerald-200'}`}>
-                                {simultaneous ? 'Simultaneous high audio + facial event confirmed' : 'Signals not simultaneously elevated'}
+                                {simultaneous ? 'Audio and visual signals elevated in same frame window' : 'No strong temporal overlap'}
                               </div>
                             </div>
                           </div>
@@ -584,27 +879,41 @@ export default function ExtendedPerception() {
                   </article>
                 </section>
 
-                <section className="rounded-[24px] border border-cyan-300/20 bg-[linear-gradient(180deg,rgba(8,18,33,0.95),rgba(4,10,19,0.98))] p-5">
-                  <p className="text-[11px] uppercase tracking-[0.24em] text-cyan-100/55">ORACLE Result Layer</p>
-                  <div className="mt-3 grid gap-4 lg:grid-cols-2">
-                    <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                      <p className="text-xs uppercase tracking-[0.16em] text-white/45">Behavioral Summary (LUCID)</p>
-                      <p className="mt-2 text-sm leading-6 text-white/76">
-                        {selected.behavioralSummary || 'No behavioral summary available for this log.'}
-                      </p>
+                <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+                  <article className="rounded-[26px] border border-cyan-300/24 bg-[linear-gradient(180deg,rgba(8,18,33,0.96),rgba(4,10,20,0.98))] p-5 shadow-[0_24px_90px_rgba(0,0,0,0.35)]">
+                    <p className="text-[11px] uppercase tracking-[0.22em] text-cyan-100/58">ORACLE Result + LUCID Interpretation</p>
+                    <div className="mt-3 grid gap-4 lg:grid-cols-2">
+                      <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                        <p className="text-xs uppercase tracking-[0.16em] text-white/45">Behavioral Summary</p>
+                        <p className="mt-2 text-sm leading-6 text-white/76">{selected.behavioralSummary || 'No behavioral summary available for this log.'}</p>
+                      </div>
+                      <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                        <p className="text-xs uppercase tracking-[0.16em] text-white/45">Transcript</p>
+                        <p className="mt-2 line-clamp-6 text-sm leading-6 text-white/72">{selected.transcript || 'No transcript available.'}</p>
+                      </div>
                     </div>
-                    <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                      <p className="text-xs uppercase tracking-[0.16em] text-white/45">Body Language</p>
-                      <p className="mt-2 text-sm leading-6 text-white/76">
-                        {normalizeBodyLanguageSummary(selected.bodyLanguage) || 'No body language summary available.'}
-                      </p>
-                      {selected.transcript ? (
-                        <p className="mt-3 line-clamp-3 text-xs leading-5 text-white/52">
-                          Transcript anchor: {selected.transcript}
-                        </p>
-                      ) : null}
+                  </article>
+
+                  <article className="rounded-[26px] border border-cyan-300/24 bg-[linear-gradient(180deg,rgba(8,18,33,0.96),rgba(4,10,20,0.98))] p-5 shadow-[0_24px_90px_rgba(0,0,0,0.35)]">
+                    <p className="text-[11px] uppercase tracking-[0.22em] text-cyan-100/58">Incongruence Event Log</p>
+                    <div className="mt-3 space-y-2">
+                      {incongruenceEvents.length > 0 ? (
+                        incongruenceEvents.map((eventEntry) => (
+                          <div key={eventEntry.id} className="rounded-xl border border-rose-300/35 bg-rose-500/12 p-3">
+                            <div className="flex items-center justify-between text-[11px] text-rose-100/84">
+                              <span>{eventEntry.avatarName}</span>
+                              <span>{new Date(eventEntry.createdAt).toLocaleTimeString()}</span>
+                            </div>
+                            <p className="mt-1 text-xs text-rose-100/76">{eventEntry.incongruenceReason}</p>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="rounded-xl border border-emerald-300/35 bg-emerald-500/12 p-3 text-xs text-emerald-100/85">
+                          No incongruence events in this filtered view.
+                        </div>
+                      )}
                     </div>
-                  </div>
+                  </article>
                 </section>
               </main>
             ) : null}
