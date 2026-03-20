@@ -162,6 +162,17 @@ export default async function handler(req: any, res: any) {
     }
   }
 
+  if (supabase && ownerId) {
+    const { data: owner } = await supabase
+      .from('wa_owners')
+      .select('system_prompt')
+      .eq('id', ownerId)
+      .maybeSingle()
+    if (owner?.system_prompt) {
+      requestBody.system_prompt = owner.system_prompt
+    }
+  }
+
   if (supabase && meetingToken) {
     try {
       const { data: meeting, error: meetingError } = await supabase
@@ -206,6 +217,12 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
+    console.log('[video-call] tavus_system_prompt_preview', {
+      conversationId: conversationId || null,
+      ownerId: ownerId || null,
+      promptFirst300: String(requestBody.system_prompt_append || requestBody.language_instruction || '').slice(0, 300),
+    })
+
     const response = await fetch(`${backendBaseUrl}/api/sessions/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
