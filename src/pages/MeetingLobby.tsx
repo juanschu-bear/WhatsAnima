@@ -95,9 +95,13 @@ export default function MeetingLobby() {
   }
 
   return (
-    <div className="brand-scene min-h-[100dvh] px-4 py-8 text-white sm:px-6">
-      <div className="mx-auto max-w-xl">
-        <div className="brand-panel rounded-[28px] p-6 sm:p-8">
+    <div className="brand-scene relative min-h-[100dvh] px-4 py-8 text-white sm:px-6">
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute -left-20 top-24 h-64 w-64 rounded-full bg-[#00a884]/12 blur-3xl" />
+        <div className="absolute -right-24 bottom-10 h-72 w-72 rounded-full bg-cyan-400/10 blur-3xl" />
+      </div>
+      <div className="relative z-10 mx-auto max-w-xl">
+        <div className="brand-panel pointer-events-auto rounded-[28px] p-6 sm:p-8">
           {loading ? (
             <div className="flex min-h-[220px] items-center justify-center">
               <div className="h-10 w-10 animate-spin rounded-full border-4 border-white/10 border-t-[#00a884]" />
@@ -116,13 +120,13 @@ export default function MeetingLobby() {
               <p className="mt-4 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white/80">
                 Topic: {meeting?.topic?.trim() || 'General discussion'}
               </p>
-              <form onSubmit={handleJoin} className="mt-5 space-y-3">
+              <form onSubmit={handleJoin} className="pointer-events-auto mt-5 space-y-3">
                 <label className="block text-xs uppercase tracking-[0.18em] text-white/45">
                   Name
                   <input
                     value={name}
                     onChange={(event) => setName(event.target.value)}
-                    className="mt-2 w-full rounded-2xl border border-white/10 bg-[#08111a] px-4 py-3 text-sm text-white outline-none focus:border-[#00a884]/60"
+                    className="pointer-events-auto mt-2 w-full rounded-2xl border border-white/10 bg-[#08111a] px-4 py-3 text-sm text-white outline-none focus:border-[#00a884]/60"
                     placeholder="Your name"
                     required
                   />
@@ -132,14 +136,14 @@ export default function MeetingLobby() {
                   <input
                     value={role}
                     onChange={(event) => setRole(event.target.value)}
-                    className="mt-2 w-full rounded-2xl border border-white/10 bg-[#08111a] px-4 py-3 text-sm text-white outline-none focus:border-[#00a884]/60"
+                    className="pointer-events-auto mt-2 w-full rounded-2xl border border-white/10 bg-[#08111a] px-4 py-3 text-sm text-white outline-none focus:border-[#00a884]/60"
                     placeholder="e.g. Founder, Investor, Product Lead"
                   />
                 </label>
                 <button
                   type="submit"
                   disabled={joining}
-                  className="w-full rounded-2xl bg-[#00a884] px-4 py-3 text-sm font-semibold text-[#08111a] transition hover:brightness-110 disabled:opacity-70"
+                  className="pointer-events-auto w-full rounded-2xl bg-[#00a884] px-4 py-3 text-sm font-semibold text-[#08111a] transition hover:brightness-110 disabled:opacity-70"
                 >
                   {joining ? 'Joining...' : 'Join Live Meeting'}
                 </button>
