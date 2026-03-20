@@ -90,6 +90,15 @@ interface PerceptionDashboardPayload {
   logs: PerceptionLogRow[]
 }
 
+interface AnalysisTranslationState {
+  entryId: string
+  locale: 'es' | 'de'
+  behavioralSummary: string
+  conversationHooks: string[]
+  recommendedTone: string
+  ruleInterpretations: string[]
+}
+
 const LANGUAGE_OPTIONS: LanguageFilter[] = ['All', 'English', 'German', 'Spanish']
 
 type MetricConfigEntry = {
@@ -607,6 +616,64 @@ function displayFilterOption(value: string, locale: Locale) {
   return value
 }
 
+function localizeEmotionValue(value: string, locale: Locale) {
+  if (locale === 'en') return value
+  const key = normalizeKey(value)
+  const dictionary: Record<string, { es: string; de: string }> = {
+    frustrated: { es: 'Frustrado', de: 'Frustriert' },
+    anxious: { es: 'Ansioso', de: 'Aengstlich' },
+    annoyance: { es: 'Molestia', de: 'Genervt' },
+    admiration: { es: 'Admiracion', de: 'Bewunderung' },
+    approval: { es: 'Aprobacion', de: 'Zustimmung' },
+    disapproval: { es: 'Desaprobacion', de: 'Ablehnung' },
+    curiosity: { es: 'Curiosidad', de: 'Neugier' },
+    love: { es: 'Amor', de: 'Liebe' },
+    confusion: { es: 'Confusion', de: 'Verwirrung' },
+    disappointment: { es: 'Decepcion', de: 'Enttaeuschung' },
+    reflective: { es: 'Reflexivo', de: 'Nachdenklich' },
+    surprise: { es: 'Sorpresa', de: 'Ueberraschung' },
+    unclassified: { es: 'Sin clasificar', de: 'Nicht klassifiziert' },
+    neutral: { es: 'Neutral', de: 'Neutral' },
+  }
+  const mapped = dictionary[key]
+  if (!mapped) return value
+  return locale === 'es' ? mapped.es : mapped.de
+}
+
+function localizeRuleName(rawName: string, fallback: string, locale: Locale) {
+  if (locale === 'en') return fallback
+  const dictionary: Record<string, { es: string; de: string }> = {
+    high_authenticity_composite: { es: 'Autenticidad', de: 'Authentizitaet' },
+    hesitation_cluster: { es: 'Hesitacion', de: 'Zoegern' },
+    emotional_escalation: { es: 'Escalada emocional', de: 'Emotionale Eskalation' },
+    topic_avoidance_signal: { es: 'Evitacion del tema', de: 'Themenvermeidung' },
+    rehearsed_delivery_pattern: { es: 'Patron ensayado', de: 'Einstudiertes Muster' },
+    vocal_incongruence: { es: 'Incongruencia vocal', de: 'Vokale Inkongruenz' },
+    low_authenticity_composite: { es: 'Baja autenticidad', de: 'Niedrige Authentizitaet' },
+    over_controlled_smoothness: { es: 'Exceso de control', de: 'Ueberkontrolliert' },
+    bimodal_emotional_arc: { es: 'Arco emocional bimodal', de: 'Bimodaler Emotionsbogen' },
+  }
+  const mapped = dictionary[rawName]
+  if (!mapped) return fallback
+  return locale === 'es' ? mapped.es : mapped.de
+}
+
+function localizeCategoryLabel(value: string | null | undefined, locale: Locale) {
+  if (locale === 'en') return categoryLabel(value)
+  const base = categoryLabel(value)
+  const key = normalizeKey(base)
+  const dictionary: Record<string, { es: string; de: string }> = {
+    uncategorized: { es: 'Sin categoria', de: 'Ohne Kategorie' },
+    emotion: { es: 'Emocion', de: 'Emotion' },
+    authenticity: { es: 'Autenticidad', de: 'Authentizitaet' },
+    tension: { es: 'Tension', de: 'Anspannung' },
+    coherence: { es: 'Coherencia', de: 'Koharenz' },
+  }
+  const mapped = dictionary[key]
+  if (!mapped) return base
+  return locale === 'es' ? mapped.es : mapped.de
+}
+
 export default function Perception() {
   const navigate = useNavigate()
   const { user } = useAuth()
@@ -626,6 +693,7 @@ export default function Perception() {
   const [ruleFilter, setRuleFilter] = useState('All')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
+  const [analysisTranslation, setAnalysisTranslation] = useState<AnalysisTranslationState | null>(null)
 
   const toggleLocale = () => {
     const nextLocale: Locale = locale === 'en' ? 'es' : locale === 'es' ? 'de' : 'en'
@@ -823,6 +891,92 @@ export default function Perception() {
   }, [filteredEntries, selectedId])
 
   const selectedEntry = filteredEntries.find((entry) => entry.id === selectedId) ?? filteredEntries[0] ?? null
+
+  useEffect(() => {
+    if (!selectedEntry || locale === 'en') {
+      setAnalysisTranslation(null)
+      return
+    }
+
+    const targetLocale = locale === 'es' ? 'es' : 'de'
+    const sourcePayload = {
+      behavioralSummary: selectedEntry.behavioralSummary || '',
+      conversationHooks: selectedEntry.conversationHooks || [],
+      recommendedTone: selectedEntry.recommendedTone || '',
+      ruleInterpretations: selectedEntry.firedRules.map((rule) => rule.interpretation || ''),
+    }
+
+    const texts = [
+      sourcePayload.behavioralSummary,
+      ...sourcePayload.conversationHooks,
+      sourcePayload.recommendedTone,
+      ...sourcePayload.ruleInterpretations,
+    ].filter((text) => text.trim())
+
+    if (texts.length === 0) {
+      setAnalysisTranslation({
+        entryId: selectedEntry.id,
+        locale: targetLocale,
+        behavioralSummary: sourcePayload.behavioralSummary,
+        conversationHooks: sourcePayload.conversationHooks,
+        recommendedTone: sourcePayload.recommendedTone,
+        ruleInterpretations: sourcePayload.ruleInterpretations,
+      })
+      return
+    }
+
+    let cancelled = false
+    const translate = async () => {
+      try {
+        const response = await fetch('/api/translate-analysis', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ targetLocale, texts }),
+        })
+        const payload = await response.json() as { translations?: string[] }
+        if (!response.ok || !Array.isArray(payload.translations) || payload.translations.length !== texts.length) {
+          throw new Error('translation_failed')
+        }
+        if (cancelled) return
+
+        let cursor = 0
+        const behavioralSummary = sourcePayload.behavioralSummary.trim()
+          ? payload.translations[cursor++]
+          : sourcePayload.behavioralSummary
+        const conversationHooks = sourcePayload.conversationHooks.map((hook) =>
+          hook.trim() ? payload.translations[cursor++] : hook
+        )
+        const recommendedTone = sourcePayload.recommendedTone.trim()
+          ? payload.translations[cursor++]
+          : sourcePayload.recommendedTone
+        const ruleInterpretations = sourcePayload.ruleInterpretations.map((interpretation) =>
+          interpretation.trim() ? payload.translations[cursor++] : interpretation
+        )
+
+        setAnalysisTranslation({
+          entryId: selectedEntry.id,
+          locale: targetLocale,
+          behavioralSummary,
+          conversationHooks,
+          recommendedTone,
+          ruleInterpretations,
+        })
+      } catch {
+        if (cancelled) return
+        setAnalysisTranslation({
+          entryId: selectedEntry.id,
+          locale: targetLocale,
+          behavioralSummary: sourcePayload.behavioralSummary,
+          conversationHooks: sourcePayload.conversationHooks,
+          recommendedTone: sourcePayload.recommendedTone,
+          ruleInterpretations: sourcePayload.ruleInterpretations,
+        })
+      }
+    }
+
+    void translate()
+    return () => { cancelled = true }
+  }, [locale, selectedEntry])
 
   const stats = useMemo(() => {
     const totalDuration = filteredEntries.reduce((sum, entry) => sum + (entry.messageDurationSec ?? 0), 0)
@@ -1039,7 +1193,7 @@ export default function Perception() {
                           <p className="mt-1 text-xs text-[#86f5e5]">{entry.contactName} · {entry.language}</p>
                           <div className="mt-2 flex items-center gap-3">
                             <span className={`rounded-full border px-2.5 py-1 text-[11px] ${primaryEmotionStyle.border} ${primaryEmotionStyle.bg} ${primaryEmotionStyle.color}`}>
-                              {primaryEmotionStyle.emoji} {entry.primaryEmotion}
+                              {primaryEmotionStyle.emoji} {localizeEmotionValue(entry.primaryEmotion, locale)}
                             </span>
                           </div>
                           <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
@@ -1085,9 +1239,9 @@ export default function Perception() {
                       </div>
                       <div className="grid w-full gap-3 sm:grid-cols-2 xl:w-auto xl:max-w-[760px] xl:grid-cols-3">
                         {[
-                          { label: T('Primary Emotion', 'Emocion principal'), value: selectedEntry.primaryEmotion, style: emotionStyle(selectedEntry.primaryEmotion) },
-                          { label: T('Secondary Emotion', 'Emocion secundaria'), value: selectedEntry.secondaryEmotion, style: emotionStyle(selectedEntry.secondaryEmotion) },
-                          { label: T('Recommended Tone for Avatar', 'Tono recomendado para avatar'), value: selectedEntry.recommendedTone, tone: 'from-[#153428] to-[#0b1712]' },
+                          { label: T('Primary Emotion', 'Emocion principal'), value: localizeEmotionValue(selectedEntry.primaryEmotion, locale), style: emotionStyle(selectedEntry.primaryEmotion) },
+                          { label: T('Secondary Emotion', 'Emocion secundaria'), value: localizeEmotionValue(selectedEntry.secondaryEmotion, locale), style: emotionStyle(selectedEntry.secondaryEmotion) },
+                          { label: T('Recommended Tone for Avatar', 'Tono recomendado para avatar'), value: analysisTranslation?.entryId === selectedEntry.id ? analysisTranslation.recommendedTone : selectedEntry.recommendedTone, tone: 'from-[#153428] to-[#0b1712]' },
                         ].map((card) => (
                           <div key={card.label} className={`min-w-[160px] rounded-[22px] border px-4 py-4 ${isEmotionCard(card) ? `${card.style.border} ${card.style.bg}` : 'border-white/8 bg-[linear-gradient(180deg,#153428,#0b1712)]'}`}>
                             <div className="text-[11px] uppercase tracking-[0.22em] text-white/42">{card.label}</div>
@@ -1202,7 +1356,7 @@ export default function Perception() {
                     <div className="rounded-[28px] border border-emerald-400/18 bg-[linear-gradient(180deg,rgba(10,54,39,0.88),rgba(6,23,18,0.96))] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.25)]">
                       <div className="text-[11px] uppercase tracking-[0.24em] text-emerald-100/50">{T('LUCID Behavioral Summary', 'Resumen conductual LUCID')}</div>
                       <p className="mt-4 whitespace-pre-wrap text-[15px] leading-7 text-emerald-50/92">
-                        {selectedEntry.behavioralSummary || T('No behavioral summary recorded for this log.', 'No hay resumen conductual para este log.')}
+                        {(analysisTranslation?.entryId === selectedEntry.id ? analysisTranslation.behavioralSummary : selectedEntry.behavioralSummary) || T('No behavioral summary recorded for this log.', 'No hay resumen conductual para este log.')}
                       </p>
                     </div>
 
@@ -1210,7 +1364,7 @@ export default function Perception() {
                       <div className="text-[11px] uppercase tracking-[0.24em] text-cyan-100/50">{T('Conversation Hooks', 'Anclas de conversacion')}</div>
                       <div className="mt-4 space-y-3">
                         {selectedEntry.conversationHooks.length > 0 ? (
-                          selectedEntry.conversationHooks.map((hook) => (
+                          (analysisTranslation?.entryId === selectedEntry.id ? analysisTranslation.conversationHooks : selectedEntry.conversationHooks).map((hook) => (
                             <div key={hook} className="rounded-[18px] border border-white/8 bg-white/[0.04] px-4 py-3 text-[14px] leading-6 text-cyan-50/90">
                               {hook}
                             </div>
@@ -1232,26 +1386,26 @@ export default function Perception() {
                     </div>
                     <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                       {selectedEntry.firedRules.length > 0 ? (
-                        selectedEntry.firedRules.map((rule) => (
+                        selectedEntry.firedRules.map((rule, ruleIndex) => (
                           <div key={`${rule.rawName}-${rule.category}`} className={`group relative rounded-[20px] border px-4 py-4 ${ruleStyle(rule.rawName).border} ${ruleStyle(rule.rawName).bg}`}>
                             <div className="flex items-start justify-between gap-4">
                               <div>
-                                <p className={`text-sm font-semibold ${ruleStyle(rule.rawName).color}`}>{rule.name}</p>
-                                <p className="mt-1 text-xs uppercase tracking-[0.18em] text-white/38">{categoryLabel(rule.category)}</p>
+                                <p className={`text-sm font-semibold ${ruleStyle(rule.rawName).color}`}>{localizeRuleName(rule.rawName, rule.name, locale)}</p>
+                                <p className="mt-1 text-xs uppercase tracking-[0.18em] text-white/38">{localizeCategoryLabel(rule.category, locale)}</p>
                               </div>
                               <div className={`flex h-9 w-9 items-center justify-center rounded-full border text-xs font-semibold ${ruleStyle(rule.rawName).border} ${ruleStyle(rule.rawName).bg} ${ruleStyle(rule.rawName).color}`}>
                                 {rule.confidence != null ? `${Math.round(rule.confidence * 100)}` : '—'}
                               </div>
                             </div>
                             <div className="pointer-events-none absolute left-4 top-full z-20 mt-3 hidden w-[min(26rem,calc(100vw-4rem))] rounded-[18px] border border-white/12 bg-[#07111b]/96 p-4 text-left shadow-[0_24px_80px_rgba(0,0,0,0.45)] group-hover:block">
-                              <p className={`text-sm font-semibold ${ruleStyle(rule.rawName).color}`}>{rule.name}</p>
+                              <p className={`text-sm font-semibold ${ruleStyle(rule.rawName).color}`}>{localizeRuleName(rule.rawName, rule.name, locale)}</p>
                               <p className="mt-2 text-sm leading-6 text-white/78">
                                 {RULE_DEFINITIONS[rule.rawName] || T('No static definition available for this rule yet.', 'Aun no hay una definicion estatica para esta regla.')}
                               </p>
                               <div className="mt-3 border-t border-white/8 pt-3">
                                 <div className="text-[10px] uppercase tracking-[0.22em] text-white/35">{T('Behavioral Interpretation', 'Interpretacion conductual')}</div>
                                 <p className="mt-2 text-sm leading-6 text-white/68">
-                                  {rule.interpretation || T('No log-specific behavioral interpretation recorded for this rule.', 'No hay interpretacion conductual especifica de este log para esta regla.')}
+                                  {((analysisTranslation?.entryId === selectedEntry.id ? analysisTranslation.ruleInterpretations[ruleIndex] : rule.interpretation) || rule.interpretation) || T('No log-specific behavioral interpretation recorded for this rule.', 'No hay interpretacion conductual especifica de este log para esta regla.')}
                                 </p>
                               </div>
                             </div>
