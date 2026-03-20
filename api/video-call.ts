@@ -4,9 +4,21 @@ const LIVE_CALL_API_BASE =
   process.env.LIVE_CALL_API_BASE ||
   process.env.VITE_LIVE_CALL_API_BASE ||
   'https://anima.onioko.com'
+const JUAN_LOCKED_PERSONA_ID = 'p8c4ae75d94d'
+const JUAN_LOCKED_REPLICA_ID = 'rf5414018e80'
 
 function normalizeBackendBaseUrl(value: string) {
   return value.replace(/\/+$/, '').replace(/\/api$/, '')
+}
+
+function isJuanLockedOwner(displayName: unknown, email: unknown) {
+  const normalizedName = String(displayName || '').trim().toLowerCase()
+  const normalizedEmail = String(email || '').trim().toLowerCase()
+  return (
+    normalizedName === 'juan schubert' ||
+    normalizedName === 'juan schubert (extended)' ||
+    normalizedEmail === 'mwg.jmschubert@gmail.com'
+  )
 }
 
 function toArray(value: unknown): string[] {
@@ -166,9 +178,44 @@ export default async function handler(req: any, res: any) {
   if (supabase && ownerId) {
     const { data: owner } = await supabase
       .from('wa_owners')
-      .select('system_prompt')
+      .select('display_name, email, system_prompt, settings, tavus_replica_id')
       .eq('id', ownerId)
       .maybeSingle()
+
+    const ownerDisplayName = String(owner?.display_name || '').trim()
+    const ownerEmail = String(owner?.email || '').trim()
+    const ownerSettings = (owner?.settings && typeof owner.settings === 'object')
+      ? owner.settings as Record<string, unknown>
+      : null
+    const ownerPersonaId = typeof ownerSettings?.tavus_persona_id === 'string'
+      ? ownerSettings.tavus_persona_id.trim()
+      : ''
+    const ownerReplicaId = String(owner?.tavus_replica_id || '').trim()
+
+    if (!requestBody.persona_id && ownerPersonaId) {
+      requestBody.persona_id = ownerPersonaId
+    }
+    if (!requestBody.replica_id && ownerReplicaId) {
+      requestBody.replica_id = ownerReplicaId
+    }
+
+    if (isJuanLockedOwner(ownerDisplayName, ownerEmail)) {
+      requestBody.persona_id = JUAN_LOCKED_PERSONA_ID
+      requestBody.replica_id = JUAN_LOCKED_REPLICA_ID
+      if (ownerDisplayName) {
+        requestBody.persona_name = ownerDisplayName
+        requestBody.persona = ownerDisplayName
+      }
+      requestBody.persona_override = true
+      requestBody.juan_persona_locked = true
+      console.log('[video-call] juan_persona_lock_applied', {
+        ownerId,
+        ownerDisplayName: ownerDisplayName || null,
+        personaId: JUAN_LOCKED_PERSONA_ID,
+        replicaId: JUAN_LOCKED_REPLICA_ID,
+      })
+    }
+
     if (owner?.system_prompt) {
       requestBody.system_prompt = owner.system_prompt
       requestBody.owner_system_prompt = owner.system_prompt

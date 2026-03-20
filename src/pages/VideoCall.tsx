@@ -20,6 +20,8 @@ interface BackendPersona {
 const LIVE_CALL_API_BASE =
   (import.meta.env.VITE_LIVE_CALL_API_BASE as string | undefined) || 'https://anima.onioko.com'
 const FALLBACK_REPLICA_ID = 'r987f6e6f73c'
+const JUAN_LOCKED_PERSONA_ID = 'p8c4ae75d94d'
+const JUAN_LOCKED_REPLICA_ID = 'rf5414018e80'
 const HEARTBEAT_INTERVAL_MS = 15_000
 const ENABLE_LIVE_SESSION_HEARTBEAT = false
 const UNLIMITED_DURATION_EMAILS = new Set(['aicallyu.global@gmail.com'])
@@ -45,6 +47,16 @@ function normalizeLanguageCode(value: string | null | undefined): SupportedLangu
   if (candidate.startsWith('de')) return 'de'
   if (candidate.startsWith('es')) return 'es'
   return 'en'
+}
+
+function isJuanPersonaLockedTarget(displayName: string, email: string) {
+  const normalizedName = displayName.trim().toLowerCase()
+  const normalizedEmail = email.trim().toLowerCase()
+  return (
+    normalizedName === 'juan schubert' ||
+    normalizedName === 'juan schubert (extended)' ||
+    normalizedEmail === 'mwg.jmschubert@gmail.com'
+  )
 }
 
 function buildUserName(user: ReturnType<typeof useAuth>['user'], conversation: ConversationData | null) {
@@ -526,13 +538,20 @@ export default function VideoCall() {
     }
     const owner = conversation.wa_owners
     const personaName = personaOverrideEnabled ? selectedPersona : owner.display_name || selectedPersona
-    const replicaId = owner.tavus_replica_id?.trim() || FALLBACK_REPLICA_ID
     const ownerSettings = (owner as { settings?: Record<string, unknown> | null })?.settings
-    const personaIdFromOwner = typeof ownerSettings?.tavus_persona_id === 'string'
-      ? ownerSettings.tavus_persona_id.trim()
-      : ''
     const ownerEmail = String((owner as { email?: string | null })?.email || '').trim().toLowerCase()
     const ownerDisplayName = String(owner.display_name || '').trim().toLowerCase()
+    const lockJuanPersona = isJuanPersonaLockedTarget(ownerDisplayName, ownerEmail)
+    const personaIdFromOwner = lockJuanPersona
+      ? JUAN_LOCKED_PERSONA_ID
+      : (
+          typeof ownerSettings?.tavus_persona_id === 'string'
+            ? ownerSettings.tavus_persona_id.trim()
+            : ''
+        )
+    const replicaId = lockJuanPersona
+      ? JUAN_LOCKED_REPLICA_ID
+      : (owner.tavus_replica_id?.trim() || FALLBACK_REPLICA_ID)
     const enableGlueForExtendedJuan =
       ownerEmail === 'mwg.jmschubert@gmail.com' || ownerDisplayName === 'juan schubert (extended)'
 
