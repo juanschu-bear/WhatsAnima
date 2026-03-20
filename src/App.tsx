@@ -14,6 +14,7 @@ import Status from './pages/Status'
 import AuthCallback from './pages/AuthCallback'
 import VideoCall from './pages/VideoCall'
 import Perception from './pages/Perception'
+import ExtendedPerception from './pages/ExtendedPerception'
 
 export default function App() {
   return (
@@ -56,6 +57,14 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <Perception />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/perception/extended"
+            element={
+              <ProtectedRoute>
+                <ExtendedPerception />
               </ProtectedRoute>
             }
           />

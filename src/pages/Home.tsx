@@ -130,6 +130,13 @@ export default function Home() {
                 Settings
               </button>
             </div>
+            <button
+              type="button"
+              onClick={() => navigate('/perception/extended')}
+              className="rounded-2xl border border-cyan-300/30 bg-cyan-400/15 px-6 py-3 text-sm font-medium text-cyan-100 transition hover:border-cyan-200/60 hover:text-white"
+            >
+              Extended Perception Dashboard
+            </button>
           </div>
         </div>
       </div>
