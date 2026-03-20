@@ -71,6 +71,7 @@ export default async function handler(req: any, res: any) {
   const ownerId = String(body.owner_id || body.ownerId || '').trim()
   const contactName = String(body.contact_name || body.contactName || '').trim()
   const meetingToken = String(body.meeting_token || body.meetingToken || '').trim()
+  const conversationIdForRequest = conversationId || (meetingToken ? `meeting-${meetingToken}` : '')
 
   const requestBody: Record<string, unknown> = {
     persona_name: body.persona_name,
@@ -79,7 +80,7 @@ export default async function handler(req: any, res: any) {
     replica_id: body.replica_id,
     language: body.language,
     user_name: body.user_name,
-    conversation_id: conversationId || null,
+    conversation_id: conversationIdForRequest,
     owner_id: ownerId || null,
     contact_name: contactName || null,
   }
@@ -170,6 +171,7 @@ export default async function handler(req: any, res: any) {
       .maybeSingle()
     if (owner?.system_prompt) {
       requestBody.system_prompt = owner.system_prompt
+      requestBody.owner_system_prompt = owner.system_prompt
     }
   }
 
