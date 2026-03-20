@@ -968,19 +968,20 @@ export default function Perception() {
           throw new Error('translation_failed')
         }
         if (cancelled) return
+        const translations = payload.translations
 
         let cursor = 0
         const behavioralSummary = sourcePayload.behavioralSummary.trim()
-          ? payload.translations[cursor++]
+          ? translations[cursor++]
           : sourcePayload.behavioralSummary
         const conversationHooks = sourcePayload.conversationHooks.map((hook) =>
-          hook.trim() ? payload.translations[cursor++] : hook
+          hook.trim() ? translations[cursor++] : hook
         )
         const recommendedTone = sourcePayload.recommendedTone.trim()
-          ? payload.translations[cursor++]
+          ? translations[cursor++]
           : sourcePayload.recommendedTone
         const ruleInterpretations = sourcePayload.ruleInterpretations.map((interpretation) =>
-          interpretation.trim() ? payload.translations[cursor++] : interpretation
+          interpretation.trim() ? translations[cursor++] : interpretation
         )
 
         setAnalysisTranslation({
