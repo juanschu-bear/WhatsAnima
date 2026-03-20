@@ -14,6 +14,24 @@ function toArray(value: unknown): string[] {
   return value.map((item) => String(item ?? '').trim()).filter(Boolean)
 }
 
+function normalizeLanguageCode(value: unknown): 'en' | 'es' | 'de' {
+  const code = String(value || '').trim().toLowerCase()
+  if (code.startsWith('es')) return 'es'
+  if (code.startsWith('de')) return 'de'
+  return 'en'
+}
+
+function buildLiveLanguageInstruction(languageCode: 'en' | 'es' | 'de') {
+  const languageName = languageCode === 'es' ? 'Spanish' : languageCode === 'de' ? 'German' : 'English'
+  return [
+    '[MANDATORY LANGUAGE POLICY]',
+    `The user is currently speaking ${languageName}.`,
+    `You MUST answer in ${languageName}, every reply, no exceptions.`,
+    'Never switch to another language unless the user switches first.',
+    'Mirror the user language exactly in real time.',
+  ].join('\n')
+}
+
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST')
@@ -37,6 +55,19 @@ export default async function handler(req: any, res: any) {
     owner_id: ownerId || null,
     contact_name: contactName || null,
   }
+  const normalizedLanguageCode = normalizeLanguageCode(body.language)
+  const languageInstruction = buildLiveLanguageInstruction(normalizedLanguageCode)
+  requestBody.language_instruction = languageInstruction
+  requestBody.system_prompt_append = languageInstruction
+  requestBody.prompt_overrides = {
+    language_policy: languageInstruction,
+    response_language: normalizedLanguageCode,
+  }
+  console.log('[video-call] language enforcement', {
+    language: normalizedLanguageCode,
+    conversationId: conversationId || null,
+    ownerId: ownerId || null,
+  })
 
   if (typeof body.max_call_duration === 'number') {
     requestBody.max_call_duration = body.max_call_duration
@@ -96,6 +127,7 @@ export default async function handler(req: any, res: any) {
       if (memoryLines.length > 0) {
         requestBody.memory_context = memoryLines.join('\n')
       }
+      requestBody.memory_context = `${String(requestBody.memory_context || '').trim()}\n\n${languageInstruction}`.trim()
     } catch (error) {
       console.error('[video-call] memory fetch failed', error)
     }
