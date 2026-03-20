@@ -814,6 +814,25 @@ export async function loadOwnerPromptAndMemory(
       ownerRow = ownerResultByNameLike.rows[0] ?? null
     }
 
+    const hintedProfile = getYouTubeRecommendationProfile(
+      normalizedOwnerIdHint,
+      normalizedOwnerNameHint,
+      null
+    )
+    if ((!ownerRow || !Array.isArray(ownerRow.youtube_videos) || ownerRow.youtube_videos.length === 0) && hintedProfile) {
+      const canonicalOwnerId = hintedProfile === 'adri' ? ADRI_KASTEL_OWNER_ID : BRIAN_COX_OWNER_ID
+      const ownerResultByCanonicalId = await client.query(
+        `select id, display_name, system_prompt, is_self_avatar, communication_style, youtube_videos
+         from public.wa_owners
+         where id = $1 and deleted_at is null
+         limit 1`,
+        [canonicalOwnerId]
+      )
+      if (ownerResultByCanonicalId.rows[0]) {
+        ownerRow = ownerResultByCanonicalId.rows[0]
+      }
+    }
+
     const ownerId = ownerRow?.id ? String(ownerRow.id) : null
     const ownerName = ownerRow?.display_name?.trim() || 'Avatar'
     const ownerPrompt = ownerRow?.system_prompt?.trim() || DEFAULT_SYSTEM_PROMPT
