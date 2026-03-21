@@ -984,7 +984,6 @@ export default function VideoCall() {
   }
 
   const owner = conversation.wa_owners
-  const callReady = phase === 'connected'
   const personaName = personaOverrideEnabled ? selectedPersona : owner.display_name || selectedPersona
   const replicaId = owner.tavus_replica_id?.trim() || FALLBACK_REPLICA_ID
   const selectedPersonaDetails = personas.find((persona) => persona.name === selectedPersona) ?? null
