@@ -914,7 +914,11 @@ export default function VideoCall() {
         const fallbackResult = { error: 'Tool call failed', fallback: 'No data available' }
         try {
           const sessionIdFromArgs = String(args?.session_id || '').trim()
-          const resolvedSessionId = sessionIdFromArgs || sessionIdRef.current || payload.session_id || ''
+          const realSessionId =
+            sessionIdFromArgs && sessionIdFromArgs.toLowerCase() !== 'current'
+              ? sessionIdFromArgs
+              : (sessionId || '')
+          const resolvedSessionId = realSessionId || sessionIdRef.current || payload.session_id || ''
           if (!resolvedSessionId) {
             throw new Error('Missing session_id for tool call')
           }
