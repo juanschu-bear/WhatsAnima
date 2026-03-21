@@ -914,31 +914,31 @@ export default function VideoCall() {
         const args = toolCall.args as Record<string, any>
         const fallbackResult = { error: 'Tool call failed', fallback: 'No data available' }
         try {
-          const sessionIdFromArgs = String(args?.session_id || '').trim()
-          const realSessionId =
-            sessionIdFromArgs && sessionIdFromArgs.toLowerCase() !== 'current'
-              ? sessionIdFromArgs
-              : (sessionIdRef.current || '')
-          const resolvedSessionId = realSessionId || sessionIdRef.current || payload.session_id || ''
-          if (!resolvedSessionId) {
-            throw new Error('Missing session_id for tool call')
-          }
+          const effectiveSessionId = sessionIdRef.current || 'missing'
 
-          let url = ''
-          if (toolCall.name === 'get_meeting_participants') {
-            url = `${LIVE_CALL_API_BASE}/api/tools/meeting-participants?session_id=${encodeURIComponent(resolvedSessionId)}`
-          } else if (toolCall.name === 'get_opm_perception') {
-            const speakerName = String(args?.speaker_name || args?.speakerName || '').trim()
-            const query = new URLSearchParams({
-              session_id: resolvedSessionId,
-              ...(speakerName ? { speaker_name: speakerName } : {}),
-            })
-            url = `${LIVE_CALL_API_BASE}/api/tools/opm-perception?${query.toString()}`
-          } else if (toolCall.name === 'get_session_context') {
-            url = `${LIVE_CALL_API_BASE}/api/tools/session-context?session_id=${encodeURIComponent(resolvedSessionId)}`
-          } else {
+          const toolEndpoint =
+            toolCall.name === 'get_meeting_participants'
+              ? 'meeting-participants'
+              : toolCall.name === 'get_opm_perception'
+                ? 'opm-perception'
+                : toolCall.name === 'get_session_context'
+                  ? 'session-context'
+                  : null
+
+          if (!toolEndpoint) {
             throw new Error(`Unknown tool name: ${toolCall.name}`)
           }
+
+          const baseUrl = `${LIVE_CALL_API_BASE}/api/tools/${toolEndpoint}?session_id=${encodeURIComponent(effectiveSessionId)}`
+          const url =
+            toolCall.name === 'get_opm_perception'
+              ? (() => {
+                  const speakerName = String(args?.speaker_name || args?.speakerName || '').trim()
+                  return speakerName
+                    ? `${baseUrl}&speaker_name=${encodeURIComponent(speakerName)}`
+                    : baseUrl
+                })()
+              : baseUrl
 
           const response = await fetch(url)
           if (!response.ok) {
