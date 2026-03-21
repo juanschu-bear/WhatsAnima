@@ -127,6 +127,7 @@ export default async function handler(req: any, res: any) {
   const ownerId = String(body.owner_id || body.ownerId || '').trim()
   const contactName = String(body.contact_name || body.contactName || '').trim()
   const meetingToken = String(body.meeting_token || body.meetingToken || '').trim()
+  const meetingGuestJoinOnly = Boolean(body.meeting_guest_join_only)
   const conversationIdForRequest = conversationId || (meetingToken ? `meeting-${meetingToken}` : '')
 
   const requestBody: Record<string, unknown> = {
@@ -341,6 +342,16 @@ export default async function handler(req: any, res: any) {
     }
 
     if (meetingToken) {
+      if (meetingGuestJoinOnly) {
+        console.log('[video-call] meeting_guest_join_waiting_for_host', {
+          meetingToken,
+          reason: 'live_join_url_missing',
+        })
+        return res.status(409).json({
+          error: 'Meeting has not started yet. Waiting for host to start live call.',
+          code: 'meeting_not_live',
+        })
+      }
       console.log('[video-call] meeting_session_create_new', {
         meetingToken,
         reason: 'live_join_url_missing',

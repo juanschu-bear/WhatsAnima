@@ -190,6 +190,7 @@ export default function VideoCall() {
     Object.keys(window.sessionStorage || {}).some((key) => key.includes('wa_meeting_context'))
   const shouldSkipLanguageSelection = Boolean(meetingToken) || hasMeetingContext
   const isMeetingMode = meetingToken.length > 0
+  const isMeetingGuest = isMeetingMode && !meetingHostControl
   const forcedSessionId = String(searchParams.get('session_id') || '').trim()
 
   useEffect(() => {
@@ -653,7 +654,7 @@ export default function VideoCall() {
     setRemoteParticipant(null)
     setLocalParticipant(null)
     setPhase('starting')
-    setStatusText('Connecting...')
+    setStatusText(isMeetingGuest ? 'Joining live meeting...' : 'Connecting...')
 
     try {
       const languageCode = normalizeLanguageCode(languageRef.current)
@@ -676,6 +677,7 @@ export default function VideoCall() {
         owner_id: owner.id || conversation.owner_id || null,
         contact_name: conversation.wa_contacts?.display_name || null,
         meeting_token: meetingToken || undefined,
+        meeting_guest_join_only: isMeetingGuest,
       }
       console.log('[VideoCall] startSession request', requestBody)
       const response = await fetch('/api/video-call', {
@@ -716,9 +718,11 @@ export default function VideoCall() {
       setRecordingError(null)
       sessionIdRef.current = payload.session_id
       endingSessionRef.current = false
-      setStatusText('Avatar joining...')
+      setStatusText(isMeetingGuest ? 'Joining room...' : 'Avatar joining...')
       setPhase('joining')
-      await notifySessionStart(payload.session_id, payload.join_url, personaName, replicaId)
+      if (!isMeetingGuest) {
+        await notifySessionStart(payload.session_id, payload.join_url, personaName, replicaId)
+      }
 
       const callObject = DailyIframe.createCallObject()
       callObjectRef.current = callObject
@@ -963,7 +967,9 @@ export default function VideoCall() {
                         {personaName}
                       </p>
                       <p className="mt-3 text-sm leading-6 text-white/62 sm:text-base">
-                        {phase === 'setup' ? 'Choose a language and start the room.' : statusText}
+                        {phase === 'setup'
+                          ? (isMeetingGuest ? 'Joining existing live meeting room...' : 'Choose a language and start the room.')
+                          : statusText}
                       </p>
                     </div>
                   )}
