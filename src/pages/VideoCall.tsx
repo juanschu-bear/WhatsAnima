@@ -863,13 +863,13 @@ export default function VideoCall() {
         console.warn('[VideoCall] forced session mismatch', { forcedSessionId, returned: payload.session_id })
       }
 
+      sessionIdRef.current = payload.session_id
       setSessionId(payload.session_id)
       setJoinUrl(String(payload.join_url || '').trim() || null)
       setRecordingActive(false)
       setRecordingId(null)
       setRecordingUrl(null)
       setRecordingError(null)
-      sessionIdRef.current = payload.session_id
       endingSessionRef.current = false
       setStatusText(isMeetingGuest ? 'Joining room...' : 'Avatar joining...')
       setPhase('joining')
@@ -909,6 +909,7 @@ export default function VideoCall() {
           eventType: toolCall.eventType,
           conversationId: toolCall.conversationId,
         })
+        console.log('[TOOL-CALL] sessionIdRef.current =', sessionIdRef.current)
 
         const args = toolCall.args as Record<string, any>
         const fallbackResult = { error: 'Tool call failed', fallback: 'No data available' }
