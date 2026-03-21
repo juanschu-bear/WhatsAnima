@@ -155,16 +155,6 @@ function pickAvatarParticipant(participants: any[]) {
   return visibleRemotes.find((participant) => getParticipantTrack(participant, 'video')) ?? visibleRemotes[0] ?? null
 }
 
-function isIOSInAppBrowserUnsupported() {
-  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false
-  const ua = String(navigator.userAgent || '')
-  const isIOS = /iPhone|iPad|iPod/i.test(ua)
-  if (!isIOS) return false
-  const inAppTokens = /FBAN|FBAV|Instagram|Line|WhatsApp/i.test(ua)
-  const hasWebkitNoMediaDevices = Boolean((window as any).webkit) && !(navigator as any).mediaDevices
-  return inAppTokens || hasWebkitNoMediaDevices
-}
-
 const DAILY_IFRAME_ALLOW = 'camera; microphone; fullscreen; display-capture'
 
 function enforceDailyIframePermissions() {
@@ -179,6 +169,8 @@ function enforceDailyIframePermissions() {
 }
 
 export default function VideoCall() {
+  const isInAppBrowser = /FBAN|FBAV|Instagram|Line|WhatsApp|Twitter|Snapchat/i.test(navigator.userAgent)
+
   const navigate = useNavigate()
   const { conversationId } = useParams<{ conversationId: string }>()
   const [searchParams] = useSearchParams()
@@ -207,7 +199,6 @@ export default function VideoCall() {
   const [remoteParticipant, setRemoteParticipant] = useState<any>(null)
   const [meetingHostControl, setMeetingHostControl] = useState(false)
   const [meetingSelfName, setMeetingSelfName] = useState('')
-  const [unsupportedInAppBrowser, setUnsupportedInAppBrowser] = useState(false)
 
   const callObjectRef = useRef<ReturnType<typeof DailyIframe.createCallObject> | null>(null)
   const localVideoRef = useRef<HTMLVideoElement | null>(null)
@@ -216,8 +207,13 @@ export default function VideoCall() {
   const languageRef = useRef<SupportedLanguage>('en')
   const endingSessionRef = useRef(false)
   const hiddenTimeoutRef = useRef<number | null>(null)
+  const meetingAutoStartRef = useRef(false)
   const personaOverrideEnabled = searchParams.get('personaOverride') === '1'
   const meetingToken = String(searchParams.get('meeting_token') || '').trim()
+  const hasMeetingContext =
+    typeof window !== 'undefined' &&
+    Object.keys(window.sessionStorage || {}).some((key) => key.includes('wa_meeting_context'))
+  const shouldSkipLanguageSelection = Boolean(meetingToken) || hasMeetingContext
   const isMeetingMode = meetingToken.length > 0
   const forcedSessionId = String(searchParams.get('session_id') || '').trim()
 
@@ -228,10 +224,6 @@ export default function VideoCall() {
   useEffect(() => {
     languageRef.current = normalizeLanguageCode(language)
   }, [language])
-
-  useEffect(() => {
-    setUnsupportedInAppBrowser(isIOSInAppBrowserUnsupported())
-  }, [])
 
   async function notifySessionStart(nextSessionId: string, joinUrl: string, personaName: string, replicaId: string) {
     try {
@@ -478,6 +470,19 @@ export default function VideoCall() {
   }, [conversation?.wa_owners?.display_name, personaOverrideEnabled])
 
   useEffect(() => {
+    if (!shouldSkipLanguageSelection) return
+    if (isInAppBrowser) return
+    if (meetingAutoStartRef.current) return
+    if (loadingConversation || loadingPersonas || !conversation) return
+    if (phase !== 'setup' || error) return
+
+    meetingAutoStartRef.current = true
+    languageRef.current = 'en'
+    setLanguage('en')
+    void startCall()
+  }, [conversation, error, isInAppBrowser, loadingConversation, loadingPersonas, phase, shouldSkipLanguageSelection])
+
+  useEffect(() => {
     return () => {
       if (hiddenTimeoutRef.current) {
         window.clearTimeout(hiddenTimeoutRef.current)
@@ -626,7 +631,7 @@ export default function VideoCall() {
 
   async function startCall() {
     if (!conversation) return
-    if (unsupportedInAppBrowser) {
+    if (isInAppBrowser) {
       setPhase('error')
       setStatusText('Unsupported browser')
       setError('Please open this link in Safari for the best experience.')
@@ -900,14 +905,11 @@ export default function VideoCall() {
     )
   }
 
-  if (unsupportedInAppBrowser) {
+  if (isInAppBrowser) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#04080f] px-6 text-white">
         <div className="w-full max-w-lg rounded-3xl border border-amber-300/30 bg-amber-500/10 p-6 text-center">
-          <p className="text-xl font-semibold">Please open this link in Safari for the best experience</p>
-          <p className="mt-2 text-sm text-white/75">
-            This in-app browser does not fully support WebRTC camera/microphone calls.
-          </p>
+          <p className="text-xl font-semibold">This browser does not support video calls. Please open this link in Safari.</p>
           <button
             type="button"
             onClick={() => void navigator.clipboard.writeText(window.location.href)}
@@ -1062,7 +1064,7 @@ export default function VideoCall() {
                 </div>
               </div>
 
-              {phase === 'setup' ? (
+              {phase === 'setup' && !shouldSkipLanguageSelection ? (
                 <div className="absolute inset-x-0 bottom-24 flex justify-center px-3 sm:bottom-28 sm:px-4">
                   <div className="w-full max-w-xl rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(6,14,24,0.95),rgba(6,10,18,0.98))] p-4 shadow-[0_28px_90px_rgba(0,0,0,0.45)] backdrop-blur-2xl sm:rounded-[28px] sm:p-5">
                     <p className="text-xs uppercase tracking-[0.26em] text-white/45">
