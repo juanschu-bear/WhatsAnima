@@ -135,14 +135,95 @@ function getParticipantName(participant: any) {
     .find((value) => typeof value === 'string' && value.trim().length > 0) ?? ''
 }
 
+function getParticipantId(participant: any) {
+  return String(
+    participant?.session_id ||
+      participant?.user_id ||
+      participant?.participantId ||
+      participant?.id ||
+      getParticipantName(participant),
+  )
+    .trim()
+}
+
 function isPipecatParticipant(participant: any) {
   const userName = String(participant?.user_name || '').trim().toLowerCase()
   return userName === 'pipecat'
 }
 
-function pickAvatarParticipant(participants: any[]) {
-  const visibleRemotes = participants.filter((participant) => !participant?.local && !isPipecatParticipant(participant))
-  return visibleRemotes.find((participant) => getParticipantTrack(participant, 'video')) ?? visibleRemotes[0] ?? null
+function sortParticipants(participants: any[]) {
+  return [...participants].sort((a, b) => Number(Boolean(b?.local)) - Number(Boolean(a?.local)))
+}
+
+function getGridColumns(count: number) {
+  if (count <= 1) return 1
+  if (count === 2) return 2
+  if (count === 3) return 3
+  if (count === 4) return 2
+  if (count <= 6) return 3
+  if (count <= 9) return 3
+  return 4
+}
+
+function getThumbnailColumns(count: number) {
+  if (count <= 1) return 1
+  if (count === 2) return 2
+  if (count <= 4) return 2
+  if (count <= 6) return 3
+  if (count <= 9) return 3
+  return 4
+}
+
+function ParticipantTile({
+  participant,
+  isLocal,
+  isActive,
+  isCameraEnabled,
+}: {
+  participant: any
+  isLocal: boolean
+  isActive: boolean
+  isCameraEnabled: boolean
+}) {
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const hasVideoTrack = Boolean(getParticipantTrack(participant, 'video'))
+  const showVideo = hasVideoTrack && (!isLocal || isCameraEnabled)
+  const label = (isLocal ? 'You' : getParticipantName(participant)) || 'Guest'
+
+  useEffect(() => {
+    const stream = showVideo ? buildParticipantStream(participant, !isLocal) : null
+    attachStream(videoRef.current, stream, isLocal)
+  }, [participant, isLocal, showVideo])
+
+  return (
+    <div
+      className={`relative h-full w-full overflow-hidden rounded-[22px] border bg-black/30 shadow-[0_18px_60px_rgba(0,0,0,0.35)] ${
+        isActive ? 'border-[#70f0de]/70 ring-2 ring-[#70f0de]/30' : 'border-white/10'
+      }`}
+    >
+      {showVideo ? (
+        <video
+          ref={videoRef}
+          autoPlay
+          muted={isLocal}
+          playsInline
+          className="h-full w-full object-cover"
+          style={isLocal ? { transform: 'scaleX(-1)' } : undefined}
+        />
+      ) : (
+        <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.08),transparent_45%),linear-gradient(180deg,rgba(14,19,30,0.98),rgba(7,10,18,0.98))] px-4 text-center">
+          <div className="text-sm font-semibold text-white/85">{label}</div>
+          <div className="text-xs text-white/55">{isLocal ? 'Camera off' : 'Video off'}</div>
+        </div>
+      )}
+      <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/72 to-transparent px-3 py-2 text-[11px] text-white/80">
+        <span className="truncate">{label}</span>
+        {isActive ? (
+          <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#70f0de]">Live</span>
+        ) : null}
+      </div>
+    </div>
+  )
 }
 
 export default function VideoCall() {
@@ -170,14 +251,12 @@ export default function VideoCall() {
   const [recordingUrl, setRecordingUrl] = useState<string | null>(null)
   const [recordingError, setRecordingError] = useState<string | null>(null)
   const [joinUrl, setJoinUrl] = useState<string | null>(null)
-  const [localParticipant, setLocalParticipant] = useState<any>(null)
-  const [remoteParticipant, setRemoteParticipant] = useState<any>(null)
+  const [participants, setParticipants] = useState<any[]>([])
+  const [activeSpeakerId, setActiveSpeakerId] = useState<string | null>(null)
   const [meetingHostControl, setMeetingHostControl] = useState(false)
   const [meetingSelfName, setMeetingSelfName] = useState('')
 
   const callObjectRef = useRef<ReturnType<typeof DailyIframe.createCallObject> | null>(null)
-  const localVideoRef = useRef<HTMLVideoElement | null>(null)
-  const remoteVideoRef = useRef<HTMLVideoElement | null>(null)
   const sessionIdRef = useRef<string | null>(null)
   const languageRef = useRef<SupportedLanguage>('en')
   const endingSessionRef = useRef(false)
@@ -473,15 +552,29 @@ export default function VideoCall() {
     }
   }, [])
 
-  useEffect(() => {
-    const localStream = buildParticipantStream(localParticipant, false)
-    attachStream(localVideoRef.current, localStream, true)
-  }, [localParticipant])
+  const visibleParticipants = sortParticipants(participants).filter((participant) => !isPipecatParticipant(participant))
+  const activeSpeakerParticipant =
+    visibleParticipants.find((participant) => getParticipantId(participant) === activeSpeakerId) ??
+    visibleParticipants.find((participant) => getParticipantTrack(participant, 'video')) ??
+    visibleParticipants[0] ??
+    null
+  const thumbnailParticipants = activeSpeakerParticipant
+    ? visibleParticipants.filter((participant) => participant !== activeSpeakerParticipant)
+    : []
 
   useEffect(() => {
-    const remoteStream = buildParticipantStream(remoteParticipant, true)
-    attachStream(remoteVideoRef.current, remoteStream, false)
-  }, [remoteParticipant])
+    const total = participants.length
+    const visible = visibleParticipants.length
+    const hidden = total - visible
+    console.log('[GRID-DEBUG] total participants:', total, 'visible:', visible, 'hidden:', hidden)
+    console.log('[GRID-DEBUG] rendered participants:', visibleParticipants.map((participant) => ({
+      id: getParticipantId(participant),
+      name: getParticipantName(participant),
+      local: Boolean(participant?.local),
+      hasVideo: Boolean(getParticipantTrack(participant, 'video')),
+      hiddenBot: isPipecatParticipant(participant),
+    })))
+  }, [participants, visibleParticipants])
 
   useEffect(() => {
     const handleBeforeUnload = () => {
@@ -558,21 +651,18 @@ export default function VideoCall() {
         hiddenByFilter,
       })
     }
-    const local = participants.find((participant) => participant?.local) ?? null
-    const remote = pickAvatarParticipant(participants)
-
-    setLocalParticipant(local)
-    setRemoteParticipant(remote)
-    if (remote && getParticipantTrack(remote, 'video')) {
-      attachStream(remoteVideoRef.current, buildParticipantStream(remote, true), false)
-    }
-    setStatusText(remote && getParticipantTrack(remote, 'video') ? 'Connected' : 'Avatar joining...')
+    setParticipants(participants)
+    const visible = participants.filter((participant) => !isPipecatParticipant(participant))
+    const hasAvatarVideo = visible.some((participant) => Boolean(getParticipantTrack(participant, 'video')))
+    setStatusText(hasAvatarVideo ? 'Connected' : 'Avatar joining...')
     setPhase('connected')
     console.log('[VideoCall] syncParticipants', {
       eventName,
       sessionId,
-      local: local ? getParticipantName(local) : null,
-      avatar: remote ? getParticipantName(remote) : null,
+      local: participants.find((participant) => participant?.local)
+        ? getParticipantName(participants.find((participant) => participant?.local))
+        : null,
+      avatar: visible[0] ? getParticipantName(visible[0]) : null,
       participants: participants.map((participant) => ({
         name: getParticipantName(participant),
         local: Boolean(participant?.local),
@@ -651,8 +741,8 @@ export default function VideoCall() {
 
     setError(null)
     setSessionId(null)
-    setRemoteParticipant(null)
-    setLocalParticipant(null)
+    setParticipants([])
+    setActiveSpeakerId(null)
     setPhase('starting')
     setStatusText(isMeetingGuest ? 'Joining live meeting...' : 'Connecting...')
 
@@ -745,9 +835,6 @@ export default function VideoCall() {
       const handleParticipantChange = (eventName: string, event?: any) => {
         logEvent(eventName, event)
         syncParticipants(callObject, eventName)
-        if (event?.participant && !event.participant?.local && !isPipecatParticipant(event.participant) && getParticipantTrack(event.participant, 'video')) {
-          attachStream(remoteVideoRef.current, buildParticipantStream(event.participant, true), false)
-        }
       }
 
       callObject.on('joined-meeting', (event: any) => handleParticipantChange('joined-meeting', event))
@@ -767,7 +854,11 @@ export default function VideoCall() {
       })
       callObject.on('track-started', (event: any) => handleParticipantChange('track-started', event))
       callObject.on('track-stopped', (event: any) => handleParticipantChange('track-stopped', event))
-      callObject.on('active-speaker-change', (event: any) => logEvent('active-speaker-change', event))
+      callObject.on('active-speaker-change', (event: any) => {
+        logEvent('active-speaker-change', event)
+        const nextActive = event?.activeSpeaker ? getParticipantId(event.activeSpeaker) : null
+        setActiveSpeakerId(nextActive || null)
+      })
       callObject.on('camera-error', (event: any) => {
         logEvent('camera-error', event)
         setError('Camera access was blocked. Enable camera permissions and retry.')
@@ -897,9 +988,9 @@ export default function VideoCall() {
   const personaName = personaOverrideEnabled ? selectedPersona : owner.display_name || selectedPersona
   const replicaId = owner.tavus_replica_id?.trim() || FALLBACK_REPLICA_ID
   const selectedPersonaDetails = personas.find((persona) => persona.name === selectedPersona) ?? null
-  const showRemoteVideo = Boolean(remoteParticipant && getParticipantTrack(remoteParticipant, 'video'))
-  const showLocalVideo = Boolean(localParticipant && getParticipantTrack(localParticipant, 'video') && isCameraEnabled)
   const selectedLanguage = LANGUAGES.find((item) => item.code === language)
+  const sideBySideColumns = getGridColumns(visibleParticipants.length)
+  const thumbnailColumns = getThumbnailColumns(thumbnailParticipants.length)
 
   return (
     <div className="relative h-[100dvh] min-h-[100dvh] overflow-hidden bg-[radial-gradient(circle_at_top,rgba(0,195,170,0.16),transparent_30%),radial-gradient(circle_at_85%_20%,rgba(53,127,255,0.16),transparent_24%),linear-gradient(180deg,#03060b_0%,#07111a_48%,#02050a_100%)] text-white supports-[-webkit-touch-callout:none]:min-h-[-webkit-fill-available]">
@@ -941,20 +1032,9 @@ export default function VideoCall() {
 
             <div className="relative flex h-full w-full items-center justify-center">
               <div className="relative h-full w-full">
-                <div
-                  className={`absolute inset-0 overflow-hidden bg-black/20 transition-all duration-300 ${
-                    callReady && viewMode === 'side-by-side' ? 'right-1/2 border-r border-white/10' : 'right-0'
-                  }`}
-                >
-                  {showRemoteVideo ? (
-                    <video
-                      ref={remoteVideoRef}
-                      autoPlay
-                      playsInline
-                      className="h-full w-full object-cover transition-opacity duration-500"
-                    />
-                  ) : (
-                    <div className="flex h-full w-full max-w-md flex-col items-center justify-center px-6 text-center">
+                <div className="absolute inset-0">
+                  {visibleParticipants.length === 0 ? (
+                    <div className="flex h-full w-full flex-col items-center justify-center px-6 text-center">
                       <div className="relative">
                         <img
                           src={resolveAvatarUrl(personaName)}
@@ -972,39 +1052,52 @@ export default function VideoCall() {
                           : statusText}
                       </p>
                     </div>
-                  )}
-                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-4 py-3 text-sm font-semibold text-white/88">
-                    {personaName}
-                  </div>
-                </div>
-
-                <div
-                  className={`absolute overflow-hidden bg-[linear-gradient(180deg,rgba(22,31,45,0.95),rgba(10,16,27,0.98))] transition-all duration-300 ${
-                    callReady && viewMode === 'side-by-side'
-                      ? 'inset-y-0 right-0 w-1/2 rounded-none border-l border-white/10'
-                      : 'bottom-4 left-4 h-32 w-[5.5rem] rounded-[22px] border border-white/12 shadow-[0_18px_60px_rgba(0,0,0,0.35)] sm:bottom-5 sm:left-5 sm:h-44 sm:w-32 sm:rounded-[24px]'
-                  }`}
-                >
-                  {showLocalVideo ? (
-                    <video
-                      ref={localVideoRef}
-                      autoPlay
-                      muted
-                      playsInline
-                      className="h-full w-full object-cover"
-                      style={{ transform: 'scaleX(-1)' }}
-                    />
+                  ) : viewMode === 'speaker' ? (
+                    <div className="flex h-full w-full flex-col gap-3 p-3 sm:gap-4 sm:p-4">
+                      <div className="min-h-0 flex-1">
+                        {activeSpeakerParticipant ? (
+                          <ParticipantTile
+                            participant={activeSpeakerParticipant}
+                            isLocal={Boolean(activeSpeakerParticipant?.local)}
+                            isActive
+                            isCameraEnabled={isCameraEnabled}
+                          />
+                        ) : null}
+                      </div>
+                      {thumbnailParticipants.length > 0 ? (
+                        <div
+                          className="grid gap-3"
+                          style={{ gridTemplateColumns: `repeat(${thumbnailColumns}, minmax(0, 1fr))` }}
+                        >
+                          {thumbnailParticipants.map((participant, index) => (
+                            <div key={getParticipantId(participant) || `thumb-${index}`} className="h-32 sm:h-36">
+                              <ParticipantTile
+                                participant={participant}
+                                isLocal={Boolean(participant?.local)}
+                                isActive={false}
+                                isCameraEnabled={isCameraEnabled}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
                   ) : (
-                    <div className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.08),transparent_45%),linear-gradient(180deg,rgba(14,19,30,0.98),rgba(7,10,18,0.98))] px-3 text-center text-xs text-white/50">
-                      Camera off
+                    <div
+                      className="grid h-full w-full gap-3 p-3 sm:gap-4 sm:p-4"
+                      style={{ gridTemplateColumns: `repeat(${sideBySideColumns}, minmax(0, 1fr))` }}
+                    >
+                      {visibleParticipants.map((participant, index) => (
+                        <ParticipantTile
+                          key={getParticipantId(participant) || `grid-${index}`}
+                          participant={participant}
+                          isLocal={Boolean(participant?.local)}
+                          isActive={getParticipantId(participant) === activeSpeakerId}
+                          isCameraEnabled={isCameraEnabled}
+                        />
+                      ))}
                     </div>
                   )}
-                  <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/72 to-transparent px-3 py-2 text-[11px] text-white/80">
-                    <span>You</span>
-                    {callReady && viewMode === 'speaker' ? (
-                      <span className={`h-2.5 w-2.5 rounded-full ${isMicEnabled ? 'bg-[#70f0de]' : 'bg-red-400'}`} />
-                    ) : null}
-                  </div>
                 </div>
               </div>
 
