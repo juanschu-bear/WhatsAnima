@@ -155,22 +155,7 @@ function pickAvatarParticipant(participants: any[]) {
   return visibleRemotes.find((participant) => getParticipantTrack(participant, 'video')) ?? visibleRemotes[0] ?? null
 }
 
-const DAILY_IFRAME_ALLOW = 'camera; microphone; fullscreen; display-capture'
-
-function enforceDailyIframePermissions() {
-  if (typeof document === 'undefined') return
-  const iframes = Array.from(document.querySelectorAll('iframe'))
-  for (const iframe of iframes) {
-    const src = String(iframe.getAttribute('src') || '')
-    const title = String(iframe.getAttribute('title') || '')
-    if (!src.includes('daily.co') && !title.toLowerCase().includes('daily')) continue
-    iframe.setAttribute('allow', DAILY_IFRAME_ALLOW)
-  }
-}
-
 export default function VideoCall() {
-  const isInAppBrowser = /FBAN|FBAV|Instagram|Line|WhatsApp|Twitter|Snapchat/i.test(navigator.userAgent)
-
   const navigate = useNavigate()
   const { conversationId } = useParams<{ conversationId: string }>()
   const [searchParams] = useSearchParams()
@@ -471,7 +456,6 @@ export default function VideoCall() {
 
   useEffect(() => {
     if (!shouldSkipLanguageSelection) return
-    if (isInAppBrowser) return
     if (meetingAutoStartRef.current) return
     if (loadingConversation || loadingPersonas || !conversation) return
     if (phase !== 'setup' || error) return
@@ -480,7 +464,7 @@ export default function VideoCall() {
     languageRef.current = 'en'
     setLanguage('en')
     void startCall()
-  }, [conversation, error, isInAppBrowser, loadingConversation, loadingPersonas, phase, shouldSkipLanguageSelection])
+  }, [conversation, error, loadingConversation, loadingPersonas, phase, shouldSkipLanguageSelection])
 
   useEffect(() => {
     return () => {
@@ -631,12 +615,6 @@ export default function VideoCall() {
 
   async function startCall() {
     if (!conversation) return
-    if (isInAppBrowser) {
-      setPhase('error')
-      setStatusText('Unsupported browser')
-      setError('Please open this link in Safari for the best experience.')
-      return
-    }
     const resolvedConversationId = resolveConversationId(conversationId, conversation)
     if (!resolvedConversationId) {
       setPhase('error')
@@ -676,7 +654,6 @@ export default function VideoCall() {
     setLocalParticipant(null)
     setPhase('starting')
     setStatusText('Connecting...')
-    let permissionInterval: number | null = null
 
     try {
       const languageCode = normalizeLanguageCode(languageRef.current)
@@ -798,21 +775,11 @@ export default function VideoCall() {
         setPhase('error')
       })
 
-      enforceDailyIframePermissions()
-      permissionInterval = window.setInterval(() => {
-        enforceDailyIframePermissions()
-      }, 500)
       await callObject.join({ url: payload.join_url, userName: dailyUserName })
-      if (permissionInterval) window.clearInterval(permissionInterval)
-      permissionInterval = null
-      enforceDailyIframePermissions()
       await callObject.setLocalAudio(isMicEnabled)
       await callObject.setLocalVideo(isCameraEnabled)
       syncParticipants(callObject, 'post-join')
     } catch (startError) {
-      if (permissionInterval) {
-        window.clearInterval(permissionInterval)
-      }
       const failedCall = callObjectRef.current
       callObjectRef.current = null
       if (failedCall) {
@@ -901,23 +868,6 @@ export default function VideoCall() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#04080f] text-white">
         <div className="h-10 w-10 animate-spin rounded-full border-4 border-white/10 border-t-[#70f0de]" />
-      </div>
-    )
-  }
-
-  if (isInAppBrowser) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#04080f] px-6 text-white">
-        <div className="w-full max-w-lg rounded-3xl border border-amber-300/30 bg-amber-500/10 p-6 text-center">
-          <p className="text-xl font-semibold">This browser does not support video calls. Please open this link in Safari.</p>
-          <button
-            type="button"
-            onClick={() => void navigator.clipboard.writeText(window.location.href)}
-            className="mt-5 rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/15"
-          >
-            Copy Link
-          </button>
-        </div>
       </div>
     )
   }
