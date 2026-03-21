@@ -126,7 +126,9 @@ function getParticipantName(participant: any) {
     participant?.user_name,
     participant?.user_name?.trim?.(),
     participant?.userData?.name,
+    participant?.userData?.userName,
     participant?.info?.name,
+    participant?.info?.userName,
     participant?.name,
     participant?.session_id,
   ]
@@ -134,13 +136,33 @@ function getParticipantName(participant: any) {
 }
 
 function isPipecatParticipant(participant: any) {
-  const name = getParticipantName(participant).toLowerCase()
-  return name.includes('pipecat') || name.includes('bot')
+  const candidates = [
+    participant?.user_name,
+    participant?.userData?.name,
+    participant?.userData?.userName,
+    participant?.info?.name,
+    participant?.info?.userName,
+    participant?.name,
+    getParticipantName(participant),
+  ]
+    .map((value) => String(value || '').toLowerCase())
+    .filter(Boolean)
+  return candidates.some((value) => value.includes('pipecat') || value.includes('bot'))
 }
 
 function pickAvatarParticipant(participants: any[]) {
   const visibleRemotes = participants.filter((participant) => !participant?.local && !isPipecatParticipant(participant))
   return visibleRemotes.find((participant) => getParticipantTrack(participant, 'video')) ?? visibleRemotes[0] ?? null
+}
+
+function isIOSInAppBrowserUnsupported() {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false
+  const ua = String(navigator.userAgent || '')
+  const isIOS = /iPhone|iPad|iPod/i.test(ua)
+  if (!isIOS) return false
+  const inAppTokens = /FBAN|FBAV|Instagram|Line|WhatsApp/i.test(ua)
+  const hasWebkitNoMediaDevices = Boolean((window as any).webkit) && !(navigator as any).mediaDevices
+  return inAppTokens || hasWebkitNoMediaDevices
 }
 
 const DAILY_IFRAME_ALLOW = 'camera; microphone; fullscreen; display-capture'
@@ -184,6 +206,8 @@ export default function VideoCall() {
   const [localParticipant, setLocalParticipant] = useState<any>(null)
   const [remoteParticipant, setRemoteParticipant] = useState<any>(null)
   const [meetingHostControl, setMeetingHostControl] = useState(false)
+  const [meetingSelfName, setMeetingSelfName] = useState('')
+  const [unsupportedInAppBrowser, setUnsupportedInAppBrowser] = useState(false)
 
   const callObjectRef = useRef<ReturnType<typeof DailyIframe.createCallObject> | null>(null)
   const localVideoRef = useRef<HTMLVideoElement | null>(null)
@@ -195,6 +219,7 @@ export default function VideoCall() {
   const personaOverrideEnabled = searchParams.get('personaOverride') === '1'
   const meetingToken = String(searchParams.get('meeting_token') || '').trim()
   const isMeetingMode = meetingToken.length > 0
+  const forcedSessionId = String(searchParams.get('session_id') || '').trim()
 
   useEffect(() => {
     sessionIdRef.current = sessionId
@@ -203,6 +228,10 @@ export default function VideoCall() {
   useEffect(() => {
     languageRef.current = normalizeLanguageCode(language)
   }, [language])
+
+  useEffect(() => {
+    setUnsupportedInAppBrowser(isIOSInAppBrowserUnsupported())
+  }, [])
 
   async function notifySessionStart(nextSessionId: string, joinUrl: string, personaName: string, replicaId: string) {
     try {
@@ -299,6 +328,7 @@ export default function VideoCall() {
             if (!parsed || cancelled) return
             const selfRole = String(parsed.self?.role || '').trim().toLowerCase()
             setMeetingHostControl(selfRole === 'host' || selfRole === 'organizer')
+            setMeetingSelfName(String(parsed.self?.name || '').trim())
             const ownerId = String(parsed.owner?.id || '').trim() || 'meeting-owner'
             const syntheticConversationId = conversationId || `meeting-${meetingToken}`
             setConversation({
@@ -345,6 +375,7 @@ export default function VideoCall() {
         }
         const selfRole = String(parsed.self?.role || '').trim().toLowerCase()
         setMeetingHostControl(selfRole === 'host' || selfRole === 'organizer')
+        setMeetingSelfName(String(parsed.self?.name || '').trim())
         const ownerId = String(parsed.owner?.id || '').trim() || 'meeting-owner'
         const syntheticConversationId = conversationId || `meeting-${meetingToken}`
         setConversation({
@@ -595,6 +626,12 @@ export default function VideoCall() {
 
   async function startCall() {
     if (!conversation) return
+    if (unsupportedInAppBrowser) {
+      setPhase('error')
+      setStatusText('Unsupported browser')
+      setError('Please open this link in Safari for the best experience.')
+      return
+    }
     const resolvedConversationId = resolveConversationId(conversationId, conversation)
     if (!resolvedConversationId) {
       setPhase('error')
@@ -639,6 +676,11 @@ export default function VideoCall() {
     try {
       const languageCode = normalizeLanguageCode(languageRef.current)
       const isUnlimitedDurationUser = UNLIMITED_DURATION_EMAILS.has(String(user?.email || '').toLowerCase())
+      const dailyUserName = (
+        isMeetingMode
+          ? (meetingSelfName || owner.display_name || personaName)
+          : (owner.display_name || personaName)
+      ).trim() || 'WhatsAnima User'
       const requestBody = {
         persona_name: personaName,
         persona: personaName,
@@ -678,6 +720,10 @@ export default function VideoCall() {
 
       if (!payload.join_url || !payload.session_id) {
         throw new Error('Backend did not return a join URL.')
+      }
+
+      if (forcedSessionId && payload.session_id && payload.session_id !== forcedSessionId) {
+        console.warn('[VideoCall] forced session mismatch', { forcedSessionId, returned: payload.session_id })
       }
 
       setSessionId(payload.session_id)
@@ -751,7 +797,7 @@ export default function VideoCall() {
       permissionInterval = window.setInterval(() => {
         enforceDailyIframePermissions()
       }, 500)
-      await callObject.join({ url: payload.join_url })
+      await callObject.join({ url: payload.join_url, userName: dailyUserName })
       if (permissionInterval) window.clearInterval(permissionInterval)
       permissionInterval = null
       enforceDailyIframePermissions()
@@ -850,6 +896,26 @@ export default function VideoCall() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#04080f] text-white">
         <div className="h-10 w-10 animate-spin rounded-full border-4 border-white/10 border-t-[#70f0de]" />
+      </div>
+    )
+  }
+
+  if (unsupportedInAppBrowser) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#04080f] px-6 text-white">
+        <div className="w-full max-w-lg rounded-3xl border border-amber-300/30 bg-amber-500/10 p-6 text-center">
+          <p className="text-xl font-semibold">Please open this link in Safari for the best experience</p>
+          <p className="mt-2 text-sm text-white/75">
+            This in-app browser does not fully support WebRTC camera/microphone calls.
+          </p>
+          <button
+            type="button"
+            onClick={() => void navigator.clipboard.writeText(window.location.href)}
+            className="mt-5 rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/15"
+          >
+            Copy Link
+          </button>
+        </div>
       </div>
     )
   }

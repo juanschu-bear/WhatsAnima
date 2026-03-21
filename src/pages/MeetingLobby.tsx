@@ -17,6 +17,16 @@ type MeetingContext = {
   live_session_id?: string | null
 }
 
+function isIOSInAppBrowserUnsupported() {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false
+  const ua = String(navigator.userAgent || '')
+  const isIOS = /iPhone|iPad|iPod/i.test(ua)
+  if (!isIOS) return false
+  const inAppTokens = /FBAN|FBAV|Instagram|Line|WhatsApp/i.test(ua)
+  const hasWebkitNoMediaDevices = Boolean((window as any).webkit) && !(navigator as any).mediaDevices
+  return inAppTokens || hasWebkitNoMediaDevices
+}
+
 export default function MeetingLobby() {
   const navigate = useNavigate()
   const { token } = useParams<{ token: string }>()
@@ -29,8 +39,10 @@ export default function MeetingLobby() {
   const [meeting, setMeeting] = useState<MeetingContext | null>(null)
   const [waitingForHost, setWaitingForHost] = useState(false)
   const [guestIdentity, setGuestIdentity] = useState<{ name: string; role: string } | null>(null)
+  const [unsupportedInAppBrowser, setUnsupportedInAppBrowser] = useState(false)
 
   useEffect(() => {
+    setUnsupportedInAppBrowser(isIOSInAppBrowserUnsupported())
     const enforceIframeAllow = () => {
       const iframes = Array.from(document.querySelectorAll('iframe'))
       for (const iframe of iframes) {
@@ -116,6 +128,10 @@ export default function MeetingLobby() {
 
   async function handleJoin(event: FormEvent) {
     event.preventDefault()
+    if (unsupportedInAppBrowser) {
+      setError('Please open this link in Safari for the best experience.')
+      return
+    }
     if (!meetingToken || !name.trim()) {
       setError('Please enter your name.')
       return
@@ -172,6 +188,20 @@ export default function MeetingLobby() {
           {loading ? (
             <div className="flex min-h-[220px] items-center justify-center">
               <div className="h-10 w-10 animate-spin rounded-full border-4 border-white/10 border-t-[#00a884]" />
+            </div>
+          ) : unsupportedInAppBrowser ? (
+            <div className="rounded-2xl border border-amber-300/30 bg-amber-500/10 px-4 py-4 text-sm text-amber-50">
+              <p className="font-semibold">Please open this link in Safari for the best experience</p>
+              <p className="mt-1 text-amber-100/85">
+                This in-app browser does not fully support WebRTC camera/microphone calls.
+              </p>
+              <button
+                type="button"
+                onClick={() => void navigator.clipboard.writeText(window.location.href)}
+                className="mt-3 rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-xs font-medium text-white transition hover:bg-white/15"
+              >
+                Copy Link
+              </button>
             </div>
           ) : error ? (
             <div className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">{error}</div>
