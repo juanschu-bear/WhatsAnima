@@ -274,7 +274,7 @@ export default function MeetingHost() {
         if (!response.ok) throw new Error(payload.detail || payload.error || 'Unable to start live meeting')
         const nextJoinUrl = String(payload.join_url || '').trim()
         const nextSessionId = String(payload.session_id || '').trim()
-        if (!nextJoinUrl) throw new Error('Live join URL missing from session start')
+        if (!nextJoinUrl || !nextSessionId) throw new Error('Live session info missing from session start')
 
         setSession((current) => current ? {
           ...current,
@@ -283,7 +283,10 @@ export default function MeetingHost() {
           live_started_at: new Date().toISOString(),
         } as MeetingSession : current)
 
-        window.location.assign(nextJoinUrl)
+        navigate(
+          `/video-call?session_id=${encodeURIComponent(nextSessionId)}&meeting_token=${encodeURIComponent(session.token)}`,
+          { replace: true },
+        )
       })
       .catch((startError) => {
         setError(startError instanceof Error ? startError.message : 'Unable to start live call')

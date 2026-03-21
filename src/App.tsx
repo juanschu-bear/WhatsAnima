@@ -30,6 +30,7 @@ export default function App() {
           <Route path="/status" element={<Status />} />
           <Route path="/meeting/:token" element={<MeetingLobby />} />
           <Route path="/chat/:conversationId" element={<Chat />} />
+          <Route path="/video-call" element={<VideoCall />} />
           <Route path="/video-call/:conversationId" element={<VideoCall />} />
           <Route
             path="/avatars"

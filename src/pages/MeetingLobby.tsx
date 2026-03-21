@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { resolveAvatarUrl } from '../lib/avatars'
 
 type LobbyOwner = {
@@ -18,6 +18,7 @@ type MeetingContext = {
 }
 
 export default function MeetingLobby() {
+  const navigate = useNavigate()
   const { token } = useParams<{ token: string }>()
   const meetingToken = (token || '').trim()
   const [name, setName] = useState('')
@@ -26,6 +27,8 @@ export default function MeetingLobby() {
   const [joining, setJoining] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [meeting, setMeeting] = useState<MeetingContext | null>(null)
+  const [waitingForHost, setWaitingForHost] = useState(false)
+  const [guestIdentity, setGuestIdentity] = useState<{ name: string; role: string } | null>(null)
 
   useEffect(() => {
     const enforceIframeAllow = () => {
@@ -70,6 +73,44 @@ export default function MeetingLobby() {
     return () => { cancelled = true }
   }, [meetingToken])
 
+  useEffect(() => {
+    if (!waitingForHost || !meetingToken || !guestIdentity) return
+    let cancelled = false
+    const poll = async () => {
+      try {
+        const response = await fetch(`/api/meeting-join?token=${encodeURIComponent(meetingToken)}`)
+        const payload = await response.json() as { error?: string; meeting_context?: MeetingContext }
+        if (!response.ok) throw new Error(payload.error || 'Unable to refresh meeting status')
+        if (cancelled || !payload.meeting_context) return
+        setMeeting(payload.meeting_context)
+        const liveJoinUrl = String(payload.meeting_context.live_join_url || '').trim()
+        const liveSessionId = String(payload.meeting_context.live_session_id || '').trim()
+        if (liveJoinUrl && liveSessionId) {
+          sessionStorage.setItem(`wa_meeting_context:${meetingToken}`, JSON.stringify({
+            ...payload.meeting_context,
+            self: guestIdentity,
+          }))
+          navigate(
+            `/video-call?session_id=${encodeURIComponent(liveSessionId)}&meeting_token=${encodeURIComponent(meetingToken)}`,
+            { replace: true },
+          )
+        }
+      } catch (pollError) {
+        if (!cancelled) {
+          setError(pollError instanceof Error ? pollError.message : 'Unable to refresh meeting status')
+        }
+      }
+    }
+    void poll()
+    const interval = window.setInterval(() => {
+      void poll()
+    }, 3000)
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+    }
+  }, [guestIdentity, meetingToken, navigate, waitingForHost])
+
   const avatarName = meeting?.owner?.display_name?.trim() || 'Avatar'
   const avatarImage = useMemo(() => resolveAvatarUrl(avatarName), [avatarName])
 
@@ -82,6 +123,7 @@ export default function MeetingLobby() {
 
     setJoining(true)
     setError(null)
+    setWaitingForHost(false)
     try {
       const response = await fetch('/api/meeting-join', {
         method: 'POST',
@@ -96,17 +138,22 @@ export default function MeetingLobby() {
       if (!response.ok) throw new Error(payload.error || 'Unable to join meeting')
 
       if (payload.meeting_context) {
+        const identity = { name: name.trim(), role: role.trim() || 'Participant' }
+        setGuestIdentity(identity)
         sessionStorage.setItem(`wa_meeting_context:${meetingToken}`, JSON.stringify({
           ...payload.meeting_context,
-          self: { name: name.trim(), role: role.trim() || 'Participant' },
+          self: identity,
         }))
-        const liveJoinUrl = String(payload.meeting_context.live_join_url || '').trim()
-        if (liveJoinUrl) {
-          window.location.assign(liveJoinUrl)
+        const liveSessionId = String(payload.meeting_context.live_session_id || '').trim()
+        if (liveSessionId) {
+          navigate(
+            `/video-call?session_id=${encodeURIComponent(liveSessionId)}&meeting_token=${encodeURIComponent(meetingToken)}`,
+            { replace: true },
+          )
           return
         }
       }
-      setError('Meeting is not live yet. Please wait for the host to start the live call.')
+      setWaitingForHost(true)
     } catch (joinError) {
       setError(joinError instanceof Error ? joinError.message : 'Unable to join meeting')
     } finally {
@@ -162,12 +209,18 @@ export default function MeetingLobby() {
                 </label>
                 <button
                   type="submit"
-                  disabled={joining}
+                  disabled={joining || waitingForHost}
                   className="pointer-events-auto w-full rounded-2xl bg-[#00a884] px-4 py-3 text-sm font-semibold text-[#08111a] transition hover:brightness-110 disabled:opacity-70"
                 >
-                  {joining ? 'Joining...' : 'Join Live Meeting'}
+                  {joining ? 'Joining...' : waitingForHost ? 'Waiting for host...' : 'Join Live Meeting'}
                 </button>
               </form>
+              {waitingForHost ? (
+                <div className="mt-4 flex items-center gap-3 rounded-2xl border border-[#00a884]/35 bg-[#00a884]/12 px-4 py-3 text-sm text-[#a9f7e8]">
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-[#9af8ea]/40 border-t-[#9af8ea]" />
+                  <span>Waiting for host to start...</span>
+                </div>
+              ) : null}
             </>
           )}
         </div>
