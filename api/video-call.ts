@@ -285,20 +285,16 @@ export default async function handler(req: any, res: any) {
 
       const liveSessionId = String(meeting.live_session_id || '').trim()
       const liveJoinUrl = String(meeting.live_join_url || '').trim()
-      if (liveSessionId && liveJoinUrl) {
-        const { data: existingLive } = await supabase
-          .from('wa_tavus_sessions')
-          .select('session_id, status, ended_at')
-          .eq('session_id', liveSessionId)
-          .maybeSingle()
-        const isActive = Boolean(existingLive?.session_id) && !existingLive?.ended_at && String(existingLive?.status || 'started') !== 'ended'
-        if (isActive) {
-          activeMeetingRoom = { sessionId: liveSessionId, joinUrl: liveJoinUrl }
-          console.log('[video-call] reusing_meeting_room', {
-            meetingToken,
-            sessionId: liveSessionId,
-          })
+      if (liveJoinUrl) {
+        activeMeetingRoom = {
+          sessionId: liveSessionId || meeting.id,
+          joinUrl: liveJoinUrl,
         }
+        console.log('[video-call] meeting_session_reuse', {
+          meetingToken,
+          sessionId: liveSessionId || meeting.id,
+          hasJoinUrl: true,
+        })
       }
 
       const participants = normalizeMeetingParticipants(meeting.participants)
@@ -341,6 +337,13 @@ export default async function handler(req: any, res: any) {
         join_url: activeMeetingRoom.joinUrl,
         status: 'ready',
         meeting_shared_room: true,
+      })
+    }
+
+    if (meetingToken) {
+      console.log('[video-call] meeting_session_create_new', {
+        meetingToken,
+        reason: 'live_join_url_missing',
       })
     }
 
