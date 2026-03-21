@@ -136,18 +136,8 @@ function getParticipantName(participant: any) {
 }
 
 function isPipecatParticipant(participant: any) {
-  const candidates = [
-    participant?.user_name,
-    participant?.userData?.name,
-    participant?.userData?.userName,
-    participant?.info?.name,
-    participant?.info?.userName,
-    participant?.name,
-    getParticipantName(participant),
-  ]
-    .map((value) => String(value || '').toLowerCase())
-    .filter(Boolean)
-  return candidates.some((value) => value.includes('pipecat') || value.includes('bot'))
+  const userName = String(participant?.user_name || '').trim().toLowerCase()
+  return userName === 'pipecat'
 }
 
 function pickAvatarParticipant(participants: any[]) {
@@ -557,6 +547,16 @@ export default function VideoCall() {
 
   function syncParticipants(callObject: ReturnType<typeof DailyIframe.createCallObject>, eventName?: string) {
     const participants = Object.values(callObject.participants() || {}) as any[]
+    for (const participant of participants) {
+      const hiddenByFilter = isPipecatParticipant(participant)
+      console.log('[PARTICIPANT-DEBUG]', {
+        eventName: eventName || 'sync',
+        user_id: participant?.user_id ?? null,
+        user_name: participant?.user_name ?? null,
+        session_id: participant?.session_id ?? null,
+        hiddenByFilter,
+      })
+    }
     const local = participants.find((participant) => participant?.local) ?? null
     const remote = pickAvatarParticipant(participants)
 
