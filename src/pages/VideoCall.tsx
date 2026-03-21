@@ -917,7 +917,7 @@ export default function VideoCall() {
           const realSessionId =
             sessionIdFromArgs && sessionIdFromArgs.toLowerCase() !== 'current'
               ? sessionIdFromArgs
-              : (sessionId || '')
+              : (sessionIdRef.current || '')
           const resolvedSessionId = realSessionId || sessionIdRef.current || payload.session_id || ''
           if (!resolvedSessionId) {
             throw new Error('Missing session_id for tool call')
