@@ -151,6 +151,69 @@ function isPipecatParticipant(participant: any) {
   return userName === 'pipecat'
 }
 
+type ToolCallPayload = {
+  name: string
+  args: Record<string, unknown>
+  conversationId?: string
+  eventType?: string
+  raw?: any
+}
+
+function parseToolArguments(rawArgs: unknown): Record<string, unknown> {
+  if (!rawArgs) return {}
+  if (typeof rawArgs === 'string') {
+    try {
+      const parsed = JSON.parse(rawArgs)
+      return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : {}
+    } catch {
+      return {}
+    }
+  }
+  if (typeof rawArgs === 'object') return rawArgs as Record<string, unknown>
+  return {}
+}
+
+function parseToolCallEvent(event: any): ToolCallPayload | null {
+  const raw = event?.data ?? event
+  const candidate = raw?.data && (raw.data.event_type || raw.data.eventType || raw.data.message_type || raw.data.messageType)
+    ? raw.data
+    : raw
+  const label = raw?.label ?? candidate?.label
+  const type = raw?.type ?? candidate?.type
+  const eventType = candidate?.event_type || candidate?.eventType || candidate?.event_type
+
+  if (label === 'rtvi-ai' && (type === 'tool-call' || type === 'function-call')) {
+    const name = candidate?.name || candidate?.tool_name || candidate?.function?.name || candidate?.function_name
+    const args = parseToolArguments(candidate?.arguments || candidate?.args || candidate?.function?.arguments)
+    if (typeof name === 'string' && name.trim()) {
+      return {
+        name: name.trim(),
+        args,
+        conversationId: candidate?.conversation_id || candidate?.conversationId,
+        eventType,
+        raw,
+      }
+    }
+  }
+
+  if (eventType === 'conversation.tool_call' || eventType === 'conversation.perception_tool_call') {
+    const props = candidate?.properties || {}
+    const name = props?.name || props?.tool_name || candidate?.name
+    const args = parseToolArguments(props?.arguments || candidate?.arguments || candidate?.args)
+    if (typeof name === 'string' && name.trim()) {
+      return {
+        name: name.trim(),
+        args,
+        conversationId: candidate?.conversation_id || candidate?.conversationId,
+        eventType,
+        raw,
+      }
+    }
+  }
+
+  return null
+}
+
 function sortParticipants(participants: any[]) {
   return [...participants].sort((a, b) => Number(Boolean(b?.local)) - Number(Boolean(a?.local)))
 }
@@ -836,8 +899,73 @@ export default function VideoCall() {
         logEvent(eventName, event)
         syncParticipants(callObject, eventName)
       }
+      const handleToolCallEvent = async (event: any) => {
+        const toolCall = parseToolCallEvent(event)
+        if (!toolCall) return
+
+        console.log('[TOOL-CALL] received', {
+          name: toolCall.name,
+          args: toolCall.args,
+          eventType: toolCall.eventType,
+          conversationId: toolCall.conversationId,
+        })
+
+        const args = toolCall.args as Record<string, any>
+        const fallbackResult = { error: 'Tool call failed', fallback: 'No data available' }
+        try {
+          const sessionIdFromArgs = String(args?.session_id || '').trim()
+          const resolvedSessionId = sessionIdFromArgs || sessionIdRef.current || payload.session_id || ''
+          if (!resolvedSessionId) {
+            throw new Error('Missing session_id for tool call')
+          }
+
+          let url = ''
+          if (toolCall.name === 'get_meeting_participants') {
+            url = `${LIVE_CALL_API_BASE}/api/tools/meeting-participants?session_id=${encodeURIComponent(resolvedSessionId)}`
+          } else if (toolCall.name === 'get_opm_perception') {
+            const speakerName = String(args?.speaker_name || args?.speakerName || '').trim()
+            const query = new URLSearchParams({
+              session_id: resolvedSessionId,
+              ...(speakerName ? { speaker_name: speakerName } : {}),
+            })
+            url = `${LIVE_CALL_API_BASE}/api/tools/opm-perception?${query.toString()}`
+          } else if (toolCall.name === 'get_session_context') {
+            url = `${LIVE_CALL_API_BASE}/api/tools/session-context?session_id=${encodeURIComponent(resolvedSessionId)}`
+          } else {
+            throw new Error(`Unknown tool name: ${toolCall.name}`)
+          }
+
+          const response = await fetch(url)
+          if (!response.ok) {
+            throw new Error(`Tool call failed (${response.status})`)
+          }
+          const result = await response.json()
+
+          const responsePayload: Record<string, unknown> = {
+            message_type: 'conversation',
+            event_type: 'conversation.respond',
+            properties: { text: JSON.stringify(result) },
+          }
+          if (toolCall.conversationId) responsePayload.conversation_id = toolCall.conversationId
+
+          callObject.sendAppMessage(responsePayload, '*')
+          console.log('[TOOL-CALL] response', { name: toolCall.name, result })
+        } catch (toolError) {
+          const responsePayload: Record<string, unknown> = {
+            message_type: 'conversation',
+            event_type: 'conversation.respond',
+            properties: { text: JSON.stringify(fallbackResult) },
+          }
+          if (toolCall.conversationId) responsePayload.conversation_id = toolCall.conversationId
+          callObject.sendAppMessage(responsePayload, '*')
+          console.log('[TOOL-CALL] response', { name: toolCall.name, result: fallbackResult, toolError })
+        }
+      }
 
       callObject.on('joined-meeting', (event: any) => handleParticipantChange('joined-meeting', event))
+      callObject.on('app-message', (event: any) => {
+        void handleToolCallEvent(event)
+      })
       callObject.on('left-meeting', (event: any) => {
         logEvent('left-meeting', event)
         if (!isMeetingMode || meetingHostControl) {
