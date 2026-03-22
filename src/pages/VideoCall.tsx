@@ -946,24 +946,73 @@ export default function VideoCall() {
           }
           const result = await response.json()
 
+          const conversationIdForEcho =
+            toolCall.conversationId ||
+            toolCall.raw?.conversation_id ||
+            toolCall.raw?.conversationId ||
+            toolCall.raw?.data?.conversation_id ||
+            toolCall.raw?.data?.conversationId ||
+            ''
+
+          const buildResultText = (toolName: string, payload: any) => {
+            if (toolName === 'get_meeting_participants') {
+              const participants = Array.isArray(payload?.participants) ? payload.participants : []
+              const names = participants.map((p: any) => String(p?.name || '').trim()).filter(Boolean)
+              if (names.length === 0) return 'It looks like no one else is in the call right now.'
+              if (names.length === 1) return `The person in this call is ${names[0]}.`
+              return `The people in this call are ${names.join(', ')}.`
+            }
+            if (toolName === 'get_opm_perception') {
+              const perception = String(payload?.perception || payload?.text || '').trim()
+              if (perception) return perception
+              return "I don't have any perception data available right now."
+            }
+            if (toolName === 'get_session_context') {
+              const durationSeconds = Number(payload?.duration_seconds || 0)
+              const minutes = Math.floor(durationSeconds / 60)
+              const seconds = durationSeconds % 60
+              const durationText =
+                minutes > 0 ? `${minutes} minute${minutes === 1 ? '' : 's'}` : `${seconds} second${seconds === 1 ? '' : 's'}`
+              return `We've been talking for about ${durationText} now.`
+            }
+            return 'Here is the information you requested.'
+          }
+
+          const resultText = buildResultText(toolCall.name, result)
+
           const responsePayload: Record<string, unknown> = {
             message_type: 'conversation',
-            event_type: 'conversation.respond',
-            properties: { text: JSON.stringify(result) },
+            event_type: 'conversation.echo',
+            conversation_id: conversationIdForEcho,
+            properties: {
+              modality: 'text',
+              text: resultText,
+              done: 'true',
+            },
           }
-          if (toolCall.conversationId) responsePayload.conversation_id = toolCall.conversationId
 
           callObject.sendAppMessage(responsePayload, '*')
-          console.log('[TOOL-CALL] response', { name: toolCall.name, result })
+          console.log('[TOOL-CALL] echo sent', { name: toolCall.name, text: resultText })
         } catch (toolError) {
+          const conversationIdForEcho =
+            toolCall.conversationId ||
+            toolCall.raw?.conversation_id ||
+            toolCall.raw?.conversationId ||
+            toolCall.raw?.data?.conversation_id ||
+            toolCall.raw?.data?.conversationId ||
+            ''
           const responsePayload: Record<string, unknown> = {
             message_type: 'conversation',
-            event_type: 'conversation.respond',
-            properties: { text: JSON.stringify(fallbackResult) },
+            event_type: 'conversation.echo',
+            conversation_id: conversationIdForEcho,
+            properties: {
+              modality: 'text',
+              text: 'Sorry, I could not fetch that information right now.',
+              done: 'true',
+            },
           }
-          if (toolCall.conversationId) responsePayload.conversation_id = toolCall.conversationId
           callObject.sendAppMessage(responsePayload, '*')
-          console.log('[TOOL-CALL] response', { name: toolCall.name, result: fallbackResult, toolError })
+          console.log('[TOOL-CALL] echo sent', { name: toolCall.name, result: fallbackResult, toolError })
         }
       }
 
