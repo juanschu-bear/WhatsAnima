@@ -451,6 +451,8 @@ export default function VideoCall() {
   const lastOpmContextRef = useRef<string | null>(null)
   const lastOpmContextAtRef = useRef<number>(0)
   const guardrailContextSentRef = useRef(false)
+  const joinedRef = useRef(false)
+  const toolCallCooldownRef = useRef<Record<string, number>>({})
   const endingSessionRef = useRef(false)
   const hiddenTimeoutRef = useRef<number | null>(null)
   const meetingAutoStartRef = useRef(false)
@@ -849,8 +851,8 @@ export default function VideoCall() {
       if (!conversationIdForContext) return
 
       try {
-        const conversationIdForContext = tavusConversationIdRef.current
-        if (!conversationIdForContext) return
+        const meetingState = typeof callObject.meetingState === 'function' ? callObject.meetingState() : null
+        if (!joinedRef.current || meetingState !== 'joined') return
 
         if (!guardrailContextSentRef.current) {
           const guardrailText =
@@ -1131,6 +1133,47 @@ export default function VideoCall() {
         const responseToUser = sanitizeResponseToUser(responseToUserRaw, normalizeLanguageCode(languageRef.current))
         const fallbackResult = { error: 'Tool call failed', fallback: 'No data available' }
         try {
+          if (toolCall.name === 'get_session_context') {
+            console.log('[TOOL-CALL] ignored session context')
+            return
+          }
+
+          if (toolCall.eventType === 'conversation.perception_tool_call' && toolCall.name === 'observe_surroundings') {
+            const observation =
+              String(
+                args?.visible_context ||
+                  args?.visibleContext ||
+                  args?.context ||
+                  args?.observation ||
+                  args?.description ||
+                  ''
+              ).trim()
+            if (observation && joinedRef.current) {
+              const conversationIdForContext = toolCall.conversationId || tavusConversationIdRef.current
+              if (conversationIdForContext) {
+                callObject.sendAppMessage(
+                  {
+                    message_type: 'conversation',
+                    event_type: 'conversation.append_context',
+                    conversation_id: conversationIdForContext,
+                    properties: { context: `RAVEN: ${observation}` },
+                  },
+                  '*'
+                )
+                console.log('[OPM-CONTEXT] raven injected')
+              }
+            }
+            return
+          }
+
+          const cooldownKey = toolCall.name
+          const now = Date.now()
+          const lastSentAt = toolCallCooldownRef.current[cooldownKey] || 0
+          if (now - lastSentAt < 30_000) {
+            console.log('[TOOL-CALL] suppressed duplicate', { name: toolCall.name })
+            return
+          }
+
           const effectiveSessionId = sessionIdRef.current || 'missing'
 
           const toolEndpoint =
@@ -1138,9 +1181,7 @@ export default function VideoCall() {
               ? 'meeting-participants'
               : toolCall.name === 'get_opm_perception'
                 ? 'opm-perception'
-                : toolCall.name === 'get_session_context'
-                  ? 'session-context'
-                  : null
+                : null
 
           if (!toolEndpoint) {
             throw new Error(`Unknown tool name: ${toolCall.name}`)
@@ -1315,6 +1356,7 @@ export default function VideoCall() {
           }
 
           callObject.sendAppMessage(responsePayload, '*')
+          toolCallCooldownRef.current[cooldownKey] = now
           console.log('[TOOL-CALL] echo sent', { name: toolCall.name, text: resultText })
         } catch (toolError) {
           const conversationIdForEcho =
@@ -1365,6 +1407,7 @@ export default function VideoCall() {
       })
       callObject.on('left-meeting', (event: any) => {
         logEvent('left-meeting', event)
+        joinedRef.current = false
         if (!isMeetingMode || meetingHostControl) {
           void endBackendSession('left_meeting')
         }
@@ -1396,6 +1439,7 @@ export default function VideoCall() {
       })
 
       await callObject.join({ url: payload.join_url, userName: dailyUserName })
+      joinedRef.current = true
       await callObject.setLocalAudio(isMicEnabled)
       await callObject.setLocalVideo(isCameraEnabled)
       syncParticipants(callObject, 'post-join')
