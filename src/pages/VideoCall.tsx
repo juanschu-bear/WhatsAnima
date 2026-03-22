@@ -852,7 +852,7 @@ export default function VideoCall() {
 
       try {
         const meetingState = typeof callObject.meetingState === 'function' ? callObject.meetingState() : null
-        if (!joinedRef.current || meetingState !== 'joined') return
+        if (!joinedRef.current || meetingState !== 'joined-meeting') return
 
         if (!guardrailContextSentRef.current) {
           const guardrailText =
