@@ -954,6 +954,61 @@ export default function VideoCall() {
             toolCall.raw?.data?.conversationId ||
             ''
 
+          const buildOpmNarration = (payload: any) => {
+            const raw = String(
+              payload?.perception ||
+                payload?.text ||
+                payload?.summary ||
+                payload?.lucid ||
+                payload?.oracle ||
+                payload?.cygnus ||
+                ''
+            ).trim()
+
+            const cleaned = raw
+              .replace(/```[\s\S]*?```/g, ' ')
+              .replace(/^#+\s*/gm, '')
+              .replace(/\b(LUCID|ORACLE|CYGNUS)\b/gi, '')
+              .replace(/\s+/g, ' ')
+              .trim()
+
+            const lowered = cleaned.toLowerCase()
+            const traits: string[] = []
+
+            const pushTrait = (trait: string) => {
+              if (!traits.includes(trait)) traits.push(trait)
+            }
+
+            if (/(engag|attentive|focus|focused|present)/i.test(lowered)) pushTrait('aufmerksam')
+            if (/(relax|calm|ease|steady)/i.test(lowered)) pushTrait('ruhig')
+            if (/(tense|stress|anxious|nervous|uneasy)/i.test(lowered)) pushTrait('angespannt')
+            if (/(energ|excite|animated|lively)/i.test(lowered)) pushTrait('energiegeladen')
+            if (/(confus|uncertain|unsure|hesitan|doubt)/i.test(lowered)) pushTrait('nachdenklich')
+            if (/(positive|optimistic|open)/i.test(lowered)) pushTrait('positiv gestimmt')
+            if (/(negative|down|withdrawn|closed)/i.test(lowered)) pushTrait('zurückhaltend')
+
+            const isGerman = normalizeLanguageCode(languageRef.current) === 'de'
+
+            if (traits.length > 0) {
+              const topTraits = traits.slice(0, 2)
+              if (isGerman) {
+                return `Ich lese gerade ${topTraits.join(' und ')}e Signale bei dir. Soll ich das genauer einordnen?`
+              }
+              return `I'm picking up ${topTraits.join(' and ')} signals from you right now. Want me to interpret that more precisely?`
+            }
+
+            if (cleaned) {
+              if (isGerman) {
+                return 'Ich nehme subtile Signale wahr, aber nichts Starkes. Wirkt eher ruhig und aufmerksam.'
+              }
+              return "I'm sensing subtle signals but nothing intense right now—overall calm and attentive."
+            }
+
+            return isGerman
+              ? 'Ich habe gerade keine brauchbaren OPM-Daten.'
+              : "I don't have usable OPM data right now."
+          }
+
           const buildResultText = (toolName: string, payload: any) => {
             if (toolName === 'get_meeting_participants') {
               const participants = Array.isArray(payload?.participants) ? payload.participants : []
@@ -963,9 +1018,7 @@ export default function VideoCall() {
               return `The people in this call are ${names.join(', ')}.`
             }
             if (toolName === 'get_opm_perception') {
-              const perception = String(payload?.perception || payload?.text || '').trim()
-              if (perception) return perception
-              return "I don't have any perception data available right now."
+              return buildOpmNarration(payload)
             }
             if (toolName === 'get_session_context') {
               const durationSeconds = Number(payload?.duration_seconds || 0)
