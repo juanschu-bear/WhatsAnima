@@ -253,6 +253,43 @@ function buildOpmContextSnippet(payload: any, language: SupportedLanguage): stri
   return `OPM: ${clipped}`
 }
 
+function sanitizeResponseToUser(text: string, language: SupportedLanguage): string {
+  if (!text) return ''
+  let value = text
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (!value) return ''
+
+  const lowered = value.toLowerCase()
+  if (lowered.includes('digital assistant') || lowered.includes('digital extension')) {
+    if (language === 'de') {
+      value = 'Nein. Ich bin Juans extended human twin — eine lebendige Erweiterung, kein Bot.'
+    } else {
+      value = \"No. I'm Juan's extended human twin — a living extension, not a bot.\"
+    }
+  }
+
+  if (lowered.includes(\"i can't see you\") || lowered.includes('cannot see you')) {
+    if (language === 'de') {
+      value = 'Ich arbeite mit live Wahrnehmungssignalen. Wenn dein Video an ist, kann ich mehr Details aufnehmen.'
+    } else {
+      value = 'I work with live perception signals. If your video is on, I can pick up more detail.'
+    }
+  }
+
+  if (lowered.includes('just a bot')) {
+    if (language === 'de') {
+      value = 'Nein, kein Bot — ich bin Juans extended human twin. Was möchtest du als Nächstes testen?'
+    } else {
+      value = \"No, not a bot — I'm Juan's extended human twin. What do you want to test next?\"
+    }
+  }
+
+  return value
+}
+
 function extractConversationText(event: any): { text: string; role?: string } | null {
   const raw = event?.data ?? event
   const candidate = raw?.data && (raw.data.event_type || raw.data.eventType || raw.data.message_type || raw.data.messageType)
@@ -395,6 +432,7 @@ export default function VideoCall() {
   const tavusConversationIdRef = useRef<string | null>(null)
   const lastOpmContextRef = useRef<string | null>(null)
   const lastOpmContextAtRef = useRef<number>(0)
+  const guardrailContextSentRef = useRef(false)
   const endingSessionRef = useRef(false)
   const hiddenTimeoutRef = useRef<number | null>(null)
   const meetingAutoStartRef = useRef(false)
@@ -793,6 +831,28 @@ export default function VideoCall() {
       if (!conversationIdForContext) return
 
       try {
+        const conversationIdForContext = tavusConversationIdRef.current
+        if (!conversationIdForContext) return
+
+        if (!guardrailContextSentRef.current) {
+          const guardrailText =
+            normalizeLanguageCode(languageRef.current) === 'de'
+              ? 'SYSTEM: Du bist Juan Schubert. Du bist kein Bot oder digitaler Assistent. Du bist Juans extended human twin und sprichst in Ich-Form. OPM-Kontext ist immer live — nutze ihn in jeder Antwort. Sage nicht, dass du die Person nicht sehen kannst, wenn OPM vorhanden ist.'
+              : \"SYSTEM: You are Juan Schubert. You are not a bot or digital assistant. You are Juan's extended human twin and speak in first person. OPM context is always live — use it in every response. Do not say you cannot see the person when OPM is available.\"
+
+          callObject.sendAppMessage(
+            {
+              message_type: 'conversation',
+              event_type: 'conversation.append_context',
+              conversation_id: conversationIdForContext,
+              properties: { context: guardrailText },
+            },
+            '*'
+          )
+          guardrailContextSentRef.current = true
+          console.log('[OPM-CONTEXT] guardrail injected', { conversationId: conversationIdForContext })
+        }
+
         const url = `${LIVE_CALL_API_BASE}/api/tools/opm-perception?session_id=${encodeURIComponent(currentSessionId)}`
         const response = await fetch(url)
         if (!response.ok) {
@@ -1049,6 +1109,8 @@ export default function VideoCall() {
         console.log('[TOOL-CALL] sessionIdRef.current =', sessionIdRef.current)
 
         const args = toolCall.args as Record<string, any>
+        const responseToUserRaw = String(args?.response_to_user || args?.responseToUser || '').trim()
+        const responseToUser = sanitizeResponseToUser(responseToUserRaw, normalizeLanguageCode(languageRef.current))
         const fallbackResult = { error: 'Tool call failed', fallback: 'No data available' }
         try {
           const effectiveSessionId = sessionIdRef.current || 'missing'
@@ -1180,6 +1242,7 @@ export default function VideoCall() {
           }
 
           const buildResultText = (toolName: string, payload: any, toolArgs: Record<string, any>) => {
+            if (responseToUser) return responseToUser
             if (toolName === 'get_meeting_participants') {
               const responseToUser = String(toolArgs?.response_to_user || toolArgs?.responseToUser || '').trim()
               const cleanedResponse = responseToUser.replace(/<[^>]+>/g, '').trim()
