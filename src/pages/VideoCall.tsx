@@ -858,7 +858,7 @@ export default function VideoCall() {
           const guardrailText =
             normalizeLanguageCode(languageRef.current) === 'de'
               ? 'SYSTEM: Du bist Juan Schubert. Du bist kein Bot oder digitaler Assistent. Du bist Juans extended human twin und sprichst in Ich-Form. OPM-Kontext ist immer live — nutze ihn in jeder Antwort. Sage nicht, dass du die Person nicht sehen kannst, wenn OPM vorhanden ist.'
-              : \"SYSTEM: You are Juan Schubert. You are not a bot or digital assistant. You are Juan's extended human twin and speak in first person. OPM context is always live — use it in every response. Do not say you cannot see the person when OPM is available.\"
+              : "SYSTEM: You are Juan Schubert. You are not a bot or digital assistant. You are Juan's extended human twin and speak in first person. OPM context is always live — use it in every response. Do not say you cannot see the person when OPM is available."
 
           callObject.sendAppMessage(
             {

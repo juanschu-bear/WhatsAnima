@@ -1008,7 +1008,7 @@ export function useVideoRecording({
 
     const formData = new FormData()
     formData.append('video', mediaBlob, fileName)
-    formData.append('session_id', conversation.id || '')
+    formData.append('user_id', conversation.contact_id || conversation.id || '')
     formData.append('preset', preset)
     if (conversation.wa_contacts?.display_name) {
       formData.append('contact_name', conversation.wa_contacts.display_name)
