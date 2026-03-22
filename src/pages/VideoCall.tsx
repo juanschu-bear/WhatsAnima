@@ -214,6 +214,35 @@ function parseToolCallEvent(event: any): ToolCallPayload | null {
   return null
 }
 
+function extractConversationText(event: any): { text: string; role?: string } | null {
+  const raw = event?.data ?? event
+  const candidate = raw?.data && (raw.data.event_type || raw.data.eventType || raw.data.message_type || raw.data.messageType)
+    ? raw.data
+    : raw
+  const eventType = candidate?.event_type || candidate?.eventType || candidate?.type || candidate?.message_type
+
+  if (!eventType || !String(eventType).startsWith('conversation')) return null
+
+  const role =
+    candidate?.role ||
+    candidate?.speaker ||
+    candidate?.properties?.role ||
+    candidate?.data?.role ||
+    candidate?.data?.speaker
+
+  const text =
+    candidate?.text ||
+    candidate?.message ||
+    candidate?.properties?.text ||
+    candidate?.properties?.message ||
+    candidate?.data?.text ||
+    candidate?.data?.message ||
+    ''
+
+  if (typeof text !== 'string' || !text.trim()) return null
+  return { text: text.trim(), role }
+}
+
 function sortParticipants(participants: any[]) {
   return [...participants].sort((a, b) => Number(Boolean(b?.local)) - Number(Boolean(a?.local)))
 }
@@ -1048,8 +1077,11 @@ export default function VideoCall() {
               : "I don't have usable OPM data right now. Want me to check again in a few seconds?"
           }
 
-          const buildResultText = (toolName: string, payload: any) => {
+          const buildResultText = (toolName: string, payload: any, toolArgs: Record<string, any>) => {
             if (toolName === 'get_meeting_participants') {
+              const responseToUser = String(toolArgs?.response_to_user || toolArgs?.responseToUser || '').trim()
+              const cleanedResponse = responseToUser.replace(/<[^>]+>/g, '').trim()
+              if (cleanedResponse) return cleanedResponse
               const participants = Array.isArray(payload?.participants) ? payload.participants : []
               const names = participants.map((p: any) => String(p?.name || '').trim()).filter(Boolean)
               if (names.length === 0) return 'It looks like no one else is in the call right now.'
@@ -1070,7 +1102,7 @@ export default function VideoCall() {
             return 'Here is the information you requested.'
           }
 
-          const resultText = buildResultText(toolCall.name, result)
+          const resultText = buildResultText(toolCall.name, result, args)
 
           const responsePayload: Record<string, unknown> = {
             message_type: 'conversation',
@@ -1108,8 +1140,28 @@ export default function VideoCall() {
         }
       }
 
+      const handleVoiceCommandEvent = (event: any) => {
+        const message = extractConversationText(event)
+        if (!message) return
+
+        const text = message.text.toLowerCase()
+        const mentionsCreator = /creator[-\s]?mode|creator[-\s]?modus/.test(text)
+        if (!mentionsCreator) return
+
+        const wantsOff = /(off|aus|deaktiv|disable|stop)/.test(text)
+        const wantsOn = /(on|an|aktiv|enable|start)/.test(text)
+        const nextValue = wantsOff ? false : wantsOn ? true : true
+
+        if (creatorModeRef.current !== nextValue) {
+          creatorModeRef.current = nextValue
+          setCreatorMode(nextValue)
+          console.log('[OPM] creator mode', nextValue ? 'enabled' : 'disabled')
+        }
+      }
+
       callObject.on('joined-meeting', (event: any) => handleParticipantChange('joined-meeting', event))
       callObject.on('app-message', (event: any) => {
+        handleVoiceCommandEvent(event)
         void handleToolCallEvent(event)
       })
       callObject.on('left-meeting', (event: any) => {
@@ -1440,31 +1492,6 @@ export default function VideoCall() {
                           </button>
                         )
                       })}
-                    </div>
-                    <p className="mt-5 text-xs uppercase tracking-[0.26em] text-white/45">OPM response style</p>
-                    <div className="mt-3 flex items-center justify-between gap-3 rounded-[20px] border border-white/10 bg-white/[0.04] px-4 py-3">
-                      <div>
-                        <div className="text-sm font-semibold text-white/90">Creator mode</div>
-                        <div className="mt-1 text-xs text-white/55">
-                          Explicit, Lightman‑style read. Off = subtle influence with questions.
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setCreatorMode((value) => !value)}
-                        className={`relative h-7 w-12 rounded-full border transition ${
-                          creatorMode
-                            ? 'border-[#79f5e4]/50 bg-[#79f5e4]/80'
-                            : 'border-white/15 bg-white/10'
-                        }`}
-                        aria-pressed={creatorMode}
-                      >
-                        <span
-                          className={`absolute top-0.5 h-6 w-6 rounded-full bg-white/90 shadow transition ${
-                            creatorMode ? 'right-0.5' : 'left-0.5'
-                          }`}
-                        />
-                      </button>
                     </div>
 
                     <button

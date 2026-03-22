@@ -118,11 +118,11 @@ Live calls can trigger Tavus tool calls from the avatar. The frontend listens fo
 - **Echo channel:** `conversation.echo` (the avatar speaks the tool result)
 - **OPM phrasing:** cleaned and turned into conversational text, not raw model output
 
-**Creator Mode** is a UI toggle in the call setup panel:
-- **On:** explicit, Lightman‑style read with richer detail and probing questions
-- **Off:** subtle influence with questions and minimal labeling
+**Creator Mode** is voice‑activated:
+- Say “Creator‑Mode” (or “Creator Modus”) to enable explicit, Lightman‑style reads with richer detail and probing questions.
+- Say “Creator‑Mode aus/off” to return to subtle influence with questions and minimal labeling.
 
-This toggle affects how OPM perception is translated into speech, not how OPM is computed.
+Creator Mode only changes how OPM perception is translated into speech, not how OPM is computed.
 
 ---
 
