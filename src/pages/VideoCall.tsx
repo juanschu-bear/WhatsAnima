@@ -263,15 +263,22 @@ function sanitizeResponseToUser(text: string, language: SupportedLanguage): stri
   if (!value) return ''
 
   const lowered = value.toLowerCase()
+  if (lowered.includes('opm tech') || lowered.includes('opm tag')) {
+    value =
+      language === 'de'
+        ? 'Ich arbeite mit live Wahrnehmungssignalen aus dem Video, wenn es aktiv ist.'
+        : 'I work with live perception signals from the video when it is active.'
+  }
+
   if (lowered.includes('digital assistant') || lowered.includes('digital extension')) {
     if (language === 'de') {
       value = 'Nein. Ich bin Juans extended human twin — eine lebendige Erweiterung, kein Bot.'
     } else {
-      value = \"No. I'm Juan's extended human twin — a living extension, not a bot.\"
+      value = "No. I'm Juan's extended human twin — a living extension, not a bot."
     }
   }
 
-  if (lowered.includes(\"i can't see you\") || lowered.includes('cannot see you')) {
+  if (lowered.includes("i can't see you") || lowered.includes('cannot see you')) {
     if (language === 'de') {
       value = 'Ich arbeite mit live Wahrnehmungssignalen. Wenn dein Video an ist, kann ich mehr Details aufnehmen.'
     } else {
@@ -283,8 +290,19 @@ function sanitizeResponseToUser(text: string, language: SupportedLanguage): stri
     if (language === 'de') {
       value = 'Nein, kein Bot — ich bin Juans extended human twin. Was möchtest du als Nächstes testen?'
     } else {
-      value = \"No, not a bot — I'm Juan's extended human twin. What do you want to test next?\"
+      value = "No, not a bot — I'm Juan's extended human twin. What do you want to test next?"
     }
+  }
+
+  if (language === 'en') {
+    value = value
+      .replace(/\baufmerksam\b/gi, 'attentive')
+      .replace(/\bruhig\b/gi, 'calm')
+      .replace(/\bangespannt\b/gi, 'tense')
+      .replace(/\benergiegeladen\b/gi, 'energized')
+      .replace(/\bnachdenklich\b/gi, 'thoughtful')
+      .replace(/\bpositiv gestimmt\b/gi, 'positive')
+      .replace(/\bzurückhaltend\b/gi, 'reserved')
   }
 
   return value
@@ -1199,8 +1217,24 @@ export default function VideoCall() {
             const preferLong = wantsCreatorMode || cleaned.length > 220 || traits.length >= 2
 
             if (traits.length > 0) {
+              const traitMap: Record<string, string> = {
+                aufmerksam: 'attentive',
+                ruhig: 'calm',
+                angespannt: 'tense',
+                energiegeladen: 'energized',
+                nachdenklich: 'thoughtful',
+                'positiv gestimmt': 'positive',
+                zurückhaltend: 'reserved',
+              }
               const topTraits = traits.slice(0, 2)
-              const signalNote = signals.length > 0 ? ` (u.a. ${signals.slice(0, 2).join(' und ')})` : ''
+              const displayTraits = isGerman
+                ? topTraits
+                : topTraits.map((trait) => traitMap[trait] || trait)
+              const signalNote = signals.length > 0
+                ? isGerman
+                  ? ` (u.a. ${signals.slice(0, 2).join(' und ')})`
+                  : ` (e.g. ${signals.slice(0, 2).join(' and ')})`
+                : ''
               if (isGerman) {
                 if (wantsCreatorMode) {
                   return `Creator‑Mode: Ich lese ${topTraits.join(' und ')}e Muster${signalNote}. Das wirkt konsistent, nicht gespielt. Willst du, dass ich dir eine konkrete Szene beschreibe oder lieber die Bedeutung fürs Gespräch ableite?`
@@ -1211,12 +1245,12 @@ export default function VideoCall() {
                 return `Ich lese ${topTraits.join(' und ')}e Signale bei dir. Soll ich das eher kurz halten oder tiefer einordnen?`
               }
               if (wantsCreatorMode) {
-                return `Creator mode: I'm reading ${topTraits.join(' and ')} patterns${signalNote}. It looks consistent, not performed. Want a concrete scene or the meaning for the conversation?`
+                return `Creator mode: I'm reading ${displayTraits.join(' and ')} patterns${signalNote}. It looks consistent, not performed. Want a concrete scene or the meaning for the conversation?`
               }
               if (preferLong) {
-                return `I'm picking up ${topTraits.join(' and ')} signals from you. If I had to bet, it feels genuine rather than performed. What's driving that right now—topic, pace, or my tone?`
+                return `I'm picking up ${displayTraits.join(' and ')} signals from you. If I had to bet, it feels genuine rather than performed. What's driving that right now—topic, pace, or my tone?`
               }
-              return `I'm picking up ${topTraits.join(' and ')} signals from you. Want a quick read or a deeper take?`
+              return `I'm picking up ${displayTraits.join(' and ')} signals from you. Want a quick read or a deeper take?`
             }
 
             if (cleaned) {
