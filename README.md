@@ -117,6 +117,7 @@ Live calls can trigger Tavus tool calls from the avatar. The frontend listens fo
 - **Tool endpoints:** `get_meeting_participants`, `get_opm_perception`, `get_session_context`
 - **Echo channel:** `conversation.echo` (the avatar speaks the tool result)
 - **OPM phrasing:** cleaned and turned into conversational text, not raw model output
+- **Context injection:** the frontend polls OPM every ~5 seconds and sends `conversation.append_context` so the LLM always has fresh perception context.
 
 **Creator Mode** is voice‑activated:
 - Say “Creator‑Mode” (or “Creator Modus”) to enable explicit, Lightman‑style reads with richer detail and probing questions.

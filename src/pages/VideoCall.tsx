@@ -23,6 +23,7 @@ const FALLBACK_REPLICA_ID = 'r987f6e6f73c'
 const JUAN_LOCKED_PERSONA_ID = 'p8c4ae75d94d'
 const JUAN_LOCKED_REPLICA_ID = 'rf5414018e80'
 const HEARTBEAT_INTERVAL_MS = 15_000
+const OPM_CONTEXT_POLL_INTERVAL_MS = 5_000
 const ENABLE_LIVE_SESSION_HEARTBEAT = false
 const UNLIMITED_DURATION_EMAILS = new Set(['aicallyu.global@gmail.com'])
 const FALLBACK_PERSONAS: BackendPersona[] = [
@@ -75,6 +76,17 @@ function buildUserName(user: ReturnType<typeof useAuth>['user'], conversation: C
     user?.email ||
     'WhatsAnima User'
   )
+}
+
+function resolveTavusConversationId(joinUrl: string | null | undefined): string {
+  const candidate = String(joinUrl || '').trim()
+  if (!candidate) return ''
+  try {
+    const parsed = new URL(candidate)
+    return parsed.pathname.replace(/^\//, '').trim()
+  } catch {
+    return ''
+  }
 }
 
 function resolveConversationId(
@@ -212,6 +224,33 @@ function parseToolCallEvent(event: any): ToolCallPayload | null {
   }
 
   return null
+}
+
+function buildOpmContextSnippet(payload: any, language: SupportedLanguage): string {
+  const raw = String(
+    payload?.perception ||
+      payload?.text ||
+      payload?.summary ||
+      payload?.lucid ||
+      payload?.oracle ||
+      payload?.cygnus ||
+      ''
+  ).trim()
+
+  if (!raw) {
+    return language === 'de'
+      ? 'OPM: Keine verwertbaren Signale erkannt.'
+      : 'OPM: No usable signals detected.'
+  }
+
+  const cleaned = raw
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/^#+\s*/gm, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  const clipped = cleaned.length > 420 ? `${cleaned.slice(0, 417)}...` : cleaned
+  return `OPM: ${clipped}`
 }
 
 function extractConversationText(event: any): { text: string; role?: string } | null {
@@ -353,6 +392,9 @@ export default function VideoCall() {
   const sessionIdRef = useRef<string | null>(null)
   const languageRef = useRef<SupportedLanguage>('en')
   const creatorModeRef = useRef(false)
+  const tavusConversationIdRef = useRef<string | null>(null)
+  const lastOpmContextRef = useRef<string | null>(null)
+  const lastOpmContextAtRef = useRef<number>(0)
   const endingSessionRef = useRef(false)
   const hiddenTimeoutRef = useRef<number | null>(null)
   const meetingAutoStartRef = useRef(false)
@@ -737,6 +779,62 @@ export default function VideoCall() {
     }
   }, [phase, sessionId])
 
+  useEffect(() => {
+    if (phase !== 'connected') return
+    const callObject = callObjectRef.current
+    const currentSessionId = sessionIdRef.current
+    if (!callObject || !currentSessionId) return
+
+    let cancelled = false
+
+    const sendOpmContext = async () => {
+      if (cancelled) return
+      const conversationIdForContext = tavusConversationIdRef.current
+      if (!conversationIdForContext) return
+
+      try {
+        const url = `${LIVE_CALL_API_BASE}/api/tools/opm-perception?session_id=${encodeURIComponent(currentSessionId)}`
+        const response = await fetch(url)
+        if (!response.ok) {
+          throw new Error(`OPM poll failed (${response.status})`)
+        }
+        const payload = await response.json()
+        const contextText = buildOpmContextSnippet(payload, normalizeLanguageCode(languageRef.current))
+        const contextKey = `${contextText}|${payload?.timestamp || ''}`
+        const now = Date.now()
+
+        if (lastOpmContextRef.current === contextKey) return
+        if (now - lastOpmContextAtRef.current < 3_000) return
+
+        const message = {
+          message_type: 'conversation',
+          event_type: 'conversation.append_context',
+          conversation_id: conversationIdForContext,
+          properties: {
+            context: contextText,
+          },
+        }
+
+        callObject.sendAppMessage(message, '*')
+        lastOpmContextRef.current = contextKey
+        lastOpmContextAtRef.current = now
+        console.log('[OPM-CONTEXT] injected', { sessionId: currentSessionId, conversationId: conversationIdForContext })
+      } catch (error) {
+        console.warn('[OPM-CONTEXT] poll failed', error)
+      }
+    }
+
+    void sendOpmContext()
+    const interval = window.setInterval(() => {
+      void sendOpmContext()
+    }, OPM_CONTEXT_POLL_INTERVAL_MS)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+    }
+  }, [phase])
+
   function syncParticipants(callObject: ReturnType<typeof DailyIframe.createCallObject>, eventName?: string) {
     const participants = Object.values(callObject.participants() || {}) as any[]
     for (const participant of participants) {
@@ -899,6 +997,7 @@ export default function VideoCall() {
       }
 
       sessionIdRef.current = payload.session_id
+      tavusConversationIdRef.current = resolveTavusConversationId(payload.join_url)
       setSessionId(payload.session_id)
       setJoinUrl(String(payload.join_url || '').trim() || null)
       setRecordingActive(false)
@@ -944,6 +1043,9 @@ export default function VideoCall() {
           eventType: toolCall.eventType,
           conversationId: toolCall.conversationId,
         })
+        if (toolCall.conversationId) {
+          tavusConversationIdRef.current = toolCall.conversationId
+        }
         console.log('[TOOL-CALL] sessionIdRef.current =', sessionIdRef.current)
 
         const args = toolCall.args as Record<string, any>
