@@ -13,7 +13,7 @@ const VOICE_MAX_SECONDS = 300
 interface Message {
   id: string
   sender: 'contact' | 'avatar'
-  type: 'text' | 'voice' | 'video' | 'image'
+  type: 'text' | 'voice' | 'video' | 'image' | 'call_summary'
   content: string | null
   media_url: string | null
   duration_sec: number | null

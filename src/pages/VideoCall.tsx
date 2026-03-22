@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { resolveAvatarUrl } from '../lib/avatars'
-import { getConversation } from '../lib/api'
+import { getConversation, sendMessage } from '../lib/api'
 
 type ConversationData = Awaited<ReturnType<typeof getConversation>>
 type CallPhase = 'setup' | 'starting' | 'joining' | 'connected' | 'error'
@@ -455,6 +455,9 @@ export default function VideoCall() {
   const toolCallCooldownRef = useRef<Record<string, number>>({})
   const lastRavenContextRef = useRef<string | null>(null)
   const lastRavenContextAtRef = useRef<number>(0)
+  const callStartAtRef = useRef<number | null>(null)
+  const callSummarySentRef = useRef(false)
+  const participantsRef = useRef<any[]>([])
   const endingSessionRef = useRef(false)
   const hiddenTimeoutRef = useRef<number | null>(null)
   const meetingAutoStartRef = useRef(false)
@@ -919,6 +922,7 @@ export default function VideoCall() {
 
   function syncParticipants(callObject: ReturnType<typeof DailyIframe.createCallObject>, eventName?: string) {
     const participants = Object.values(callObject.participants() || {}) as any[]
+    participantsRef.current = participants
     for (const participant of participants) {
       const hiddenByFilter = isPipecatParticipant(participant)
       console.log('[PARTICIPANT-DEBUG]', {
@@ -951,6 +955,37 @@ export default function VideoCall() {
     })
   }
 
+  async function recordCallSummary() {
+    if (callSummarySentRef.current) return
+    if (!conversationId) return
+    const startedAtMs = callStartAtRef.current
+    if (!startedAtMs) return
+
+    callSummarySentRef.current = true
+
+    const endedAtMs = Date.now()
+    const durationSec = Math.max(1, Math.round((endedAtMs - startedAtMs) / 1000))
+    const visibleParticipants = (participantsRef.current || []).filter((participant) => !isPipecatParticipant(participant))
+    const participantNames = visibleParticipants
+      .map((participant) => getParticipantName(participant))
+      .filter((name) => Boolean(name))
+      .slice(0, 10)
+
+    const summaryPayload = {
+      session_id: sessionIdRef.current,
+      started_at: new Date(startedAtMs).toISOString(),
+      ended_at: new Date(endedAtMs).toISOString(),
+      duration_sec: durationSec,
+      participants: participantNames,
+    }
+
+    try {
+      await sendMessage(conversationId, 'avatar', 'call_summary', JSON.stringify(summaryPayload))
+    } catch (error) {
+      console.error('[VideoCall] failed to record call summary', error)
+    }
+  }
+
   async function leaveCall() {
     const callObject = callObjectRef.current
     callObjectRef.current = null
@@ -968,6 +1003,7 @@ export default function VideoCall() {
     })()
 
     await Promise.allSettled([stopRecordingPromise, endSessionPromise, leaveRoomPromise])
+    await recordCallSummary()
 
     if (isMeetingMode) {
       navigate('/meeting-host', { replace: true })
@@ -1027,6 +1063,9 @@ export default function VideoCall() {
     lastOpmContextAtRef.current = 0
     lastRavenContextRef.current = null
     lastRavenContextAtRef.current = 0
+    callStartAtRef.current = null
+    callSummarySentRef.current = false
+    participantsRef.current = []
     toolCallCooldownRef.current = {}
     setPhase('starting')
     setStatusText(isMeetingGuest ? 'Joining live meeting...' : 'Connecting...')
@@ -1086,6 +1125,7 @@ export default function VideoCall() {
       }
 
       sessionIdRef.current = payload.session_id
+      callStartAtRef.current = Date.now()
       tavusConversationIdRef.current = resolveTavusConversationId(payload.join_url)
       setSessionId(payload.session_id)
       setJoinUrl(String(payload.join_url || '').trim() || null)
@@ -1218,6 +1258,40 @@ export default function VideoCall() {
             throw new Error(`Tool call failed (${response.status})`)
           }
           const result = await response.json()
+
+          if (toolCall.name === 'get_meeting_participants') {
+            const participantsList = Array.isArray(result?.participants) ? result.participants : []
+            const names = participantsList.map((p: any) => String(p?.name || '').trim()).filter(Boolean)
+            const contextText =
+              names.length === 0
+                ? 'Participants in call: none.'
+                : names.length === 1
+                  ? `Participants in call: ${names[0]}.`
+                  : `Participants in call: ${names.join(', ')}.`
+
+            const conversationIdForContext =
+              toolCall.conversationId ||
+              toolCall.raw?.conversation_id ||
+              toolCall.raw?.conversationId ||
+              toolCall.raw?.data?.conversation_id ||
+              toolCall.raw?.data?.conversationId ||
+              tavusConversationIdRef.current ||
+              ''
+
+            if (conversationIdForContext) {
+              callObject.sendAppMessage(
+                {
+                  message_type: 'conversation',
+                  event_type: 'conversation.append_context',
+                  conversation_id: conversationIdForContext,
+                  properties: { context: contextText },
+                },
+                '*'
+              )
+              console.log('[TOOL-CALL] meeting participants injected', { text: contextText })
+            }
+            return
+          }
 
           const conversationIdForEcho =
             toolCall.conversationId ||
@@ -1422,6 +1496,7 @@ export default function VideoCall() {
       callObject.on('left-meeting', (event: any) => {
         logEvent('left-meeting', event)
         joinedRef.current = false
+        void recordCallSummary()
         if (!isMeetingMode || meetingHostControl) {
           void endBackendSession('left_meeting')
         }
@@ -1431,6 +1506,7 @@ export default function VideoCall() {
       callObject.on('participant-left', (event: any) => {
         handleParticipantChange('participant-left', event)
         if (!isMeetingMode && event?.participant && !event.participant?.local && !isPipecatParticipant(event.participant)) {
+          void recordCallSummary()
           void endBackendSession('participant_left')
         }
       })

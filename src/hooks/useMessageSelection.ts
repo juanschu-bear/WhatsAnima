@@ -4,7 +4,7 @@ import { getStoredLocale, t } from '../lib/i18n'
 interface Message {
   id: string
   sender: 'contact' | 'avatar'
-  type: 'text' | 'voice' | 'video' | 'image'
+  type: 'text' | 'voice' | 'video' | 'image' | 'call_summary'
   content: string | null
   media_url: string | null
   duration_sec: number | null
@@ -75,6 +75,8 @@ export function useMessageSelection(messages: Message[], conversation: { wa_owne
     const time = new Date(msg.created_at).toLocaleString()
     const content = msg.type === 'voice'
       ? `[Voice message${msg.duration_sec ? ` ${formatClock(msg.duration_sec)}` : ''}]${msg.content ? ` ${msg.content}` : ''}`
+      : msg.type === 'call_summary'
+      ? `[Call summary]${msg.content ? ` ${msg.content}` : ''}`
       : msg.type === 'image'
       ? `[Image]${msg.content ? ` ${msg.content}` : ''}`
       : msg.type === 'video'

@@ -33,7 +33,7 @@ import {
   isPushSubscribed,
 } from '../lib/notifications'
 
-type MessageType = 'text' | 'voice' | 'video' | 'image' | 'flashcard' | 'quiz' | 'lesson' | 'fillin'
+type MessageType = 'text' | 'voice' | 'video' | 'image' | 'flashcard' | 'quiz' | 'lesson' | 'fillin' | 'call_summary'
 
 interface Message {
   id: string
@@ -1186,6 +1186,64 @@ const MediaMessageBubble = memo(function MediaMessageBubble({
   )
 })
 
+interface CallSummaryPayload {
+  session_id?: string
+  started_at?: string
+  ended_at?: string
+  duration_sec?: number
+  participants?: string[]
+}
+
+function parseCallSummary(content?: string | null): CallSummaryPayload | null {
+  if (!content) return null
+  try {
+    const parsed = JSON.parse(content) as CallSummaryPayload
+    if (!parsed || typeof parsed !== 'object') return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+function formatCallDuration(seconds?: number | null) {
+  const safeSeconds = Number.isFinite(seconds) ? Math.max(0, Number(seconds)) : 0
+  if (!safeSeconds) return '0s'
+  const minutes = Math.floor(safeSeconds / 60)
+  const remainder = Math.floor(safeSeconds % 60)
+  if (minutes === 0) return `${remainder}s`
+  if (remainder === 0) return `${minutes}m`
+  return `${minutes}m ${remainder}s`
+}
+
+const CallSummaryBubble = memo(function CallSummaryBubble({ message }: { message: Message }) {
+  const payload = parseCallSummary(message.content)
+  const startedAt = payload?.started_at ? new Date(payload.started_at) : null
+  const durationLabel = formatCallDuration(payload?.duration_sec ?? null)
+  const participants = payload?.participants ?? []
+  const participantLabel = participants.length > 0 ? participants.join(', ') : 'Unknown'
+
+  return (
+    <div className="w-full max-w-[560px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white/85 shadow-[0_2px_10px_rgba(0,0,0,0.15)]">
+      <div className="flex items-center gap-2 text-[12px] uppercase tracking-[0.2em] text-white/50">
+        <svg className="h-4 w-4 text-[#9af8ea]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <rect x="3" y="6" width="13" height="12" rx="2" />
+          <path d="M16 8l5-2v12l-5-2z" />
+        </svg>
+        Video Call
+      </div>
+      <div className="mt-2 text-[14px] text-white/90">
+        {startedAt ? `Started ${startedAt.toLocaleString()}` : 'Call started'}
+      </div>
+      <div className="mt-1 text-[13px] text-white/70">
+        Duration: {durationLabel}
+      </div>
+      <div className="mt-1 text-[13px] text-white/70">
+        Participants: {participantLabel}
+      </div>
+    </div>
+  )
+})
+
 const VideoMessageBubble = memo(function VideoMessageBubble({
   isContact,
   message,
@@ -1690,6 +1748,7 @@ export default function Chat() {
       } = options ?? {}
 
       const history = messages
+        .filter((message) => message.type !== 'call_summary')
         .slice(-10)
         .map((message) => ({
           role: message.sender === 'contact' ? 'user' : 'assistant',
@@ -2241,6 +2300,14 @@ export default function Chat() {
 	            const youtubePreviews = extractYouTubePreviews(message.content)
 	            const topicChips = videoTopicsMap[messageId] || []
 	            const videoShelf = videoSuggestionsMap[messageId] || []
+
+            if (message.type === 'call_summary') {
+              return (
+                <div key={message.id} className="my-3 flex justify-center">
+                  <CallSummaryBubble message={message} />
+                </div>
+              )
+            }
 
             // Read receipt: single check (sent) + eye icon (grey=unread, colored=read)
             const ReadReceipt = isContact ? (
