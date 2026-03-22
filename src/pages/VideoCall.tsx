@@ -974,9 +974,13 @@ export default function VideoCall() {
 
             const lowered = cleaned.toLowerCase()
             const traits: string[] = []
+            const signals: string[] = []
 
             const pushTrait = (trait: string) => {
               if (!traits.includes(trait)) traits.push(trait)
+            }
+            const pushSignal = (signal: string) => {
+              if (!signals.includes(signal)) signals.push(signal)
             }
 
             if (/(engag|attentive|focus|focused|present)/i.test(lowered)) pushTrait('aufmerksam')
@@ -986,27 +990,32 @@ export default function VideoCall() {
             if (/(confus|uncertain|unsure|hesitan|doubt)/i.test(lowered)) pushTrait('nachdenklich')
             if (/(positive|optimistic|open)/i.test(lowered)) pushTrait('positiv gestimmt')
             if (/(negative|down|withdrawn|closed)/i.test(lowered)) pushTrait('zurückhaltend')
+            if (/(gaze|eye|look|contact)/i.test(lowered)) pushSignal('Blickkontakt')
+            if (/(posture|lean|pose)/i.test(lowered)) pushSignal('Körperhaltung')
+            if (/(micro|expression|face|brow|smile|jaw)/i.test(lowered)) pushSignal('Mimik')
+            if (/(gesture|hands|movement)/i.test(lowered)) pushSignal('Gestik')
 
             const isGerman = normalizeLanguageCode(languageRef.current) === 'de'
 
             if (traits.length > 0) {
               const topTraits = traits.slice(0, 2)
+              const signalNote = signals.length > 0 ? ` (u.a. ${signals.slice(0, 2).join(' und ')})` : ''
               if (isGerman) {
-                return `Ich lese gerade ${topTraits.join(' und ')}e Signale bei dir. Soll ich das genauer einordnen?`
+                return `Ich lese gerade ${topTraits.join(' und ')}e Signale bei dir${signalNote}. Wenn ich raten müsste: das wirkt echt und nicht gespielt. Soll ich das auf den Punkt bringen oder lieber Beispiele geben?`
               }
-              return `I'm picking up ${topTraits.join(' and ')} signals from you right now. Want me to interpret that more precisely?`
+              return `I'm picking up ${topTraits.join(' and ')} signals from you${signalNote}. If I had to bet, it feels genuine rather than performed. Want a tight read or a few concrete examples?`
             }
 
             if (cleaned) {
               if (isGerman) {
-                return 'Ich nehme subtile Signale wahr, aber nichts Starkes. Wirkt eher ruhig und aufmerksam.'
+                return 'Ich nehme subtile Signale wahr, aber nichts Starkes. Insgesamt wirkt es ruhig, aufmerksam. Willst du, dass ich das als kurze Einschätzung formuliere oder ausführlich im Lightman‑Style aufdrösele?'
               }
-              return "I'm sensing subtle signals but nothing intense right now—overall calm and attentive."
+              return "I'm sensing subtle signals but nothing intense right now—overall calm and attentive. Want a short read or a deeper Lightman-style breakdown?"
             }
 
             return isGerman
-              ? 'Ich habe gerade keine brauchbaren OPM-Daten.'
-              : "I don't have usable OPM data right now."
+              ? 'Ich habe gerade keine brauchbaren OPM-Daten. Willst du, dass ich es in ein paar Sekunden noch einmal versuche?'
+              : "I don't have usable OPM data right now. Want me to try again in a few seconds?"
           }
 
           const buildResultText = (toolName: string, payload: any) => {
