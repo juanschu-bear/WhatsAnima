@@ -110,6 +110,22 @@ Owner's AI avatar responds via ElevenLabs + Tavus
 
 ---
 
+## OPM Tool Calling & Creator Mode
+
+Live calls can trigger Tavus tool calls from the avatar. The frontend listens for tool calls and fetches data from ANIMA Core, then echoes a natural-language response back to Tavus.
+
+- **Tool endpoints:** `get_meeting_participants`, `get_opm_perception`, `get_session_context`
+- **Echo channel:** `conversation.echo` (the avatar speaks the tool result)
+- **OPM phrasing:** cleaned and turned into conversational text, not raw model output
+
+**Creator Mode** is a UI toggle in the call setup panel:
+- **On:** explicit, Lightman‑style read with richer detail and probing questions
+- **Off:** subtle influence with questions and minimal labeling
+
+This toggle affects how OPM perception is translated into speech, not how OPM is computed.
+
+---
+
 ## Part of the ONIOKO Ecosystem
 
 Built by [ONIOKO](https://onioko.com) — hybrid human-AI product studio.

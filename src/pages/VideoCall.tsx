@@ -300,6 +300,7 @@ export default function VideoCall() {
   const [personas, setPersonas] = useState<BackendPersona[]>(FALLBACK_PERSONAS)
   const [loadingPersonas, setLoadingPersonas] = useState(true)
   const [language, setLanguage] = useState<SupportedLanguage>('en')
+  const [creatorMode, setCreatorMode] = useState(false)
   const [selectedPersona, setSelectedPersona] = useState('MAXIM')
   const [viewMode, setViewMode] = useState<ViewMode>('speaker')
   const [phase, setPhase] = useState<CallPhase>('setup')
@@ -322,6 +323,7 @@ export default function VideoCall() {
   const callObjectRef = useRef<ReturnType<typeof DailyIframe.createCallObject> | null>(null)
   const sessionIdRef = useRef<string | null>(null)
   const languageRef = useRef<SupportedLanguage>('en')
+  const creatorModeRef = useRef(false)
   const endingSessionRef = useRef(false)
   const hiddenTimeoutRef = useRef<number | null>(null)
   const meetingAutoStartRef = useRef(false)
@@ -342,6 +344,10 @@ export default function VideoCall() {
   useEffect(() => {
     languageRef.current = normalizeLanguageCode(language)
   }, [language])
+
+  useEffect(() => {
+    creatorModeRef.current = creatorMode
+  }, [creatorMode])
 
   async function notifySessionStart(nextSessionId: string, joinUrl: string, personaName: string, replicaId: string) {
     try {
@@ -996,26 +1002,50 @@ export default function VideoCall() {
             if (/(gesture|hands|movement)/i.test(lowered)) pushSignal('Gestik')
 
             const isGerman = normalizeLanguageCode(languageRef.current) === 'de'
+            const wantsCreatorMode = creatorModeRef.current
+            const preferLong = wantsCreatorMode || cleaned.length > 220 || traits.length >= 2
 
             if (traits.length > 0) {
               const topTraits = traits.slice(0, 2)
               const signalNote = signals.length > 0 ? ` (u.a. ${signals.slice(0, 2).join(' und ')})` : ''
               if (isGerman) {
-                return `Ich lese gerade ${topTraits.join(' und ')}e Signale bei dir${signalNote}. Wenn ich raten müsste: das wirkt echt und nicht gespielt. Soll ich das auf den Punkt bringen oder lieber Beispiele geben?`
+                if (wantsCreatorMode) {
+                  return `Creator‑Mode: Ich lese ${topTraits.join(' und ')}e Muster${signalNote}. Das wirkt konsistent, nicht gespielt. Willst du, dass ich dir eine konkrete Szene beschreibe oder lieber die Bedeutung fürs Gespräch ableite?`
+                }
+                if (preferLong) {
+                  return `Ich lese gerade ${topTraits.join(' und ')}e Signale bei dir. Wenn ich raten müsste: das wirkt echt und nicht gespielt. Was triggert das gerade — Thema, Tempo oder mein Ton?`
+                }
+                return `Ich lese ${topTraits.join(' und ')}e Signale bei dir. Soll ich das eher kurz halten oder tiefer einordnen?`
               }
-              return `I'm picking up ${topTraits.join(' and ')} signals from you${signalNote}. If I had to bet, it feels genuine rather than performed. Want a tight read or a few concrete examples?`
+              if (wantsCreatorMode) {
+                return `Creator mode: I'm reading ${topTraits.join(' and ')} patterns${signalNote}. It looks consistent, not performed. Want a concrete scene or the meaning for the conversation?`
+              }
+              if (preferLong) {
+                return `I'm picking up ${topTraits.join(' and ')} signals from you. If I had to bet, it feels genuine rather than performed. What's driving that right now—topic, pace, or my tone?`
+              }
+              return `I'm picking up ${topTraits.join(' and ')} signals from you. Want a quick read or a deeper take?`
             }
 
             if (cleaned) {
               if (isGerman) {
-                return 'Ich nehme subtile Signale wahr, aber nichts Starkes. Insgesamt wirkt es ruhig, aufmerksam. Willst du, dass ich das als kurze Einschätzung formuliere oder ausführlich im Lightman‑Style aufdrösele?'
+                if (wantsCreatorMode) {
+                  return 'Creator‑Mode: Die Signale sind subtil, eher ruhig. Ich kann dir die Details benennen, aber es ist nichts Dominantes. Soll ich versuchen, das genauer zu präzisieren?'
+                }
+                return preferLong
+                  ? 'Ich nehme subtile Signale wahr, aber nichts Starkes. Insgesamt wirkt es ruhig und aufmerksam. Willst du, dass ich das als Lightman‑Style Analyse formuliere oder lieber eine präzise Rückfrage stelle?'
+                  : 'Ich nehme subtile Signale wahr, nichts Dominantes. Soll ich kurz bleiben oder weiter reinzoomen?'
               }
-              return "I'm sensing subtle signals but nothing intense right now—overall calm and attentive. Want a short read or a deeper Lightman-style breakdown?"
+              if (wantsCreatorMode) {
+                return "Creator mode: The signals are subtle and steady—nothing dominant. I can name specifics, but they'll be fine-grained. Want me to sharpen it?"
+              }
+              return preferLong
+                ? "I'm sensing subtle signals but nothing intense right now—overall calm and attentive. Want a Lightman-style breakdown or a pointed follow-up question?"
+                : "I'm sensing subtle signals, nothing dominant. Want a quick read or a deeper take?"
             }
 
             return isGerman
-              ? 'Ich habe gerade keine brauchbaren OPM-Daten. Willst du, dass ich es in ein paar Sekunden noch einmal versuche?'
-              : "I don't have usable OPM data right now. Want me to try again in a few seconds?"
+              ? 'Ich habe gerade keine brauchbaren OPM-Daten. Soll ich in ein paar Sekunden noch einmal prüfen?'
+              : "I don't have usable OPM data right now. Want me to check again in a few seconds?"
           }
 
           const buildResultText = (toolName: string, payload: any) => {
@@ -1410,6 +1440,31 @@ export default function VideoCall() {
                           </button>
                         )
                       })}
+                    </div>
+                    <p className="mt-5 text-xs uppercase tracking-[0.26em] text-white/45">OPM response style</p>
+                    <div className="mt-3 flex items-center justify-between gap-3 rounded-[20px] border border-white/10 bg-white/[0.04] px-4 py-3">
+                      <div>
+                        <div className="text-sm font-semibold text-white/90">Creator mode</div>
+                        <div className="mt-1 text-xs text-white/55">
+                          Explicit, Lightman‑style read. Off = subtle influence with questions.
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setCreatorMode((value) => !value)}
+                        className={`relative h-7 w-12 rounded-full border transition ${
+                          creatorMode
+                            ? 'border-[#79f5e4]/50 bg-[#79f5e4]/80'
+                            : 'border-white/15 bg-white/10'
+                        }`}
+                        aria-pressed={creatorMode}
+                      >
+                        <span
+                          className={`absolute top-0.5 h-6 w-6 rounded-full bg-white/90 shadow transition ${
+                            creatorMode ? 'right-0.5' : 'left-0.5'
+                          }`}
+                        />
+                      </button>
                     </div>
 
                     <button
