@@ -453,6 +453,8 @@ export default function VideoCall() {
   const guardrailContextSentRef = useRef(false)
   const joinedRef = useRef(false)
   const toolCallCooldownRef = useRef<Record<string, number>>({})
+  const lastRavenContextRef = useRef<string | null>(null)
+  const lastRavenContextAtRef = useRef<number>(0)
   const endingSessionRef = useRef(false)
   const hiddenTimeoutRef = useRef<number | null>(null)
   const meetingAutoStartRef = useRef(false)
@@ -884,7 +886,7 @@ export default function VideoCall() {
         const now = Date.now()
 
         if (lastOpmContextRef.current === contextKey) return
-        if (now - lastOpmContextAtRef.current < 3_000) return
+        if (now - lastOpmContextAtRef.current < 10_000) return
 
         const message = {
           message_type: 'conversation',
@@ -1019,6 +1021,13 @@ export default function VideoCall() {
     setSessionId(null)
     setParticipants([])
     setActiveSpeakerId(null)
+    joinedRef.current = false
+    guardrailContextSentRef.current = false
+    lastOpmContextRef.current = null
+    lastOpmContextAtRef.current = 0
+    lastRavenContextRef.current = null
+    lastRavenContextAtRef.current = 0
+    toolCallCooldownRef.current = {}
     setPhase('starting')
     setStatusText(isMeetingGuest ? 'Joining live meeting...' : 'Connecting...')
 
@@ -1149,6 +1158,8 @@ export default function VideoCall() {
                   ''
               ).trim()
             if (observation && joinedRef.current) {
+              const now = Date.now()
+              if (now - lastRavenContextAtRef.current < 10_000) return
               const conversationIdForContext = toolCall.conversationId || tavusConversationIdRef.current
               if (conversationIdForContext) {
                 callObject.sendAppMessage(
@@ -1160,6 +1171,8 @@ export default function VideoCall() {
                   },
                   '*'
                 )
+                lastRavenContextRef.current = observation
+                lastRavenContextAtRef.current = now
                 console.log('[OPM-CONTEXT] raven injected')
               }
             }
@@ -1168,11 +1181,13 @@ export default function VideoCall() {
 
           const cooldownKey = toolCall.name
           const now = Date.now()
+          const cooldownMs = toolCall.name === 'get_meeting_participants' ? 60_000 : 30_000
           const lastSentAt = toolCallCooldownRef.current[cooldownKey] || 0
-          if (now - lastSentAt < 30_000) {
+          if (now - lastSentAt < cooldownMs) {
             console.log('[TOOL-CALL] suppressed duplicate', { name: toolCall.name })
             return
           }
+          toolCallCooldownRef.current[cooldownKey] = now
 
           const effectiveSessionId = sessionIdRef.current || 'missing'
 
@@ -1356,7 +1371,6 @@ export default function VideoCall() {
           }
 
           callObject.sendAppMessage(responsePayload, '*')
-          toolCallCooldownRef.current[cooldownKey] = now
           console.log('[TOOL-CALL] echo sent', { name: toolCall.name, text: resultText })
         } catch (toolError) {
           const conversationIdForEcho =
