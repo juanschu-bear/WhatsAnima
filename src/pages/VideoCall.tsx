@@ -526,15 +526,16 @@ export default function VideoCall() {
 
     try {
       const localAudioTrack = getLocalAudioTrack()
+      const trackSettings =
+        localAudioTrack && typeof localAudioTrack.getSettings === 'function'
+          ? localAudioTrack.getSettings()
+          : undefined
+      const deviceId = trackSettings?.deviceId
       let stream: MediaStream | null = null
 
       if (localAudioTrack) {
         stream = new MediaStream([localAudioTrack.clone()])
       } else {
-        const deviceId =
-          localAudioTrack && typeof localAudioTrack.getSettings === 'function'
-            ? localAudioTrack.getSettings().deviceId
-            : undefined
         const constraints =
           deviceId && typeof deviceId === 'string'
             ? { audio: { deviceId: { exact: deviceId } } }
