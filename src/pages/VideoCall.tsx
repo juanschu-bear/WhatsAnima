@@ -451,6 +451,10 @@ export default function VideoCall() {
   const [activeSpeakerId, setActiveSpeakerId] = useState<string | null>(null)
   const [meetingHostControl, setMeetingHostControl] = useState(false)
   const [meetingSelfName, setMeetingSelfName] = useState('')
+  // OPM side-channel capture (parallel to Tavus audio)
+  const audioRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioStreamRef = useRef<MediaStream | null>(null)
+  const opmSpeakerNameRef = useRef<string>('')
 
   const callObjectRef = useRef<ReturnType<typeof DailyIframe.createCallObject> | null>(null)
   const sessionIdRef = useRef<string | null>(null)
@@ -474,6 +478,9 @@ export default function VideoCall() {
   const hiddenTimeoutRef = useRef<number | null>(null)
   const meetingAutoStartRef = useRef(false)
   const personaOverrideEnabled = searchParams.get('personaOverride') === '1'
+  const audioRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioStreamRef = useRef<MediaStream | null>(null)
+  const opmSpeakerNameRef = useRef<string>('')
   const meetingToken = String(searchParams.get('meeting_token') || '').trim()
   const hasMeetingContext =
     typeof window !== 'undefined' &&
@@ -494,6 +501,141 @@ export default function VideoCall() {
   useEffect(() => {
     creatorModeRef.current = creatorMode
   }, [creatorMode])
+
+  const getLocalAudioTrack = () => {
+    const callObject = callObjectRef.current
+    if (!callObject || typeof callObject.participants !== 'function') return null
+    const participants = callObject.participants() || {}
+    const local = participants.local || Object.values(participants).find((p) => p?.local)
+    return getParticipantTrack(local, 'audio')
+  }
+
+  const stopOpmAudioCapture = () => {
+    const recorder = audioRecorderRef.current
+    if (recorder && recorder.state !== 'inactive') {
+      recorder.stop()
+    }
+    audioRecorderRef.current = null
+    const stream = audioStreamRef.current
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop())
+    }
+    audioStreamRef.current = null
+  }
+
+  const startOpmAudioCapture = async () => {
+    if (audioRecorderRef.current) return
+    const currentSessionId = sessionIdRef.current
+    if (!currentSessionId) return
+
+    try {
+      const localAudioTrack = getLocalAudioTrack()
+      let stream: MediaStream | null = null
+
+      if (localAudioTrack) {
+        stream = new MediaStream([localAudioTrack.clone()])
+      } else {
+        const deviceId = localAudioTrack?.getSettings?.()?.deviceId
+        const constraints =
+          deviceId && typeof deviceId === 'string'
+            ? { audio: { deviceId: { exact: deviceId } } }
+            : { audio: true }
+        stream = await navigator.mediaDevices.getUserMedia(constraints)
+      }
+
+      if (!stream) return
+
+      const mimeCandidates = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/ogg;codecs=opus',
+        'audio/ogg',
+      ]
+      const mimeType = mimeCandidates.find((m) => MediaRecorder.isTypeSupported(m)) || ''
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
+
+      recorder.ondataavailable = async (event) => {
+        if (!event.data || event.data.size === 0) return
+        const sessionId = sessionIdRef.current
+        if (!sessionId) return
+        const fd = new FormData()
+        fd.append('audio', event.data, 'chunk.webm')
+        fd.append('session_id', sessionId)
+        if (opmSpeakerNameRef.current) fd.append('speaker_name', opmSpeakerNameRef.current)
+        try {
+          await fetch('/api/opm/audio-chunk', { method: 'POST', body: fd })
+          console.log('[OPM-AUDIO] chunk sent', { size: event.data.size, sessionId })
+        } catch (err) {
+          console.warn('[OPM-AUDIO] chunk send failed', err)
+        }
+      }
+
+      recorder.start(5000) // 5s rolling chunks
+      audioRecorderRef.current = recorder
+      audioStreamRef.current = stream
+      console.log('[OPM-AUDIO] capture started')
+    } catch (err) {
+      console.warn('[OPM-AUDIO] capture failed', err)
+      stopOpmAudioCapture()
+    }
+  }
+
+  const forwardTranscript = async (payload: { text: string; speaker?: string | null; timestamp?: number }) => {
+    const sessionId = sessionIdRef.current
+    if (!sessionId) return
+    const body = {
+      session_id: sessionId,
+      transcript: payload.text,
+      speaker_name: payload.speaker || opmSpeakerNameRef.current || undefined,
+      timestamp: payload.timestamp ?? Date.now() / 1000,
+    }
+    try {
+      await fetch('/api/opm/transcript', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      console.log('[OPM-TRANSCRIPT] sent', { len: payload.text.length, speaker: body.speaker_name })
+    } catch (err) {
+      console.warn('[OPM-TRANSCRIPT] send failed', err)
+    }
+  }
+
+  const extractTranscriptEvent = (event: any): { text: string; speaker?: string; timestamp?: number } | null => {
+    const candidate = event?.data?.data ?? event?.data ?? event
+    const type = String(
+      candidate?.event_type || candidate?.message_type || candidate?.type || candidate?.label || ''
+    ).toLowerCase()
+    const looksTranscript =
+      type.includes('transcript') ||
+      type === 'stt' ||
+      type === 'speech_to_text' ||
+      type === 'speech-to-text' ||
+      type === 'caption'
+    const text =
+      candidate?.text ||
+      candidate?.transcript ||
+      candidate?.message ||
+      candidate?.caption ||
+      candidate?.payload?.text ||
+      ''
+    if (!looksTranscript || typeof text !== 'string' || !text.trim()) return null
+    const tsRaw = candidate?.timestamp ?? candidate?.ts ?? candidate?.time ?? candidate?.created_at
+    const tsNum =
+      typeof tsRaw === 'number'
+        ? tsRaw > 1e12
+          ? tsRaw / 1000
+          : tsRaw
+        : Date.now() / 1000
+    const speaker =
+      candidate?.speaker_name ||
+      candidate?.speaker ||
+      candidate?.user_name ||
+      candidate?.user ||
+      candidate?.name ||
+      candidate?.participant_name
+    return { text: text.trim(), speaker: typeof speaker === 'string' ? speaker : undefined, timestamp: tsNum }
+  }
 
   async function notifySessionStart(nextSessionId: string, joinUrl: string, personaName: string, replicaId: string) {
     try {
@@ -757,6 +899,7 @@ export default function VideoCall() {
         window.clearTimeout(hiddenTimeoutRef.current)
         hiddenTimeoutRef.current = null
       }
+      stopOpmAudioCapture()
       void endBackendSession('component_unmount')
       const callObject = callObjectRef.current
       callObjectRef.current = null
@@ -1004,6 +1147,7 @@ export default function VideoCall() {
 
     setStatusText('Ending call...')
     setPhase((current) => (current === 'error' ? current : 'starting'))
+    stopOpmAudioCapture()
 
     const stopRecordingPromise = recordingActive ? toggleRecording(true) : Promise.resolve()
     const shouldEndMeetingSession = !isMeetingMode || meetingHostControl
@@ -1108,6 +1252,7 @@ export default function VideoCall() {
         meeting_token: meetingToken || undefined,
         meeting_guest_join_only: isMeetingGuest,
       }
+      opmSpeakerNameRef.current = dailyUserName
       console.log('[VideoCall] startSession request', requestBody)
       const response = await fetch('/api/video-call', {
         method: 'POST',
@@ -1503,14 +1648,25 @@ export default function VideoCall() {
         }
       }
 
-      callObject.on('joined-meeting', (event: any) => handleParticipantChange('joined-meeting', event))
+      const handleTranscriptEvent = (event: any) => {
+        const transcript = extractTranscriptEvent(event)
+        if (!transcript) return
+        void forwardTranscript(transcript)
+      }
+
+      callObject.on('joined-meeting', (event: any) => {
+        handleParticipantChange('joined-meeting', event)
+        void startOpmAudioCapture()
+      })
       callObject.on('app-message', (event: any) => {
         handleVoiceCommandEvent(event)
+        handleTranscriptEvent(event)
         void handleToolCallEvent(event)
       })
       callObject.on('left-meeting', (event: any) => {
         logEvent('left-meeting', event)
         joinedRef.current = false
+        stopOpmAudioCapture()
         void recordCallSummary()
         if (!isMeetingMode || meetingHostControl) {
           void endBackendSession('left_meeting')
