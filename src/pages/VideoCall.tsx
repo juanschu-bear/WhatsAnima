@@ -562,12 +562,14 @@ export default function VideoCall() {
         fd.append('audio', event.data, 'chunk.webm')
         fd.append('session_id', sessionId)
         if (opmSpeakerNameRef.current) fd.append('speaker_name', opmSpeakerNameRef.current)
-        try {
-          await fetch('/api/opm/audio-chunk', { method: 'POST', body: fd })
-          console.log('[OPM-AUDIO] chunk sent', { size: event.data.size, sessionId })
-        } catch (err) {
-          console.warn('[OPM-AUDIO] chunk send failed', err)
-        }
+        // fire-and-forget; don’t block or spam retries
+        void fetch(`${LIVE_CALL_API_BASE}/api/opm/audio-chunk`, { method: 'POST', body: fd })
+          .then(() => {
+            console.log('[OPM-AUDIO] chunk sent', { size: event.data.size, sessionId })
+          })
+          .catch((err) => {
+            console.warn('[OPM-AUDIO] chunk send failed', err)
+          })
       }
 
       recorder.start(5000) // 5s rolling chunks
@@ -589,16 +591,18 @@ export default function VideoCall() {
       speaker_name: payload.speaker || opmSpeakerNameRef.current || undefined,
       timestamp: payload.timestamp ?? Date.now() / 1000,
     }
-    try {
-      await fetch('/api/opm/transcript', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+    // fire-and-forget; don’t block the call flow
+    void fetch(`${LIVE_CALL_API_BASE}/api/opm/transcript`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+      .then(() => {
+        console.log('[OPM-TRANSCRIPT] sent', { len: payload.text.length, speaker: body.speaker_name })
       })
-      console.log('[OPM-TRANSCRIPT] sent', { len: payload.text.length, speaker: body.speaker_name })
-    } catch (err) {
-      console.warn('[OPM-TRANSCRIPT] send failed', err)
-    }
+      .catch((err) => {
+        console.warn('[OPM-TRANSCRIPT] send failed', err)
+      })
   }
 
   const openOpmMonitor = () => {
