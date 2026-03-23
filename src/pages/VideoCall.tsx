@@ -601,6 +601,15 @@ export default function VideoCall() {
     }
   }
 
+  const openOpmMonitor = () => {
+    const sid = sessionIdRef.current || sessionId
+    if (!sid) {
+      console.warn('[OPM] monitor requested without session id')
+      return
+    }
+    window.open(`/opm-monitor?session=${encodeURIComponent(sid)}`, '_blank')
+  }
+
   const extractTranscriptEvent = (event: any): { text: string; speaker?: string; timestamp?: number } | null => {
     const candidate = event?.data?.data ?? event?.data ?? event
     const type = String(
@@ -2137,6 +2146,21 @@ export default function VideoCall() {
                 </svg>
               )}
             </button>
+
+            {creatorMode ? (
+              <button
+                type="button"
+                onClick={openOpmMonitor}
+                className="flex h-14 w-14 touch-manipulation items-center justify-center rounded-full border border-white/12 bg-white/4 text-white transition hover:bg-white/12 sm:h-[3.75rem] sm:w-[3.75rem]"
+                aria-label="Open OPM Monitor"
+              >
+                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+                  <path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />
+                  <circle cx="12" cy="12" r="2.75" />
+                  <path d="M12 8.5v1" />
+                </svg>
+              </button>
+            ) : null}
 
             {isMeetingMode ? (
               <button
