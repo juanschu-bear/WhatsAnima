@@ -163,6 +163,15 @@ function isPipecatParticipant(participant: any) {
   return userName === 'pipecat'
 }
 
+function resolveAvatarParticipantId(participants: any[]) {
+  const tavusReplica = participants.find((participant) => participant?.user_id === 'tavus-replica')
+  if (tavusReplica) return getParticipantId(tavusReplica)
+  const fallback = participants.find(
+    (participant) => !participant?.local && !isPipecatParticipant(participant)
+  )
+  return fallback ? getParticipantId(fallback) : null
+}
+
 type ToolCallPayload = {
   name: string
   args: Record<string, unknown>
@@ -458,6 +467,9 @@ export default function VideoCall() {
   const callStartAtRef = useRef<number | null>(null)
   const callSummarySentRef = useRef(false)
   const participantsRef = useRef<any[]>([])
+  const lastUserSpeechEndAtRef = useRef<number | null>(null)
+  const lastLatencyLoggedAtRef = useRef<number | null>(null)
+  const lastActiveSpeakerIdRef = useRef<string | null>(null)
   const endingSessionRef = useRef(false)
   const hiddenTimeoutRef = useRef<number | null>(null)
   const meetingAutoStartRef = useRef(false)
@@ -1066,6 +1078,9 @@ export default function VideoCall() {
     callStartAtRef.current = null
     callSummarySentRef.current = false
     participantsRef.current = []
+    lastUserSpeechEndAtRef.current = null
+    lastLatencyLoggedAtRef.current = null
+    lastActiveSpeakerIdRef.current = null
     toolCallCooldownRef.current = {}
     setPhase('starting')
     setStatusText(isMeetingGuest ? 'Joining live meeting...' : 'Connecting...')
@@ -1510,11 +1525,45 @@ export default function VideoCall() {
           void endBackendSession('participant_left')
         }
       })
-      callObject.on('track-started', (event: any) => handleParticipantChange('track-started', event))
+      callObject.on('track-started', (event: any) => {
+        const trackKind = event?.track?.kind || event?.track?.track?.kind || null
+        if (trackKind === 'audio' && lastUserSpeechEndAtRef.current) {
+          const participantsSnapshot = participantsRef.current || []
+          const avatarId = resolveAvatarParticipantId(participantsSnapshot)
+          const eventParticipantId = event?.participant ? getParticipantId(event.participant) : null
+          if (avatarId && eventParticipantId === avatarId) {
+            if (lastLatencyLoggedAtRef.current !== lastUserSpeechEndAtRef.current) {
+              const latencyMs = Date.now() - lastUserSpeechEndAtRef.current
+              console.log(`[LATENCY] response time: ${latencyMs}ms`, { trigger: 'audio-track-started' })
+              lastLatencyLoggedAtRef.current = lastUserSpeechEndAtRef.current
+            }
+          }
+        }
+        handleParticipantChange('track-started', event)
+      })
       callObject.on('track-stopped', (event: any) => handleParticipantChange('track-stopped', event))
       callObject.on('active-speaker-change', (event: any) => {
         logEvent('active-speaker-change', event)
         const nextActive = event?.activeSpeaker ? getParticipantId(event.activeSpeaker) : null
+        const participantsSnapshot = participantsRef.current || []
+        const userParticipant = participantsSnapshot.find((participant) => participant?.local)
+        const userId = userParticipant ? getParticipantId(userParticipant) : null
+        const avatarId = resolveAvatarParticipantId(participantsSnapshot)
+        const previousActive = lastActiveSpeakerIdRef.current
+        lastActiveSpeakerIdRef.current = nextActive
+
+        if (userId && previousActive === userId && nextActive !== userId) {
+          lastUserSpeechEndAtRef.current = Date.now()
+        }
+
+        if (avatarId && nextActive === avatarId && lastUserSpeechEndAtRef.current) {
+          if (lastLatencyLoggedAtRef.current !== lastUserSpeechEndAtRef.current) {
+            const latencyMs = Date.now() - lastUserSpeechEndAtRef.current
+            console.log(`[LATENCY] response time: ${latencyMs}ms`, { trigger: 'active-speaker-change' })
+            lastLatencyLoggedAtRef.current = lastUserSpeechEndAtRef.current
+          }
+        }
+
         setActiveSpeakerId(nextActive || null)
       })
       callObject.on('camera-error', (event: any) => {
