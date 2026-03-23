@@ -656,14 +656,7 @@ export default function VideoCall() {
     const conversationIdForContext = tavusConversationIdRef.current
     if (!conversationIdForContext) return
 
-    const visible = (participantsRef.current || []).filter((participant) => !isPipecatParticipant(participant))
-    const names = visible.map((participant) => getParticipantName(participant)).filter(Boolean)
-    const contextText =
-      names.length === 0
-        ? 'Participants in call: none.'
-        : names.length === 1
-          ? `Participants in call: ${names[0]}.`
-          : `Participants in call: ${names.join(', ')}.`
+    const contextText = '[MEETING] The person in this call is Juan Schubert. Address them by name naturally.'
 
     callObject.sendAppMessage(
       {
@@ -1132,9 +1125,12 @@ export default function VideoCall() {
     setParticipants(participants)
     const visible = participants.filter((participant) => !isPipecatParticipant(participant))
     const hasAvatarVideo = visible.some((participant) => Boolean(getParticipantTrack(participant, 'video')))
+    const tavusAvatarReady = visible.some(
+      (participant) => participant?.user_id === 'tavus-replica' && Boolean(getParticipantTrack(participant, 'video'))
+    )
     setStatusText(hasAvatarVideo ? 'Connected' : 'Avatar joining...')
     setPhase('connected')
-    if (hasAvatarVideo) {
+    if (hasAvatarVideo || tavusAvatarReady) {
       injectParticipantsContext(callObject)
     }
     console.log('[VideoCall] syncParticipants', {
@@ -1728,6 +1724,12 @@ export default function VideoCall() {
       })
       callObject.on('track-started', (event: any) => {
         const trackKind = event?.track?.kind || event?.track?.track?.kind || null
+        if (trackKind === 'video') {
+          const participant = event?.participant
+          if (participant?.user_id === 'tavus-replica') {
+            injectParticipantsContext(callObject)
+          }
+        }
         if (trackKind === 'audio' && lastUserSpeechEndAtRef.current) {
           const participantsSnapshot = participantsRef.current || []
           const avatarId = resolveAvatarParticipantId(participantsSnapshot)
@@ -1973,8 +1975,8 @@ export default function VideoCall() {
                       </p>
                     </div>
                   ) : viewMode === 'speaker' ? (
-                    <div className="flex h-full w-full flex-col gap-3 p-3 sm:gap-4 sm:p-4">
-                      <div className="min-h-0 flex-1">
+                    <div className="relative h-full w-full p-3 sm:p-4">
+                      <div className="h-full w-full">
                         {activeSpeakerParticipant ? (
                           <ParticipantTile
                             participant={activeSpeakerParticipant}
@@ -1985,20 +1987,13 @@ export default function VideoCall() {
                         ) : null}
                       </div>
                       {thumbnailParticipants.length > 0 ? (
-                        <div
-                          className="grid gap-3"
-                          style={{ gridTemplateColumns: `repeat(${thumbnailColumns}, minmax(0, 1fr))` }}
-                        >
-                          {thumbnailParticipants.map((participant, index) => (
-                            <div key={getParticipantId(participant) || `thumb-${index}`} className="h-32 sm:h-36">
-                              <ParticipantTile
-                                participant={participant}
-                                isLocal={Boolean(participant?.local)}
-                                isActive={false}
-                                isCameraEnabled={isCameraEnabled}
-                              />
-                            </div>
-                          ))}
+                        <div className="absolute bottom-4 right-4 w-40 sm:bottom-6 sm:right-6 sm:w-48">
+                          <ParticipantTile
+                            participant={thumbnailParticipants[0]}
+                            isLocal={Boolean(thumbnailParticipants[0]?.local)}
+                            isActive={false}
+                            isCameraEnabled={isCameraEnabled}
+                          />
                         </div>
                       ) : null}
                     </div>
