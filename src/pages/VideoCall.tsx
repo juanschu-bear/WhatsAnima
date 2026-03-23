@@ -469,6 +469,7 @@ export default function VideoCall() {
   const audioStreamRef = useRef<MediaStream | null>(null)
   const opmSpeakerNameRef = useRef<string>('')
   const participantsInjectedRef = useRef(false)
+  const languageContextInjectedRef = useRef(false)
   const meetingToken = String(searchParams.get('meeting_token') || '').trim()
   const hasMeetingContext =
     typeof window !== 'undefined' &&
@@ -642,8 +643,38 @@ export default function VideoCall() {
     return { text: text.trim(), speaker: typeof speaker === 'string' ? speaker : undefined, timestamp: tsNum }
   }
 
+  const injectLanguageContext = (callObject: ReturnType<typeof DailyIframe.createCallObject>) => {
+    if (languageContextInjectedRef.current) return
+    const conversationIdForContext = tavusConversationIdRef.current
+    if (!conversationIdForContext) return
+
+    const lang = normalizeLanguageCode(languageRef.current)
+    const contextText =
+      lang === 'de'
+        ? '[LANGUAGE] This entire conversation MUST be in German. Every response in German. Never switch to English.'
+        : lang === 'es'
+          ? '[LANGUAGE] This entire conversation MUST be in Spanish. Every response in Spanish. Never switch to English.'
+          : '[LANGUAGE] This conversation is in English.'
+
+    callObject.sendAppMessage(
+      {
+        message_type: 'conversation',
+        event_type: 'conversation.append_context',
+        conversation_id: conversationIdForContext,
+        properties: { context: contextText },
+      },
+      '*'
+    )
+    languageContextInjectedRef.current = true
+    console.log('[OPM-CONTEXT] language injected', { language: lang })
+  }
+
   const injectParticipantsContext = (callObject: ReturnType<typeof DailyIframe.createCallObject>) => {
     if (participantsInjectedRef.current) return
+    if (!languageContextInjectedRef.current) {
+      injectLanguageContext(callObject)
+      if (!languageContextInjectedRef.current) return
+    }
     const conversationIdForContext = tavusConversationIdRef.current
     if (!conversationIdForContext) return
 
@@ -1253,6 +1284,7 @@ export default function VideoCall() {
     callStartAtRef.current = null
     callSummarySentRef.current = false
     participantsInjectedRef.current = false
+    languageContextInjectedRef.current = false
     participantsRef.current = []
     lastUserSpeechEndAtRef.current = null
     lastLatencyLoggedAtRef.current = null
@@ -1688,6 +1720,7 @@ export default function VideoCall() {
 
       callObject.on('joined-meeting', (event: any) => {
         handleParticipantChange('joined-meeting', event)
+        injectLanguageContext(callObject)
         void startOpmAudioCapture()
       })
       callObject.on('app-message', (event: any) => {
@@ -1946,7 +1979,7 @@ export default function VideoCall() {
               <div className="relative h-full w-full">
                 <div className="absolute inset-0">
                   {visibleParticipants.length === 0 ? (
-                    <div className="flex h-full w-full flex-col items-center justify-center px-6 text-center">
+                    <div className="flex h-full w-full flex-col items-center justify-center px-6 pb-10 text-center sm:pb-12">
                       <div className="relative">
                         <img
                           src={resolveAvatarUrl(personaName)}
@@ -1963,6 +1996,73 @@ export default function VideoCall() {
                           ? (isMeetingGuest ? 'Joining existing live meeting room...' : 'Choose a language and start the room.')
                           : statusText}
                       </p>
+                      {phase === 'setup' && !shouldSkipLanguageSelection ? (
+                        <div className="mt-6 w-full max-w-xl rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(6,14,24,0.95),rgba(6,10,18,0.98))] p-4 shadow-[0_28px_90px_rgba(0,0,0,0.45)] backdrop-blur-2xl sm:rounded-[28px] sm:p-5">
+                          <p className="text-xs uppercase tracking-[0.26em] text-white/45">
+                            {personaOverrideEnabled ? 'Persona override (testing)' : 'Avatar identity'}
+                          </p>
+                          {personaOverrideEnabled ? (
+                            <label className="mt-3 block">
+                              <select
+                                value={selectedPersona}
+                                onChange={(event) => setSelectedPersona(event.target.value)}
+                                className="min-h-12 w-full appearance-none rounded-[20px] border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-medium text-white outline-none transition focus:border-[#79f5e4]/40"
+                                disabled={loadingPersonas}
+                              >
+                                {personas.map((persona) => (
+                                  <option key={persona.id || persona.name} value={persona.name} className="bg-[#0b1520] text-white">
+                                    {persona.name} {persona.role ? `- ${persona.role}` : ''}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          ) : (
+                            <div className="mt-3 rounded-[20px] border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-medium text-white/92">
+                              {owner.display_name || 'Owner avatar'}
+                            </div>
+                          )}
+                          {personaOverrideEnabled && selectedPersonaDetails?.role ? (
+                            <p className="mt-2 text-sm text-white/60">{selectedPersonaDetails.role}</p>
+                          ) : null}
+                          <p className="mt-4 text-xs uppercase tracking-[0.26em] text-white/45">Session language</p>
+                          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                            {LANGUAGES.map((item) => {
+                              const active = language === item.code
+                              return (
+                                <button
+                                  key={item.code}
+                                  type="button"
+                                  onClick={() => {
+                                    languageRef.current = normalizeLanguageCode(item.code)
+                                    setLanguage(item.code)
+                                  }}
+                                  className={`rounded-[20px] border px-4 py-4 text-left transition ${
+                                    active
+                                      ? `border-white/20 bg-gradient-to-br ${item.accent} text-[#041018]`
+                                      : 'border-white/10 bg-white/[0.03] text-white/78 hover:bg-white/[0.06]'
+                                  }`}
+                                >
+                                  <div className="text-sm font-semibold">{item.label}</div>
+                                  <div className={`mt-1 text-xs ${active ? 'text-[#08252a]/80' : 'text-white/45'}`}>
+                                    Join with this language
+                                  </div>
+                                </button>
+                              )
+                            })}
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => void startCall()}
+                            className="mt-5 inline-flex min-h-12 w-full items-center justify-center rounded-[20px] bg-[linear-gradient(135deg,#79f5e4,#48c2ff)] px-5 py-3.5 text-sm font-semibold text-[#041018] shadow-[0_20px_50px_rgba(72,194,255,0.25)] transition hover:brightness-105"
+                          >
+                            Start live call
+                          </button>
+                          <p className="mt-3 text-center text-[11px] text-white/42">
+                            Owner avatar: {owner.display_name || 'Unconfigured'} · Session persona: {personaName} · Language: {selectedLanguage?.label ?? 'English'} · Replica: {replicaId}
+                          </p>
+                        </div>
+                      ) : null}
                     </div>
                   ) : viewMode === 'speaker' ? (
                     <div className="relative h-full w-full p-3 sm:p-4">
@@ -2018,75 +2118,7 @@ export default function VideoCall() {
                 </div>
               </div>
 
-              {phase === 'setup' && !shouldSkipLanguageSelection ? (
-                <div className="absolute inset-x-0 bottom-24 flex justify-center px-3 sm:bottom-28 sm:px-4">
-                  <div className="w-full max-w-xl rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(6,14,24,0.95),rgba(6,10,18,0.98))] p-4 shadow-[0_28px_90px_rgba(0,0,0,0.45)] backdrop-blur-2xl sm:rounded-[28px] sm:p-5">
-                    <p className="text-xs uppercase tracking-[0.26em] text-white/45">
-                      {personaOverrideEnabled ? 'Persona override (testing)' : 'Avatar identity'}
-                    </p>
-                    {personaOverrideEnabled ? (
-                      <label className="mt-3 block">
-                        <select
-                          value={selectedPersona}
-                          onChange={(event) => setSelectedPersona(event.target.value)}
-                          className="min-h-12 w-full appearance-none rounded-[20px] border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-medium text-white outline-none transition focus:border-[#79f5e4]/40"
-                          disabled={loadingPersonas}
-                        >
-                          {personas.map((persona) => (
-                            <option key={persona.id || persona.name} value={persona.name} className="bg-[#0b1520] text-white">
-                              {persona.name} {persona.role ? `- ${persona.role}` : ''}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    ) : (
-                      <div className="mt-3 rounded-[20px] border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-medium text-white/92">
-                        {owner.display_name || 'Owner avatar'}
-                      </div>
-                    )}
-                    {personaOverrideEnabled && selectedPersonaDetails?.role ? (
-                      <p className="mt-2 text-sm text-white/60">{selectedPersonaDetails.role}</p>
-                    ) : null}
-                    <p className="mt-4 text-xs uppercase tracking-[0.26em] text-white/45">Session language</p>
-                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                      {LANGUAGES.map((item) => {
-                        const active = language === item.code
-                        return (
-                          <button
-                            key={item.code}
-                            type="button"
-                            onClick={() => {
-                              languageRef.current = normalizeLanguageCode(item.code)
-                              setLanguage(item.code)
-                            }}
-                            className={`rounded-[20px] border px-4 py-4 text-left transition ${
-                              active
-                                ? `border-white/20 bg-gradient-to-br ${item.accent} text-[#041018]`
-                                : 'border-white/10 bg-white/[0.03] text-white/78 hover:bg-white/[0.06]'
-                            }`}
-                          >
-                            <div className="text-sm font-semibold">{item.label}</div>
-                            <div className={`mt-1 text-xs ${active ? 'text-[#08252a]/80' : 'text-white/45'}`}>
-                              Join with this language
-                            </div>
-                          </button>
-                        )
-                      })}
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => void startCall()}
-                      className="mt-5 inline-flex min-h-12 w-full items-center justify-center rounded-[20px] bg-[linear-gradient(135deg,#79f5e4,#48c2ff)] px-5 py-3.5 text-sm font-semibold text-[#041018] shadow-[0_20px_50px_rgba(72,194,255,0.25)] transition hover:brightness-105"
-                    >
-                      Start live call
-                    </button>
-                    <p className="mt-3 text-center text-[11px] text-white/42">
-                      Owner avatar: {owner.display_name || 'Unconfigured'} · Session persona: {personaName} · Language: {selectedLanguage?.label ?? 'English'} · Replica: {replicaId}
-                    </p>
-                  </div>
-                </div>
-              ) : null}
+              {phase === 'setup' && !shouldSkipLanguageSelection ? null : null}
 
               {error ? (
                 <div className="absolute inset-x-0 bottom-24 flex justify-center px-3 sm:bottom-28 sm:px-4">
