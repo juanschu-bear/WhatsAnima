@@ -1549,6 +1549,18 @@ export default function VideoCall() {
         const userParticipant = participantsSnapshot.find((participant) => participant?.local)
         const userId = userParticipant ? getParticipantId(userParticipant) : null
         const avatarId = resolveAvatarParticipantId(participantsSnapshot)
+        if (userId || avatarId) {
+          console.log('[LATENCY] participant mapping', {
+            userId,
+            avatarId,
+            userName: userParticipant ? getParticipantName(userParticipant) : null,
+            avatarName: avatarId
+              ? getParticipantName(
+                  participantsSnapshot.find((participant) => getParticipantId(participant) === avatarId)
+                )
+              : null,
+          })
+        }
         const previousActive = lastActiveSpeakerIdRef.current
         lastActiveSpeakerIdRef.current = nextActive
 
