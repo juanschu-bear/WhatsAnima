@@ -451,10 +451,6 @@ export default function VideoCall() {
   const [activeSpeakerId, setActiveSpeakerId] = useState<string | null>(null)
   const [meetingHostControl, setMeetingHostControl] = useState(false)
   const [meetingSelfName, setMeetingSelfName] = useState('')
-  // OPM side-channel capture (parallel to Tavus audio)
-  const audioRecorderRef = useRef<MediaRecorder | null>(null)
-  const audioStreamRef = useRef<MediaStream | null>(null)
-  const opmSpeakerNameRef = useRef<string>('')
 
   const callObjectRef = useRef<ReturnType<typeof DailyIframe.createCallObject> | null>(null)
   const sessionIdRef = useRef<string | null>(null)
@@ -535,7 +531,10 @@ export default function VideoCall() {
       if (localAudioTrack) {
         stream = new MediaStream([localAudioTrack.clone()])
       } else {
-        const deviceId = localAudioTrack?.getSettings?.()?.deviceId
+        const deviceId =
+          localAudioTrack && typeof localAudioTrack.getSettings === 'function'
+            ? localAudioTrack.getSettings().deviceId
+            : undefined
         const constraints =
           deviceId && typeof deviceId === 'string'
             ? { audio: { deviceId: { exact: deviceId } } }
