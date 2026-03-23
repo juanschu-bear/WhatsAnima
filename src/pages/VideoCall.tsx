@@ -477,6 +477,7 @@ export default function VideoCall() {
   const audioRecorderRef = useRef<MediaRecorder | null>(null)
   const audioStreamRef = useRef<MediaStream | null>(null)
   const opmSpeakerNameRef = useRef<string>('')
+  const participantsInjectedRef = useRef(false)
   const meetingToken = String(searchParams.get('meeting_token') || '').trim()
   const hasMeetingContext =
     typeof window !== 'undefined' &&
@@ -648,6 +649,33 @@ export default function VideoCall() {
       candidate?.name ||
       candidate?.participant_name
     return { text: text.trim(), speaker: typeof speaker === 'string' ? speaker : undefined, timestamp: tsNum }
+  }
+
+  const injectParticipantsContext = (callObject: ReturnType<typeof DailyIframe.createCallObject>) => {
+    if (participantsInjectedRef.current) return
+    const conversationIdForContext = tavusConversationIdRef.current
+    if (!conversationIdForContext) return
+
+    const visible = (participantsRef.current || []).filter((participant) => !isPipecatParticipant(participant))
+    const names = visible.map((participant) => getParticipantName(participant)).filter(Boolean)
+    const contextText =
+      names.length === 0
+        ? 'Participants in call: none.'
+        : names.length === 1
+          ? `Participants in call: ${names[0]}.`
+          : `Participants in call: ${names.join(', ')}.`
+
+    callObject.sendAppMessage(
+      {
+        message_type: 'conversation',
+        event_type: 'conversation.append_context',
+        conversation_id: conversationIdForContext,
+        properties: { context: contextText },
+      },
+      '*'
+    )
+    participantsInjectedRef.current = true
+    console.log('[OPM-CONTEXT] participants pre-injected', { text: contextText })
   }
 
   async function notifySessionStart(nextSessionId: string, joinUrl: string, personaName: string, replicaId: string) {
@@ -1106,6 +1134,9 @@ export default function VideoCall() {
     const hasAvatarVideo = visible.some((participant) => Boolean(getParticipantTrack(participant, 'video')))
     setStatusText(hasAvatarVideo ? 'Connected' : 'Avatar joining...')
     setPhase('connected')
+    if (hasAvatarVideo) {
+      injectParticipantsContext(callObject)
+    }
     console.log('[VideoCall] syncParticipants', {
       eventName,
       sessionId,
@@ -1234,6 +1265,7 @@ export default function VideoCall() {
     lastRavenContextAtRef.current = 0
     callStartAtRef.current = null
     callSummarySentRef.current = false
+    participantsInjectedRef.current = false
     participantsRef.current = []
     lastUserSpeechEndAtRef.current = null
     lastLatencyLoggedAtRef.current = null
