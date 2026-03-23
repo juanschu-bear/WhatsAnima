@@ -360,15 +360,6 @@ function getGridColumns(count: number) {
   return 4
 }
 
-function getThumbnailColumns(count: number) {
-  if (count <= 1) return 1
-  if (count === 2) return 2
-  if (count <= 4) return 2
-  if (count <= 6) return 3
-  if (count <= 9) return 3
-  return 4
-}
-
 function ParticipantTile({
   participant,
   isLocal,
