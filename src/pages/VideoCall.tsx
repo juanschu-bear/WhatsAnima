@@ -1912,7 +1912,6 @@ export default function VideoCall() {
   const selectedPersonaDetails = personas.find((persona) => persona.name === selectedPersona) ?? null
   const selectedLanguage = LANGUAGES.find((item) => item.code === language)
   const sideBySideColumns = getGridColumns(visibleParticipants.length)
-  const thumbnailColumns = getThumbnailColumns(thumbnailParticipants.length)
 
   return (
     <div className="relative h-[100dvh] min-h-[100dvh] overflow-hidden bg-[radial-gradient(circle_at_top,rgba(0,195,170,0.16),transparent_30%),radial-gradient(circle_at_85%_20%,rgba(53,127,255,0.16),transparent_24%),linear-gradient(180deg,#03060b_0%,#07111a_48%,#02050a_100%)] text-white supports-[-webkit-touch-callout:none]:min-h-[-webkit-fill-available]">
