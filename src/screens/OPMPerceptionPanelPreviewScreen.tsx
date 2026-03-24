@@ -828,24 +828,38 @@ export default function OPMPerceptionPanelPreviewScreen() {
   const updateDrag = (id: WindowId): RndDragCallback => (...args) => {
     const data = args[1];
     setLayouts((current) => ({
-      ...current,
-      [id]: { ...current[id], x: data.x, y: data.y },
-    }));
+      const next = {
+        ...current,
+        [id]: { ...current[id], x: data.x, y: data.y },
+      };
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(next));
+        setLayoutSavedAt(Date.now());
+      }
+      return next;
+    });
   };
 
   const updateResize = (id: WindowId): RndResizeCallback => (...args) => {
     const ref = args[2];
     const position = args[4];
     setLayouts((current) => ({
-      ...current,
-      [id]: {
-        ...current[id],
-        x: position.x,
-        y: position.y,
-        width: parseFloat(ref.style.width),
-        height: parseFloat(ref.style.height),
-      },
-    }));
+      const next = {
+        ...current,
+        [id]: {
+          ...current[id],
+          x: position.x,
+          y: position.y,
+          width: parseFloat(ref.style.width),
+          height: parseFloat(ref.style.height),
+        },
+      };
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(next));
+        setLayoutSavedAt(Date.now());
+      }
+      return next;
+    });
   };
 
   return (
