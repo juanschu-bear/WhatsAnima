@@ -827,7 +827,7 @@ export default function OPMPerceptionPanelPreviewScreen() {
 
   const updateDrag = (id: WindowId): RndDragCallback => (...args) => {
     const data = args[1];
-    setLayouts((current) => ({
+    setLayouts((current) => {
       const next = {
         ...current,
         [id]: { ...current[id], x: data.x, y: data.y },
@@ -843,7 +843,7 @@ export default function OPMPerceptionPanelPreviewScreen() {
   const updateResize = (id: WindowId): RndResizeCallback => (...args) => {
     const ref = args[2];
     const position = args[4];
-    setLayouts((current) => ({
+    setLayouts((current) => {
       const next = {
         ...current,
         [id]: {
