@@ -608,12 +608,18 @@ export default function VideoCall() {
   }
 
   const extractTranscriptEvent = (event: any): { text: string; speaker?: string; timestamp?: number } | null => {
-    const candidate = event?.data?.data ?? event?.data ?? event
-    const type = String(
+    const outer = event?.data ?? event
+    const candidate = outer?.data ?? outer
+    const outerType = String(
+      outer?.event_type || outer?.message_type || outer?.type || outer?.label || ''
+    ).toLowerCase()
+    const candidateType = String(
       candidate?.event_type || candidate?.message_type || candidate?.type || candidate?.label || ''
     ).toLowerCase()
+    const type = candidateType || outerType
     const looksTranscript =
       type.includes('transcript') ||
+      type.includes('transcription') ||
       type === 'stt' ||
       type === 'speech_to_text' ||
       type === 'speech-to-text' ||
@@ -623,6 +629,10 @@ export default function VideoCall() {
       candidate?.transcript ||
       candidate?.message ||
       candidate?.caption ||
+      outer?.text ||
+      outer?.transcript ||
+      outer?.message ||
+      outer?.caption ||
       candidate?.payload?.text ||
       ''
     if (!looksTranscript || typeof text !== 'string' || !text.trim()) return null
@@ -1727,6 +1737,9 @@ export default function VideoCall() {
         handleVoiceCommandEvent(event)
         handleTranscriptEvent(event)
         void handleToolCallEvent(event)
+      })
+      callObject.on('transcription', (event: any) => {
+        handleTranscriptEvent(event)
       })
       callObject.on('left-meeting', (event: any) => {
         logEvent('left-meeting', event)
