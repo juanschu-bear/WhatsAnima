@@ -825,14 +825,17 @@ export default function OPMPerceptionPanelPreviewScreen() {
     }));
   };
 
-  const updateDrag = (id: WindowId): RndDragCallback => (_e, data) => {
+  const updateDrag = (id: WindowId): RndDragCallback => (...args) => {
+    const data = args[1];
     setLayouts((current) => ({
       ...current,
       [id]: { ...current[id], x: data.x, y: data.y },
     }));
   };
 
-  const updateResize = (id: WindowId): RndResizeCallback => (_e, _dir, ref, _delta, position) => {
+  const updateResize = (id: WindowId): RndResizeCallback => (...args) => {
+    const ref = args[2];
+    const position = args[4];
     setLayouts((current) => ({
       ...current,
       [id]: {

@@ -16,9 +16,11 @@
     "@anthropic-ai/sdk": "^0.78.0",
     "@daily-co/daily-js": "^0.87.0",
     "@supabase/supabase-js": "^2.49.1",
+    "framer-motion": "^12.38.0",
     "pg": "^8.20.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "react-rnd": "^10.5.3",
     "react-router-dom": "^7.3.0",
     "web-push": "^3.6.7"
   },
