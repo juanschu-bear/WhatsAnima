@@ -1889,6 +1889,31 @@ export default function VideoCall() {
     }
   }
 
+  const triggerEchoSanityCheck = () => {
+    const callObject = callObjectRef.current
+    const conversationIdForEcho = tavusConversationIdRef.current
+    if (!conversationIdForEcho) {
+      console.warn('[ECHO-TEST] skipped', { reason: 'missing_conversation_id', phase })
+      return
+    }
+    if (!callObject || phase !== 'connected') {
+      console.warn('[ECHO-TEST] skipped', { reason: 'call_not_connected', hasCallObject: Boolean(callObject), phase })
+      return
+    }
+
+    const payload = {
+      message_type: 'conversation',
+      event_type: 'conversation.echo',
+      conversation_id: conversationIdForEcho,
+      properties: {
+        text: 'The person I am talking to is named Juan Schubert.',
+      },
+    }
+
+    console.log('[ECHO-TEST] sent', payload)
+    callObject.sendAppMessage(payload, '*')
+  }
+
   async function toggleRecording(forceStop = false) {
     if (!isMeetingMode) return
     const activeSessionId = sessionIdRef.current
@@ -2235,6 +2260,15 @@ export default function VideoCall() {
                 <circle cx="12" cy="12" r="2.75" />
                 <path d="M12 8.5v1" />
               </svg>
+            </button>
+
+            <button
+              type="button"
+              onClick={triggerEchoSanityCheck}
+              disabled={phase !== 'connected'}
+              className="flex h-14 min-w-[6.5rem] touch-manipulation items-center justify-center rounded-full border border-white/14 bg-white/8 px-4 text-sm font-semibold text-white transition hover:bg-white/14 disabled:opacity-60 sm:h-[3.75rem] sm:min-w-[7rem]"
+            >
+              Echo Test
             </button>
 
             {isMeetingMode ? (
