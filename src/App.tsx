@@ -17,7 +17,7 @@ import Perception from './pages/Perception'
 import ExtendedPerception from './pages/ExtendedPerception'
 import MeetingLobby from './pages/MeetingLobby'
 import MeetingHost from './pages/MeetingHost'
-import OpmMonitor from './pages/OpmMonitor'
+import OPMPerceptionPanelPreviewScreen from './screens/OPMPerceptionPanelPreviewScreen'
 
 export default function App() {
   return (
@@ -33,7 +33,7 @@ export default function App() {
           <Route path="/chat/:conversationId" element={<Chat />} />
           <Route path="/video-call" element={<VideoCall />} />
           <Route path="/video-call/:conversationId" element={<VideoCall />} />
-          <Route path="/opm-monitor" element={<OpmMonitor />} />
+          <Route path="/opm-monitor" element={<OPMPerceptionPanelPreviewScreen />} />
           <Route
             path="/avatars"
             element={
