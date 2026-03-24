@@ -4,7 +4,7 @@ const LIVE_CALL_API_BASE =
   process.env.LIVE_CALL_API_BASE ||
   process.env.VITE_LIVE_CALL_API_BASE ||
   'https://anima.onioko.com'
-const JUAN_LOCKED_PERSONA_ID = 'p8c4ae75d94d'
+const JUAN_LOCKED_PERSONA_ID = 'p3ba4e8a40d1'
 const JUAN_LOCKED_REPLICA_ID = 'rf5414018e80'
 
 function normalizeBackendBaseUrl(value: string) {

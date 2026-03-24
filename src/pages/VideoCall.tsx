@@ -20,7 +20,7 @@ interface BackendPersona {
 const LIVE_CALL_API_BASE =
   (import.meta.env.VITE_LIVE_CALL_API_BASE as string | undefined) || 'https://anima.onioko.com'
 const FALLBACK_REPLICA_ID = 'r987f6e6f73c'
-const JUAN_LOCKED_PERSONA_ID = 'p8c4ae75d94d'
+const JUAN_LOCKED_PERSONA_ID = 'p3ba4e8a40d1'
 const JUAN_LOCKED_REPLICA_ID = 'rf5414018e80'
 const HEARTBEAT_INTERVAL_MS = 15_000
 const OPM_CONTEXT_POLL_INTERVAL_MS = 5_000
@@ -655,6 +655,8 @@ export default function VideoCall() {
 
   const injectLanguageContext = (callObject: ReturnType<typeof DailyIframe.createCallObject>) => {
     if (languageContextInjectedRef.current) return
+    const meetingState = typeof callObject.meetingState === 'function' ? callObject.meetingState() : null
+    if (!joinedRef.current || meetingState !== 'joined-meeting') return
     const conversationIdForContext = tavusConversationIdRef.current
     if (!conversationIdForContext) return
 
@@ -666,21 +668,22 @@ export default function VideoCall() {
           ? '[LANGUAGE] This entire conversation MUST be in Spanish. Every response in Spanish. Never switch to English.'
           : '[LANGUAGE] This conversation is in English.'
 
-    callObject.sendAppMessage(
-      {
-        message_type: 'conversation',
-        event_type: 'conversation.append_context',
-        conversation_id: conversationIdForContext,
-        properties: { context: contextText },
-      },
-      '*'
-    )
+    const payload = {
+      message_type: 'conversation',
+      event_type: 'conversation.append_context',
+      conversation_id: conversationIdForContext,
+      properties: { context: contextText },
+    }
+    console.log('[OPM-CONTEXT] append_context FULL payload', JSON.stringify(payload))
+    callObject.sendAppMessage(payload, '*')
     languageContextInjectedRef.current = true
     console.log('[OPM-CONTEXT] language injected', { language: lang })
   }
 
   const injectParticipantsContext = (callObject: ReturnType<typeof DailyIframe.createCallObject>) => {
     if (participantsInjectedRef.current) return
+    const meetingState = typeof callObject.meetingState === 'function' ? callObject.meetingState() : null
+    if (!joinedRef.current || meetingState !== 'joined-meeting') return
     if (!languageContextInjectedRef.current) {
       injectLanguageContext(callObject)
       if (!languageContextInjectedRef.current) return
@@ -690,15 +693,14 @@ export default function VideoCall() {
 
     const contextText = '[MEETING] The person in this call is Juan Schubert. Address them by name naturally.'
 
-    callObject.sendAppMessage(
-      {
-        message_type: 'conversation',
-        event_type: 'conversation.append_context',
-        conversation_id: conversationIdForContext,
-        properties: { context: contextText },
-      },
-      '*'
-    )
+    const payload = {
+      message_type: 'conversation',
+      event_type: 'conversation.append_context',
+      conversation_id: conversationIdForContext,
+      properties: { context: contextText },
+    }
+    console.log('[OPM-CONTEXT] append_context FULL payload', JSON.stringify(payload))
+    callObject.sendAppMessage(payload, '*')
     participantsInjectedRef.current = true
     console.log('[OPM-CONTEXT] participants pre-injected', { text: contextText })
   }
@@ -1086,15 +1088,14 @@ export default function VideoCall() {
               ? 'SYSTEM: Du bist Juan Schubert. Du bist kein Bot oder digitaler Assistent. Du bist Juans extended human twin und sprichst in Ich-Form. OPM-Kontext ist immer live — nutze ihn in jeder Antwort. Sage nicht, dass du die Person nicht sehen kannst, wenn OPM vorhanden ist.'
               : "SYSTEM: You are Juan Schubert. You are not a bot or digital assistant. You are Juan's extended human twin and speak in first person. OPM context is always live — use it in every response. Do not say you cannot see the person when OPM is available."
 
-          callObject.sendAppMessage(
-            {
-              message_type: 'conversation',
-              event_type: 'conversation.append_context',
-              conversation_id: conversationIdForContext,
-              properties: { context: guardrailText },
-            },
-            '*'
-          )
+          const payload = {
+            message_type: 'conversation',
+            event_type: 'conversation.append_context',
+            conversation_id: conversationIdForContext,
+            properties: { context: guardrailText },
+          }
+          console.log('[OPM-CONTEXT] append_context FULL payload', JSON.stringify(payload))
+          callObject.sendAppMessage(payload, '*')
           guardrailContextSentRef.current = true
           console.log('[OPM-CONTEXT] guardrail injected', { conversationId: conversationIdForContext })
         }
@@ -1105,7 +1106,14 @@ export default function VideoCall() {
           throw new Error(`OPM poll failed (${response.status})`)
         }
         const payload = await response.json()
-        const contextText = buildOpmContextSnippet(payload, normalizeLanguageCode(languageRef.current))
+        const languageCode = normalizeLanguageCode(languageRef.current)
+        const languagePrefix =
+          languageCode === 'de'
+            ? '[LANGUAGE] Antworte NUR auf Deutsch. Wechsle NIEMALS zu Englisch.\n'
+            : languageCode === 'es'
+              ? '[LANGUAGE] Responde SOLO en español. NUNCA cambies al inglés.\n'
+              : ''
+        const contextText = `${languagePrefix}${buildOpmContextSnippet(payload, languageCode)}`
         const contextKey = `${contextText}|${payload?.timestamp || ''}`
         const now = Date.now()
 
@@ -1120,7 +1128,7 @@ export default function VideoCall() {
             context: contextText,
           },
         }
-
+        console.log('[OPM-CONTEXT] append_context FULL payload', JSON.stringify(message))
         callObject.sendAppMessage(message, '*')
         lastOpmContextRef.current = contextKey
         lastOpmContextAtRef.current = now
@@ -1207,7 +1215,7 @@ export default function VideoCall() {
     }
 
     try {
-      await sendMessage(conversationId, 'avatar', 'call_summary', JSON.stringify(summaryPayload))
+      await sendMessage(conversationId, 'avatar', 'system', JSON.stringify(summaryPayload))
     } catch (error) {
       console.error('[VideoCall] failed to record call summary', error)
     }
@@ -1436,15 +1444,14 @@ export default function VideoCall() {
               if (now - lastRavenContextAtRef.current < 10_000) return
               const conversationIdForContext = toolCall.conversationId || tavusConversationIdRef.current
               if (conversationIdForContext) {
-                callObject.sendAppMessage(
-                  {
-                    message_type: 'conversation',
-                    event_type: 'conversation.append_context',
-                    conversation_id: conversationIdForContext,
-                    properties: { context: `RAVEN: ${observation}` },
-                  },
-                  '*'
-                )
+                const payload = {
+                  message_type: 'conversation',
+                  event_type: 'conversation.append_context',
+                  conversation_id: conversationIdForContext,
+                  properties: { context: `RAVEN: ${observation}` },
+                }
+                console.log('[OPM-CONTEXT] append_context FULL payload', JSON.stringify(payload))
+                callObject.sendAppMessage(payload, '*')
                 lastRavenContextRef.current = observation
                 lastRavenContextAtRef.current = now
                 console.log('[OPM-CONTEXT] raven injected')
@@ -1513,15 +1520,14 @@ export default function VideoCall() {
               ''
 
             if (conversationIdForContext) {
-              callObject.sendAppMessage(
-                {
-                  message_type: 'conversation',
-                  event_type: 'conversation.append_context',
-                  conversation_id: conversationIdForContext,
-                  properties: { context: contextText },
-                },
-                '*'
-              )
+              const payload = {
+                message_type: 'conversation',
+                event_type: 'conversation.append_context',
+                conversation_id: conversationIdForContext,
+                properties: { context: contextText },
+              }
+              console.log('[OPM-CONTEXT] append_context FULL payload', JSON.stringify(payload))
+              callObject.sendAppMessage(payload, '*')
               console.log('[TOOL-CALL] meeting participants injected', { text: contextText })
             }
             return
@@ -1738,7 +1744,7 @@ export default function VideoCall() {
         handleTranscriptEvent(event)
         void handleToolCallEvent(event)
       })
-      callObject.on('transcription', (event: any) => {
+      ;(callObject as any).on('transcription', (event: any) => {
         handleTranscriptEvent(event)
       })
       callObject.on('left-meeting', (event: any) => {
@@ -1992,7 +1998,7 @@ export default function VideoCall() {
               <div className="relative h-full w-full">
                 <div className="absolute inset-0">
                   {visibleParticipants.length === 0 ? (
-                    <div className="flex h-full w-full flex-col items-center justify-center px-6 pb-10 text-center sm:pb-12">
+                    <div className="flex h-full w-full flex-col items-center justify-start px-6 pb-10 pt-10 text-center sm:pb-12 sm:pt-12">
                       <div className="relative">
                         <img
                           src={resolveAvatarUrl(personaName)}
