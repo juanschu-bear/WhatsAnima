@@ -70,11 +70,17 @@ function readSavedLayouts() {
       return INITIAL_WINDOWS;
     }
 
-    const parsed = JSON.parse(raw) as Partial<Record<WindowId, unknown>>;
+    const parsed = JSON.parse(raw) as
+      | Partial<Record<WindowId, unknown>>
+      | { layouts?: Partial<Record<WindowId, unknown>> };
+    const candidateLayouts =
+      typeof parsed === "object" && parsed && "layouts" in parsed && parsed.layouts
+        ? parsed.layouts
+        : (parsed as Partial<Record<WindowId, unknown>>);
     const nextLayouts = { ...INITIAL_WINDOWS };
 
     for (const windowId of Object.keys(INITIAL_WINDOWS) as WindowId[]) {
-      const candidate = parsed[windowId];
+      const candidate = candidateLayouts[windowId];
       if (isWindowLayout(candidate)) {
         nextLayouts[windowId] = candidate;
       }
@@ -83,6 +89,39 @@ function readSavedLayouts() {
     return nextLayouts;
   } catch {
     return INITIAL_WINDOWS;
+  }
+}
+
+function persistWorkspaceState(layouts: Record<WindowId, WindowLayout>, zoom: number) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem(
+    LAYOUT_STORAGE_KEY,
+    JSON.stringify({
+      version: 2,
+      updatedAt: Date.now(),
+      zoom,
+      layouts,
+    }),
+  );
+}
+
+function readSavedZoom() {
+  if (typeof window === "undefined") {
+    return 0.82;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(LAYOUT_STORAGE_KEY);
+    if (!raw) {
+      return 0.82;
+    }
+    const parsed = JSON.parse(raw) as { zoom?: unknown };
+    return typeof parsed.zoom === "number" ? parsed.zoom : 0.82;
+  } catch {
+    return 0.82;
   }
 }
 
@@ -624,7 +663,7 @@ export default function OPMPerceptionPanelPreviewScreen() {
   const [tick, setTick] = useState(0);
   const [layouts, setLayouts] = useState(() => readSavedLayouts());
   const [topZ, setTopZ] = useState(10);
-  const [zoom, setZoom] = useState(0.82);
+  const [zoom, setZoom] = useState(() => readSavedZoom());
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [cameraLoading, setCameraLoading] = useState(false);
@@ -805,7 +844,7 @@ export default function OPMPerceptionPanelPreviewScreen() {
       return;
     }
 
-    window.localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(layouts));
+    persistWorkspaceState(layouts, zoom);
     setLayoutSavedAt(Date.now());
     perceptionBus?.publish("trace", {
       sessionId: activeSessionId,
@@ -832,10 +871,8 @@ export default function OPMPerceptionPanelPreviewScreen() {
         ...current,
         [id]: { ...current[id], x: data.x, y: data.y },
       };
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(next));
-        setLayoutSavedAt(Date.now());
-      }
+      persistWorkspaceState(next, zoom);
+      setLayoutSavedAt(Date.now());
       return next;
     });
   };
@@ -854,10 +891,8 @@ export default function OPMPerceptionPanelPreviewScreen() {
           height: parseFloat(ref.style.height),
         },
       };
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(next));
-        setLayoutSavedAt(Date.now());
-      }
+      persistWorkspaceState(next, zoom);
+      setLayoutSavedAt(Date.now());
       return next;
     });
   };
