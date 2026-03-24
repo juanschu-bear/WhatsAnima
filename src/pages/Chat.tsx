@@ -33,7 +33,7 @@ import {
   isPushSubscribed,
 } from '../lib/notifications'
 
-type MessageType = 'text' | 'voice' | 'video' | 'image' | 'flashcard' | 'quiz' | 'lesson' | 'fillin' | 'call_summary'
+type MessageType = 'text' | 'voice' | 'video' | 'image' | 'flashcard' | 'quiz' | 'lesson' | 'fillin' | 'call_summary' | 'system'
 
 interface Message {
   id: string
