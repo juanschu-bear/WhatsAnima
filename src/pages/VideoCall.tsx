@@ -20,7 +20,6 @@ interface BackendPersona {
 const LIVE_CALL_API_BASE =
   (import.meta.env.VITE_LIVE_CALL_API_BASE as string | undefined) || 'https://anima.onioko.com'
 const FALLBACK_REPLICA_ID = 'r987f6e6f73c'
-const JUAN_LOCKED_PERSONA_ID = 'p3ba4e8a40d1'
 const JUAN_LOCKED_REPLICA_ID = 'rf5414018e80'
 const HEARTBEAT_INTERVAL_MS = 15_000
 const OPM_CONTEXT_POLL_INTERVAL_MS = 5_000
@@ -1270,17 +1269,9 @@ export default function VideoCall() {
     }
     const owner = conversation.wa_owners
     const personaName = personaOverrideEnabled ? selectedPersona : owner.display_name || selectedPersona
-    const ownerSettings = (owner as { settings?: Record<string, unknown> | null })?.settings
     const ownerEmail = String((owner as { email?: string | null })?.email || '').trim().toLowerCase()
     const ownerDisplayName = String(owner.display_name || '').trim().toLowerCase()
     const lockJuanPersona = isJuanPersonaLockedTarget(ownerDisplayName, ownerEmail)
-    const personaIdFromOwner = lockJuanPersona
-      ? JUAN_LOCKED_PERSONA_ID
-      : (
-          typeof ownerSettings?.tavus_persona_id === 'string'
-            ? ownerSettings.tavus_persona_id.trim()
-            : ''
-        )
     const replicaId = lockJuanPersona
       ? JUAN_LOCKED_REPLICA_ID
       : (owner.tavus_replica_id?.trim() || FALLBACK_REPLICA_ID)
@@ -1327,7 +1318,6 @@ export default function VideoCall() {
       const requestBody = {
         persona_name: personaName,
         persona: personaName,
-        persona_id: personaIdFromOwner || undefined,
         replica_id: replicaId,
         language: languageCode,
         glue_enabled: enableGlueForExtendedJuan,
