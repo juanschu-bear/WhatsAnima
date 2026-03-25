@@ -555,27 +555,27 @@ export default function VideoCall() {
 
         let audioBlob: Blob
         if (chunkIndex === 0) {
-          // First chunk has the WebM EBML header — save it and send as-is
+          // First chunk has the WebM EBML header - save it and send as-is
           headerChunk = event.data
           audioBlob = event.data
         } else if (headerChunk) {
           // Subsequent chunks: prepend the header so ffmpeg can parse them
-          audioBlob = new Blob([headerChunk, event.data], { type: event.data.type || ‘audio/webm’ })
+          audioBlob = new Blob([headerChunk, event.data], { type: event.data.type || 'audio/webm' })
         } else {
           audioBlob = event.data
         }
         chunkIndex++
 
         const fd = new FormData()
-        fd.append(‘audio’, audioBlob, ‘chunk.webm’)
-        fd.append(‘session_id’, sessionId)
-        if (opmSpeakerNameRef.current) fd.append(‘speaker_name’, opmSpeakerNameRef.current)
-        void fetch(`${LIVE_CALL_API_BASE}/api/opm/audio-chunk`, { method: ‘POST’, body: fd })
+        fd.append('audio', audioBlob, 'chunk.webm')
+        fd.append('session_id', sessionId)
+        if (opmSpeakerNameRef.current) fd.append('speaker_name', opmSpeakerNameRef.current)
+        void fetch(`${LIVE_CALL_API_BASE}/api/opm/audio-chunk`, { method: 'POST', body: fd })
           .then(() => {
-            console.log(‘[OPM-AUDIO] chunk sent’, { size: audioBlob.size, sessionId, chunkIndex, hasHeader: !!headerChunk })
+            console.log('[OPM-AUDIO] chunk sent', { size: audioBlob.size, sessionId, chunkIndex, hasHeader: !!headerChunk })
           })
           .catch((err) => {
-            console.warn(‘[OPM-AUDIO] chunk send failed’, err)
+            console.warn('[OPM-AUDIO] chunk send failed', err)
           })
       }
 
@@ -598,7 +598,7 @@ export default function VideoCall() {
       speaker_name: payload.speaker || opmSpeakerNameRef.current || undefined,
       timestamp: payload.timestamp ?? Date.now() / 1000,
     }
-    // fire-and-forget; don’t block the call flow
+    // fire-and-forget; don't block the call flow
     void fetch(`${LIVE_CALL_API_BASE}/api/opm/transcript`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
