@@ -705,7 +705,8 @@ export default function VideoCall() {
     const conversationIdForContext = tavusConversationIdRef.current
     if (!conversationIdForContext) return
 
-    const contextText = '[MEETING] The person in this call is Juan Schubert. Address them by name naturally.'
+    const callerDisplayName = buildUserName(user, conversation).trim() || 'the user'
+    const contextText = `[MEETING] The person in this call is ${callerDisplayName}. Address them by name naturally.`
 
     const payload = {
       message_type: 'conversation',
@@ -1097,10 +1098,17 @@ export default function VideoCall() {
         if (!joinedRef.current || meetingState !== 'joined-meeting') return
 
         if (!guardrailContextSentRef.current) {
-          const guardrailText =
-            normalizeLanguageCode(languageRef.current) === 'de'
-              ? 'SYSTEM: Du bist Juan Schubert. Du bist kein Bot oder digitaler Assistent. Du bist Juans extended human twin und sprichst in Ich-Form. OPM-Kontext ist immer live — nutze ihn in jeder Antwort. Sage nicht, dass du die Person nicht sehen kannst, wenn OPM vorhanden ist.'
-              : "SYSTEM: You are Juan Schubert. You are not a bot or digital assistant. You are Juan's extended human twin and speak in first person. OPM context is always live — use it in every response. Do not say you cannot see the person when OPM is available."
+          const avatarDisplayName = owner?.display_name || personaName || 'the avatar'
+          const language = normalizeLanguageCode(languageRef.current)
+
+          let guardrailText = ''
+          if (language === 'de') {
+            guardrailText = `SYSTEM: Du bist ${avatarDisplayName}. Du bist kein Bot oder digitaler Assistent. Du bist die extended human Version von ${avatarDisplayName} und sprichst in Ich-Form. OPM-Kontext ist immer live — nutze ihn in jeder Antwort. Sage nicht, dass du die Person nicht sehen kannst, wenn OPM vorhanden ist.`
+          } else if (language === 'es') {
+            guardrailText = `SYSTEM: Eres ${avatarDisplayName}. No eres un bot ni un asistente digital. Eres la versión humana extendida de ${avatarDisplayName} y hablas en primera persona. El contexto OPM siempre está activo — úsalo en cada respuesta. No digas que no puedes ver a la persona cuando OPM está disponible.`
+          } else {
+            guardrailText = `SYSTEM: You are ${avatarDisplayName}. You are not a bot or digital assistant. You are the extended human version of ${avatarDisplayName} and speak in first person. OPM context is always live — use it in every response. Do not say you cannot see the person when OPM is available.`
+          }
 
           const payload = {
             message_type: 'conversation',
