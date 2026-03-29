@@ -125,6 +125,7 @@ export default async function handler(req: any, res: any) {
   const backendBaseUrl = normalizeBackendBaseUrl(String(body.backendBaseUrl || LIVE_CALL_API_BASE))
   const conversationId = String(body.conversation_id || body.conversationId || '').trim()
   const ownerId = String(body.owner_id || body.ownerId || '').trim()
+  const contactId = String(body.contact_id || body.contactId || '').trim()
   const contactName = String(body.contact_name || body.contactName || '').trim()
   const meetingToken = String(body.meeting_token || body.meetingToken || '').trim()
   const meetingGuestJoinOnly = Boolean(body.meeting_guest_join_only)
@@ -139,6 +140,7 @@ export default async function handler(req: any, res: any) {
     user_name: body.user_name,
     conversation_id: conversationIdForRequest,
     owner_id: ownerId || null,
+    contact_id: contactId || null,
     contact_name: contactName || null,
   }
   const normalizedLanguageCode = normalizeLanguageCode(body.language)
