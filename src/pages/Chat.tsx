@@ -22,7 +22,7 @@ import { useMessageSelection } from '../hooks/useMessageSelection'
 import { useVoiceRecording } from '../hooks/useVoiceRecording'
 import { useVideoRecording } from '../hooks/useVideoRecording'
 import { VideoRecorder } from '../components/VideoRecorder'
-import { getVoiceListeningDelay, getVideoWatchingDelay, getAvatarFirstName, VOICE_SEEN_DELAY_MS } from '../lib/voiceDelay'
+import { getAvatarFirstName } from '../lib/voiceDelay'
 import {
   playNotificationSound,
   isAppVisible,
