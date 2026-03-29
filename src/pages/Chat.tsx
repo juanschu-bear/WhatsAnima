@@ -1902,29 +1902,6 @@ export default function Chat() {
     try {
       const useVoice = options?.useVoice ?? true
 
-      // --- Realistic voice-message delay ---
-      // Phase 1: "seen" delay (avatar notices the message)
-      // Phase 2: "listening" (avatar listens proportional to message length)
-      // Phase 3: "thinking" → proceeds with reply generation
-      if (options?.isVoice && options.voiceDurationSec) {
-        // Phase 1: brief "seen" pause before listening indicator
-        await new Promise((r) => setTimeout(r, VOICE_SEEN_DELAY_MS))
-        setAvatarStatus('listening')
-
-        // Phase 2: listen for a realistic duration scaled to message length
-        const listeningMs = getVoiceListeningDelay(options.voiceDurationSec)
-        await new Promise((r) => setTimeout(r, listeningMs))
-      }
-
-      // --- Realistic video-message delay ---
-      if (options?.isVideo && options.videoDurationSec) {
-        await new Promise((r) => setTimeout(r, VOICE_SEEN_DELAY_MS))
-        setAvatarStatus('watching')
-
-        const watchingMs = getVideoWatchingDelay(options.videoDurationSec)
-        await new Promise((r) => setTimeout(r, watchingMs))
-      }
-
       setAvatarStatus('thinking')
 
       // Detect image-generation intent early so status shows 'designing' during the API call

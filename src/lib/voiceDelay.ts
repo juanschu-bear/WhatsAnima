@@ -40,8 +40,7 @@ export const VOICE_SEEN_DELAY_MS = 2_500
  * Returns a randomised listening delay (ms) based on the voice message duration.
  */
 export function getVoiceListeningDelay(durationSec: number): number {
-  const tier = DELAY_TIERS.find((t) => durationSec <= t.maxDuration) ?? DELAY_TIERS[DELAY_TIERS.length - 1]
-  return tier.minDelay + Math.random() * (tier.maxDelay - tier.minDelay)
+  return 0
 }
 
 /**
@@ -49,7 +48,7 @@ export function getVoiceListeningDelay(durationSec: number): number {
  * Uses the same tier table as voice — the avatar needs to "watch" the clip.
  */
 export function getVideoWatchingDelay(durationSec: number): number {
-  return getVoiceListeningDelay(durationSec)
+  return 0
 }
 
 /** Titles/prefixes to strip when extracting a first name from a display name. */
