@@ -59,7 +59,48 @@ const PROSODIC_KEYS = [
   'pause_count', 'mean_pause_duration', 'pause_ratio',
   'volume_mean', 'volume_range', 'volume_variability',
   'jitter', 'shimmer', 'harmonic_to_noise_ratio',
+  'voice_tremor', 'voice_stability', 'zero_crossing_rate',
 ]
+
+/**
+ * Normalize OPM v4 prosodic key names to Canon key names.
+ * OPM returns keys like estimated_fundamental_hz, speaking_rate_wps, etc.
+ * Canon expects mean_pitch, speaking_rate, etc.
+ * Copies already-matching keys as-is, maps renamed keys, and converts units.
+ */
+function normalizeProsodicKeys(raw: Record<string, any> | null | undefined): Record<string, any> | null {
+  if (!raw || typeof raw !== 'object') return raw as any
+  const out: Record<string, any> = { ...raw }
+  // estimated_fundamental_hz → mean_pitch
+  if (out.estimated_fundamental_hz != null && out.mean_pitch == null) {
+    out.mean_pitch = out.estimated_fundamental_hz
+  }
+  // pitch_range_hz → pitch_range
+  if (out.pitch_range_hz != null && out.pitch_range == null) {
+    out.pitch_range = out.pitch_range_hz
+  }
+  // speaking_rate_wps → speaking_rate
+  if (out.speaking_rate_wps != null && out.speaking_rate == null) {
+    out.speaking_rate = out.speaking_rate_wps
+  }
+  // average_pause_ms → mean_pause_duration (ms → seconds)
+  if (out.average_pause_ms != null && out.mean_pause_duration == null) {
+    out.mean_pause_duration = Number(out.average_pause_ms) / 1000
+  }
+  // speech_ratio → pause_ratio (invert: 1 - speech_ratio)
+  if (out.speech_ratio != null && out.pause_ratio == null) {
+    out.pause_ratio = 1 - Number(out.speech_ratio)
+  }
+  // mean_volume_db → volume_mean
+  if (out.mean_volume_db != null && out.volume_mean == null) {
+    out.volume_mean = out.mean_volume_db
+  }
+  // volume_range_db → volume_range
+  if (out.volume_range_db != null && out.volume_range == null) {
+    out.volume_range = out.volume_range_db
+  }
+  return out
+}
 
 /**
  * Determine which tier the cumulative seconds qualify for.
@@ -116,7 +157,7 @@ function computeBaseline(logs: any[]) {
   const allValues: Record<string, number[]> = {}
 
   for (const log of withProsody) {
-    const p = log.prosodic_summary
+    const p = normalizeProsodicKeys(log.prosodic_summary)
     for (const key of PROSODIC_KEYS) {
       const val = typeof p[key] === 'number' ? p[key] : parseFloat(p[key])
       if (!isNaN(val)) {
@@ -164,7 +205,7 @@ function computeDelta(current: any, baseline: any) {
   if (!current || !baseline?.prosodic_center) return null
 
   const delta: Record<string, number> = {}
-  const prosody = current.prosodic_summary || {}
+  const prosody = normalizeProsodicKeys(current.prosodic_summary) || {}
 
   for (const [key, baseVal] of Object.entries(baseline.prosodic_center)) {
     const curVal = typeof prosody[key] === 'number' ? prosody[key] : parseFloat(prosody[key])
@@ -248,6 +289,7 @@ export default async function handler(req: any, res: any) {
       : null
 
     // 1. Insert perception log with ALL data
+    const normalizedProsody = normalizeProsodicKeys(prosodicSummary)
     const { data: log, error: insertError } = await supabase
       .from('wa_perception_logs')
       .insert({
@@ -263,7 +305,7 @@ export default async function handler(req: any, res: any) {
         behavioral_summary: normalizedBehavioralSummary,
         conversation_hooks: normalizedHooks,
         recommended_tone: normalizedTone,
-        prosodic_summary: prosodicSummary ?? null,
+        prosodic_summary: normalizedProsody ?? null,
         facial_analysis: facialAnalysis ?? null,
         body_language: bodyLanguage ?? null,
         media_type: mediaType ?? 'audio',
