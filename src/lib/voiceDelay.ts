@@ -18,38 +18,18 @@
  * "Total min wait" includes an initial 2-3 s "seen" delay before listening begins.
  */
 
-interface DelayTier {
-  maxDuration: number   // upper bound in seconds (inclusive)
-  minDelay: number      // minimum listening delay in ms
-  maxDelay: number      // maximum listening delay in ms
-}
-
-const DELAY_TIERS: DelayTier[] = [
-  { maxDuration: 10,  minDelay: 4_000,  maxDelay: 6_000 },
-  { maxDuration: 30,  minDelay: 8_000,  maxDelay: 12_000 },
-  { maxDuration: 60,  minDelay: 12_000, maxDelay: 18_000 },
-  { maxDuration: 120, minDelay: 18_000, maxDelay: 25_000 },
-  { maxDuration: 180, minDelay: 25_000, maxDelay: 35_000 },
-  { maxDuration: Infinity, minDelay: 35_000, maxDelay: 45_000 },
-]
-
-/** Initial "seen" delay before the listening status appears (ms). */
-export const VOICE_SEEN_DELAY_MS = 2_500
-
 /**
- * Returns a randomised listening delay (ms) based on the voice message duration.
+ * Returns a listening delay (ms) based on the voice message duration.
  */
-export function getVoiceListeningDelay(durationSec: number): number {
-  const tier = DELAY_TIERS.find((t) => durationSec <= t.maxDuration) ?? DELAY_TIERS[DELAY_TIERS.length - 1]
-  return tier.minDelay + Math.random() * (tier.maxDelay - tier.minDelay)
+export function getVoiceListeningDelay(_durationSec: number): number {
+  return 0
 }
 
 /**
- * Returns a randomised watching delay (ms) for video messages.
- * Uses the same tier table as voice — the avatar needs to "watch" the clip.
+ * Returns a watching delay (ms) for video messages.
  */
-export function getVideoWatchingDelay(durationSec: number): number {
-  return getVoiceListeningDelay(durationSec)
+export function getVideoWatchingDelay(_durationSec: number): number {
+  return 0
 }
 
 /** Titles/prefixes to strip when extracting a first name from a display name. */
