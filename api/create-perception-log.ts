@@ -258,6 +258,7 @@ export default async function handler(req: any, res: any) {
     bodyLanguage,
     mediaType,
     videoDurationSec,
+    personaName,
   } = req.body ?? {}
 
   if (!conversationId || !contactId || !ownerId) {
@@ -310,6 +311,7 @@ export default async function handler(req: any, res: any) {
         body_language: bodyLanguage ?? null,
         media_type: mediaType ?? 'audio',
         video_duration_sec: videoDurationSec ?? null,
+        persona_name: typeof personaName === 'string' && personaName.trim() ? personaName.trim() : null,
       })
       .select()
       .single()

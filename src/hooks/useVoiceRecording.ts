@@ -30,6 +30,7 @@ interface ConversationRef {
   owner_id: string
   contact_id: string
   wa_contacts?: { display_name?: string | null } | null
+  wa_owners?: { display_name?: string | null } | null
 }
 
 interface UseVoiceRecordingOptions {
@@ -198,6 +199,7 @@ export function useVoiceRecording({
           recommendedTone: opmResponse?.recommended_tone ?? opmResponse?.perception?.recommended_tone ?? opmResponse?.interpretation?.recommended_tone ?? null,
           prosodicSummary: opmResponse?.prosodic_summary ?? null,
           mediaType: 'audio',
+          personaName: conversation.wa_owners?.display_name ?? null,
         }).catch((logErr) => console.warn('[perception-log]', logErr.message))
         onTranscript(message.id, finalTranscript)
 

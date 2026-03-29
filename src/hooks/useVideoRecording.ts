@@ -1186,6 +1186,7 @@ export function useVideoRecording({
         bodyLanguage: opmResponse?.perception?.body_language ?? null,
         mediaType: 'video',
         videoDurationSec: durationSeconds,
+        personaName: conversation.wa_owners?.display_name ?? null,
       }).catch((logErr) => console.warn('[perception-log]', logErr.message))
 
       if (transcript && transcript !== '[Video message]') {

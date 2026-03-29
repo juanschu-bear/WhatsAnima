@@ -616,6 +616,7 @@ export async function createPerceptionLog(payload: {
   bodyLanguage?: Record<string, any> | null
   mediaType?: 'audio' | 'video' | null
   videoDurationSec?: number | null
+  personaName?: string | null
 }) {
   const response = await fetch('/api/create-perception-log', {
     method: 'POST',
@@ -638,6 +639,7 @@ export async function createPerceptionLog(payload: {
       bodyLanguage: payload.bodyLanguage ?? null,
       mediaType: payload.mediaType ?? null,
       videoDurationSec: payload.videoDurationSec ?? null,
+      personaName: payload.personaName ?? null,
     }),
   })
 

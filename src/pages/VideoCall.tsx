@@ -1348,6 +1348,7 @@ export default function VideoCall() {
         user_name: buildUserName(user, conversation),
         conversation_id: resolvedConversationId,
         owner_id: owner.id || conversation.owner_id || null,
+        contact_id: conversation.contact_id || null,
         contact_name: conversation.wa_contacts?.display_name || null,
         meeting_token: meetingToken || undefined,
         meeting_guest_join_only: isMeetingGuest,
