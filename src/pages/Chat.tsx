@@ -2174,21 +2174,30 @@ export default function Chat() {
   const openYouTubeLabel = uiLanguage === 'de' ? 'YouTube öffnen' : uiLanguage === 'es' ? 'Abrir video en YouTube' : 'Open YouTube video'
   const videoTopicsLabel = uiLanguage === 'de' ? 'Video-Themen' : uiLanguage === 'es' ? 'Temas de video' : 'Video Topics'
   const videosFoundLabel = uiLanguage === 'de' ? 'Videos gefunden' : uiLanguage === 'es' ? 'Videos encontrados' : 'Videos Found'
+  const isUsableInsight = (value: string) => {
+    const text = value.trim()
+    if (!text) return false
+    if (text.includes('"session_id"') || text.includes('"started_at"') || text.includes('"ended_at"')) return false
+    if (/^\{[\s\S]*\}$/.test(text)) return false
+    return true
+  }
   const cleanInsightText = (value: string) =>
     value
       .replace(/^\[Call summary\]\s*/i, '')
+      .replace(/\{[\s\S]*\}$/g, '')
       .replace(/\s+/g, ' ')
       .trim()
 
   const insightCandidates = messages
     .filter((message) =>
-      (message.type === 'text' || message.type === 'voice' || message.type === 'video')
+      message.sender === 'avatar'
+      && (message.type === 'text' || message.type === 'voice' || message.type === 'video')
       && typeof message.content === 'string'
       && message.content.trim().length > 0
       && !isPlaceholderContent(message)
     )
     .map((message) => cleanInsightText(message.content || ''))
-    .filter(Boolean)
+    .filter((item) => isUsableInsight(item))
 
   const whatMattersNow = Array.from(new Set(insightCandidates)).slice(-3).reverse()
 
@@ -2200,7 +2209,7 @@ export default function Chat() {
       && message.content.includes('?')
     )
     .map((message) => cleanInsightText(message.content || ''))
-    .filter(Boolean)
+    .filter((item) => isUsableInsight(item))
     .slice(-3)
     .reverse()
 
@@ -2211,7 +2220,7 @@ export default function Chat() {
       {isDesktopLayout && <div className="chat-theme-layer chat-theme-grid" />}
       <div className="chat-theme-watermark" aria-hidden="true">EXTENDED HUMAN</div>
       {isDesktopLayout ? (
-        <aside className="absolute right-6 top-24 z-20 hidden h-[calc(100dvh-9rem)] w-72 rounded-[22px] border border-white/10 bg-[linear-gradient(180deg,rgba(13,24,38,0.92),rgba(8,17,28,0.94))] p-4 shadow-[0_24px_80px_rgba(0,0,0,0.35)] backdrop-blur-2xl lg:block">
+        <aside className="absolute left-6 top-24 z-20 hidden max-h-[calc(100dvh-9.5rem)] w-64 overflow-y-auto rounded-[20px] border border-white/10 bg-[linear-gradient(180deg,rgba(13,24,38,0.92),rgba(8,17,28,0.94))] p-3 shadow-[0_24px_80px_rgba(0,0,0,0.35)] backdrop-blur-2xl lg:block">
           <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#9af8ea]/85">What Matters Now</div>
           <div className="mt-3 space-y-2">
             {(whatMattersNow.length > 0 ? whatMattersNow : ['No key highlights yet.']).map((item, index) => (
@@ -2230,16 +2239,9 @@ export default function Chat() {
               </div>
             ))}
           </div>
-
-          <div className="mt-6 text-[11px] font-semibold uppercase tracking-[0.22em] text-[#9af8ea]/85">Quick Actions</div>
-          <div className="mt-3 grid grid-cols-1 gap-2">
-            <button type="button" onClick={() => navigate(`/video-call/${conversation.id}`)} className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-left text-[12px] font-medium text-white/88 transition hover:bg-white/[0.08]">Start Call</button>
-            <button type="button" onClick={() => openVoiceOverlay()} className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-left text-[12px] font-medium text-white/88 transition hover:bg-white/[0.08]">Voice Note</button>
-            <button type="button" onClick={() => void handleExportToClipboard()} className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-left text-[12px] font-medium text-white/88 transition hover:bg-white/[0.08]">Export Chat</button>
-          </div>
         </aside>
       ) : null}
-      <div className={`relative z-10 flex min-h-0 flex-1 flex-col ${isDesktopLayout ? 'mx-auto my-6 w-[min(900px,calc(100vw-80px))] overflow-hidden rounded-[28px] border border-white/[0.08] bg-[rgba(6,14,22,0.62)] shadow-[0_40px_160px_rgba(0,0,0,0.55),0_0_0_1px_rgba(255,255,255,0.03)] backdrop-blur-3xl' : ''}`}>
+      <div className={`relative z-10 flex min-h-0 flex-1 flex-col ${isDesktopLayout ? 'mx-auto my-6 w-[min(900px,calc(100vw-360px))] lg:ml-[19.5rem] lg:mr-6 overflow-hidden rounded-[28px] border border-white/[0.08] bg-[rgba(6,14,22,0.62)] shadow-[0_40px_160px_rgba(0,0,0,0.55),0_0_0_1px_rgba(255,255,255,0.03)] backdrop-blur-3xl' : ''}`}>
       <header className={`relative z-10 flex items-center gap-3 border-b border-white/[0.06] px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur-2xl ${isDesktopLayout ? 'bg-[rgba(8,18,28,0.65)] shadow-[0_1px_0_rgba(255,255,255,0.03)]' : 'bg-[#0a1420]/80 shadow-[0_8px_32px_rgba(0,0,0,0.2)]'}`}>
         {selectionMode ? (
           <>
