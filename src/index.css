@@ -120,7 +120,7 @@ select {
 
 /* ========== Chat Theme: Extended Human ========== */
 .chat-theme {
-  background: linear-gradient(140deg, #020a12 0%, #071420 35%, #060e1a 65%, #030810 100%);
+  background: linear-gradient(152deg, #03070f 0%, #061226 28%, #0a1830 56%, #061124 78%, #03070f 100%);
 }
 
 .chat-theme-layer {
@@ -131,43 +131,54 @@ select {
 
 .chat-theme-layer-a {
   background:
-    radial-gradient(ellipse 86% 56% at 50% -10%, rgba(58, 222, 185, 0.16), transparent 58%),
-    radial-gradient(ellipse 40% 30% at 84% 22%, rgba(70, 170, 255, 0.11), transparent 60%);
+    radial-gradient(ellipse 86% 56% at 50% -10%, rgba(66, 233, 196, 0.28), transparent 56%),
+    radial-gradient(ellipse 40% 30% at 84% 22%, rgba(70, 170, 255, 0.2), transparent 58%),
+    radial-gradient(ellipse 42% 28% at 14% 86%, rgba(132, 102, 255, 0.16), transparent 68%);
 }
 
 .chat-theme-layer-b {
   background:
-    radial-gradient(ellipse 44% 36% at 12% 78%, rgba(122, 94, 255, 0.08), transparent 68%),
-    linear-gradient(180deg, rgba(7, 18, 27, 0) 0%, rgba(4, 10, 16, 0.48) 100%);
+    repeating-linear-gradient(
+      135deg,
+      rgba(164, 255, 237, 0.038) 0px,
+      rgba(164, 255, 237, 0.038) 2px,
+      transparent 2px,
+      transparent 14px
+    ),
+    linear-gradient(180deg, rgba(7, 18, 27, 0.06) 0%, rgba(4, 10, 16, 0.5) 100%);
+  mix-blend-mode: screen;
+  opacity: 0.7;
 }
 
 .chat-theme-grid {
   background-image:
-    linear-gradient(rgba(160, 255, 237, 0.024) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(160, 255, 237, 0.02) 1px, transparent 1px);
-  background-size: 44px 44px;
+    linear-gradient(rgba(160, 255, 237, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(160, 255, 237, 0.04) 1px, transparent 1px);
+  background-size: 42px 42px;
   mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.88), rgba(0, 0, 0, 0.15));
 }
 
 .chat-theme-watermark {
   pointer-events: none;
   position: absolute;
-  inset: auto 0 6%;
+  inset: 16% 0 auto;
   text-align: center;
-  letter-spacing: 0.42em;
-  font-size: clamp(10px, 1.2vw, 13px);
-  font-weight: 600;
-  color: rgba(155, 244, 229, 0.2);
+  letter-spacing: 0.58em;
+  font-size: clamp(12px, 1.5vw, 18px);
+  font-weight: 700;
+  color: rgba(173, 255, 240, 0.34);
   text-transform: uppercase;
-  text-shadow: 0 0 24px rgba(67, 219, 184, 0.1);
+  text-shadow:
+    0 0 36px rgba(67, 219, 184, 0.22),
+    0 0 8px rgba(67, 219, 184, 0.16);
   z-index: 1;
 }
 
 .chat-scroll-surface {
   background:
-    radial-gradient(120% 70% at 50% -8%, rgba(92, 245, 210, 0.12), transparent 55%),
-    radial-gradient(80% 42% at 88% 24%, rgba(83, 162, 255, 0.08), transparent 54%),
-    linear-gradient(180deg, rgba(6, 16, 28, 0.16) 0%, rgba(5, 12, 22, 0.32) 100%);
+    radial-gradient(120% 70% at 50% -8%, rgba(92, 245, 210, 0.2), transparent 54%),
+    radial-gradient(80% 42% at 88% 24%, rgba(83, 162, 255, 0.14), transparent 52%),
+    linear-gradient(180deg, rgba(6, 16, 28, 0.1) 0%, rgba(5, 12, 22, 0.26) 100%);
 }
 
 .chat-scroll-surface::before {
