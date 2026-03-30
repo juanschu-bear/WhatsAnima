@@ -1221,14 +1221,17 @@ export function useVideoRecording({
 
     const blob = videoBlobRef.current
     const durationSeconds = pendingVideoDurationRef.current || previewDuration || Math.max(1, recordingSeconds)
-    let opmOpts: { orientation?: number } = {}
-
-    const rotation = await detectVideoRotation(blob)
-    if (rotation === 'landscape') opmOpts = { orientation: 90 }
-    else if (rotation === 'quicktime_portrait') opmOpts = { orientation: 90 }
-
-    await processVideoMessage(blob, durationSeconds, opmOpts)
     closeVideoOverlay()
+
+    // Match Anima-Connect behavior: return to chat immediately and continue
+    // upload/analysis in the background so inline processing appears in-chat.
+    void (async () => {
+      let opmOpts: { orientation?: number } = {}
+      const rotation = await detectVideoRotation(blob)
+      if (rotation === 'landscape') opmOpts = { orientation: 90 }
+      else if (rotation === 'quicktime_portrait') opmOpts = { orientation: 90 }
+      await processVideoMessage(blob, durationSeconds, opmOpts)
+    })()
   }
 
   async function openVideoOverlay() {
