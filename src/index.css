@@ -118,50 +118,6 @@ select {
   text-transform: uppercase;
 }
 
-/* ========== Chat Theme: Extended Human ========== */
-.chat-theme {
-  background: linear-gradient(152deg, #03070f 0%, #061226 28%, #0a1830 56%, #061124 78%, #03070f 100%);
-}
-
-.chat-theme-layer {
-  pointer-events: none;
-  position: absolute;
-  inset: 0;
-}
-
-.chat-theme-layer-a {
-  background:
-    radial-gradient(ellipse 86% 56% at 50% -10%, rgba(66, 233, 196, 0.14), transparent 56%),
-    radial-gradient(ellipse 40% 30% at 84% 22%, rgba(70, 170, 255, 0.15), transparent 58%),
-    radial-gradient(ellipse 42% 28% at 14% 86%, rgba(132, 102, 255, 0.16), transparent 68%);
-}
-
-.chat-theme-layer-b {
-  background:
-    repeating-linear-gradient(
-      135deg,
-      rgba(164, 255, 237, 0.038) 0px,
-      rgba(164, 255, 237, 0.038) 2px,
-      transparent 2px,
-      transparent 14px
-    ),
-    linear-gradient(180deg, rgba(7, 18, 27, 0.06) 0%, rgba(4, 10, 16, 0.5) 100%);
-  mix-blend-mode: screen;
-  opacity: 0.7;
-}
-
-.chat-theme-grid {
-  background-image:
-    linear-gradient(rgba(160, 255, 237, 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(160, 255, 237, 0.04) 1px, transparent 1px);
-  background-size: 42px 42px;
-  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.88), rgba(0, 0, 0, 0.15));
-}
-
-.chat-theme-watermark {
-  display: none;
-}
-
 .chat-scroll-surface {
   background:
     radial-gradient(120% 70% at 50% -8%, rgba(92, 245, 210, 0.2), transparent 54%),
@@ -169,22 +125,17 @@ select {
     linear-gradient(180deg, rgba(6, 16, 28, 0.1) 0%, rgba(5, 12, 22, 0.26) 100%);
 }
 
-.chat-scroll-surface::after {
-  content: 'EXTENDED  HUMAN';
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%) rotate(-12deg);
-  font-size: 140px;
-  font-weight: 900;
-  letter-spacing: 0.3em;
-  text-transform: uppercase;
-  opacity: 0.025;
-  color: rgba(255, 255, 255, 0.5);
+.chat-scroll-surface::before {
+  content: "";
+  position: absolute;
+  inset: 0;
   pointer-events: none;
-  z-index: 0;
-  white-space: nowrap;
-  user-select: none;
+  background-image:
+    linear-gradient(rgba(165, 255, 236, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(165, 255, 236, 0.018) 1px, transparent 1px);
+  background-size: 56px 56px;
+  opacity: 0.55;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.9), rgba(0, 0, 0, 0.28));
 }
 
 /* ========== VIDEO MESSAGE BUBBLE ========== */
@@ -899,4 +850,21 @@ select {
 .video-hint {
   font-size: 13px;
   color: rgba(255, 255, 255, 0.5);
+}
+
+.chat-scroll-surface::after {
+  content: 'EXTENDED  HUMAN';
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(-12deg);
+  font-size: 140px;
+  font-weight: 900;
+  letter-spacing: 0.3em;
+  opacity: 0.025;
+  color: white;
+  pointer-events: none;
+  white-space: nowrap;
+  user-select: none;
+  z-index: 0;
 }
