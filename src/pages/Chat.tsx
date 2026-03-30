@@ -1,6 +1,7 @@
 import {
   memo,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -1460,6 +1461,7 @@ export default function Chat() {
   const [avatarSearch, setAvatarSearch] = useState('')
   const avatarReplyInFlight = useRef(new Set<string>())
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const initialScrollDone = useRef(false)
   const imageInputRef = useRef<HTMLInputElement>(null)
 
   // --- Extracted hooks ---
@@ -1670,6 +1672,7 @@ export default function Chat() {
   useEffect(() => {
     if (!conversationId) return
 
+    initialScrollDone.current = false
     setLoading(true)
     Promise.all([
       getConversation(conversationId),
@@ -1729,8 +1732,17 @@ export default function Chat() {
     return () => document.removeEventListener('visibilitychange', handleVisibility)
   }, [])
 
+  useLayoutEffect(() => {
+    if (!initialScrollDone.current && messages.length > 0) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'instant' })
+      initialScrollDone.current = true
+    }
+  }, [messages])
+
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (initialScrollDone.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
   }, [messages, avatarStatus])
 
   useEffect(() => {
@@ -2257,7 +2269,7 @@ export default function Chat() {
 
       const existingConversationId = await findLatestConversationForOwnerAndEmail(ownerId, targetEmail)
       if (existingConversationId) {
-        navigate(`/chat/${existingConversationId}`)
+        navigate(`/chat/${existingConversationId}`, { replace: true })
         return
       }
 
@@ -2272,7 +2284,7 @@ export default function Chat() {
       }
 
       const newConversationId = await findOrCreateConversation(ownerId, contact.id)
-      navigate(`/chat/${newConversationId}`)
+      navigate(`/chat/${newConversationId}`, { replace: true })
     } catch (switchError) {
       console.error('Avatar switch failed:', switchError)
       setError('Unable to switch avatar chat right now.')
