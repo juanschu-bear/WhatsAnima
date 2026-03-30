@@ -853,22 +853,24 @@ select {
 }
 
 .chat-scroll-surface::after {
-  content: 'EXTENDED  HUMAN';
+  content: 'EXTENDED\A HUMANS';
   position: absolute;
   top: 50%;
   left: 50%;
-  transform: translate(-50%, -50%) rotate(-12deg);
-  font-size: clamp(86px, 10vw, 160px);
+  transform: translate(-50%, -50%);
+  font-size: clamp(72px, 9.2vw, 148px);
   font-weight: 900;
-  letter-spacing: 0.24em;
-  opacity: 0.11;
-  color: rgba(255, 255, 255, 0.26);
+  line-height: 0.88;
+  text-align: center;
+  letter-spacing: 0.08em;
+  opacity: 0.12;
+  color: rgba(255, 255, 255, 0.32);
   -webkit-text-stroke: 1px rgba(255, 255, 255, 0.44);
   text-shadow:
-    0 0 18px rgba(255, 255, 255, 0.18),
-    0 0 44px rgba(139, 222, 255, 0.18);
+    0 0 24px rgba(255, 255, 255, 0.2),
+    0 0 56px rgba(132, 180, 255, 0.2);
   pointer-events: none;
-  white-space: nowrap;
+  white-space: pre;
   user-select: none;
   z-index: 0;
 }
