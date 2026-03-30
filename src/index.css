@@ -118,7 +118,36 @@ select {
   text-transform: uppercase;
 }
 
-/* ========== Video Bubble Animations ========== */
+/* ========== VIDEO MESSAGE BUBBLE ========== */
+.video-bubble {
+  padding: 4px !important;
+  width: 180px;
+  background: transparent !important;
+  border-radius: 50% !important;
+}
+
+.video-bubble-circle {
+  width: 172px;
+  height: 172px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: #1c1c1e;
+  position: relative;
+  cursor: pointer;
+  border: 3px solid #00d4ff;
+  box-shadow: 0 0 14px rgba(0, 212, 255, 0.3), 0 0 28px rgba(0, 212, 255, 0.12);
+  transition: box-shadow 0.6s ease, border-color 0.6s ease;
+}
+
+.video-bubble-circle.processing {
+  animation: cyanGlowPulse 2s ease-in-out infinite;
+}
+
+.video-bubble-circle.processed {
+  border-color: rgba(0, 212, 255, 0.4);
+  box-shadow: 0 0 8px rgba(0, 212, 255, 0.15);
+}
+
 @keyframes cyanGlowPulse {
   0%, 100% {
     box-shadow: 0 0 14px rgba(0, 212, 255, 0.3), 0 0 28px rgba(0, 212, 255, 0.12);
@@ -130,13 +159,120 @@ select {
   }
 }
 
-.video-bubble-circle.processing {
-  animation: cyanGlowPulse 2s ease-in-out infinite;
+.video-bubble-circle video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
 }
 
-.video-bubble-circle.processed {
-  border-color: rgba(0, 212, 255, 0.4);
-  box-shadow: 0 0 8px rgba(0, 212, 255, 0.15);
+.video-bubble-circle.selfie video {
+  transform: scaleX(-1);
+}
+
+.video-bubble-play {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 50%;
+  opacity: 1;
+  transition: opacity var(--transition-fast);
+}
+
+.video-bubble-circle:hover .video-bubble-play {
+  opacity: 0.8;
+}
+
+.video-bubble-play svg {
+  width: 36px;
+  height: 36px;
+  fill: white;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.3));
+}
+
+.video-bubble-duration {
+  text-align: center;
+  font-size: 12px;
+  color: inherit;
+  opacity: 0.6;
+  padding: 6px 0 2px;
+}
+
+.video-bubble-play.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.video-bubble-circle.no-video {
+  border-color: rgba(0, 212, 255, 0.3);
+  box-shadow: 0 0 8px rgba(0, 212, 255, 0.1);
+  cursor: default;
+}
+
+/* ========== GALLERY VIDEO (Rectangular) ========== */
+.video-bubble-rect {
+  padding: 4px !important;
+  width: 260px;
+  max-width: 75vw;
+  background: transparent !important;
+  border-radius: 16px !important;
+}
+
+.video-bubble-rect-container {
+  position: relative;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #1c1c1e;
+  cursor: pointer;
+}
+
+.video-bubble-rect-container video {
+  display: block;
+  width: 100%;
+  max-height: 300px;
+  object-fit: contain;
+  border-radius: 12px;
+}
+
+.video-bubble-rect-container .video-bubble-play {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 12px;
+  opacity: 0.6;
+  transition: opacity var(--transition-fast);
+}
+
+.video-bubble-rect-container:hover .video-bubble-play {
+  opacity: 0.8;
+}
+
+.video-bubble-rect-container .video-bubble-play.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.video-bubble-rect-container .video-bubble-play svg {
+  width: 36px;
+  height: 36px;
+  fill: white;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.3));
+}
+
+.video-bubble-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 50%;
 }
 
 /* ========== Inline Processing Spinner ========== */
@@ -166,6 +302,50 @@ select {
   opacity: 0;
   transform: translateY(6px);
   animation: stageIn 0.35s ease forwards;
+}
+
+.inline-processing-row {
+  justify-content: flex-end;
+}
+
+.inline-processing {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.inline-processing-emoji {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.inline-processing-text {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 13px;
+}
+
+.video-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.82);
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  transition: opacity 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+}
+
+.video-action-btn:hover {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.2);
 }
 
 /* ========== Voice Bubble (Anima-Connect style) ========== */

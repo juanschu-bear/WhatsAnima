@@ -1310,7 +1310,7 @@ const VideoMessageBubble = memo(function VideoMessageBubble({
 
   return (
     <div className="relative px-1 py-1">
-      <div className="video-bubble">
+      <div className={`video-bubble ${isGallery && hasVideo ? 'video-bubble-rect' : ''}`}>
         {isGallery && hasVideo ? (
           <div className={`video-bubble-rect-container ${isProcessing ? 'processing' : 'processed'}`} onClick={togglePlay}>
             <video ref={videoRef} src={videoSrc} playsInline muted loop preload="metadata" style={videoTransform ? { transform: videoTransform } : undefined} />
@@ -1340,11 +1340,7 @@ const VideoMessageBubble = memo(function VideoMessageBubble({
           <a
             href={videoSrc}
             download={`video-${message.id.slice(0, 8)}.mp4`}
-            className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[11px] font-medium transition ${
-              isContact
-                ? 'border-white/20 bg-black/15 text-white/85 hover:border-white/35'
-                : 'border-white/10 bg-white/5 text-white/80 hover:border-white/25'
-            }`}
+            className="video-action-btn"
           >
             Download
           </a>
@@ -1353,11 +1349,7 @@ const VideoMessageBubble = memo(function VideoMessageBubble({
           <button
             type="button"
             onClick={() => setIsTranscriptOpen((current) => !current)}
-            className={`rounded-full border px-3 py-1 text-[11px] font-medium transition ${
-              isContact
-                ? 'border-white/20 bg-black/15 text-white/85 hover:border-white/35'
-                : 'border-white/10 bg-white/5 text-white/80 hover:border-white/25'
-            }`}
+            className="video-action-btn"
           >
             {isTranscriptOpen ? 'Hide transcript' : 'Transcribe'}
           </button>
