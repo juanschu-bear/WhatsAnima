@@ -1028,19 +1028,37 @@ export function useVideoRecording({
 
     const submitData = await submitRes.json()
     const jobId = submitData.job_id
+    if (!jobId || typeof jobId !== 'string') {
+      throw new Error('processing_error')
+    }
     console.log('[OPM] Job submitted, id:', jobId)
 
     onStage('\uD83D\uDD2C', watchingLabel, 25)
     const startTime = Date.now()
     let jobComplete = false
+    let notFoundCount = 0
+    let transientHttpErrorCount = 0
 
     while (Date.now() - startTime < OPM_CLIENT_TIMEOUT_MS) {
       await delay(OPM_CLIENT_POLL_INTERVAL_MS)
       const statusRes = await fetch(`${opmUrl}/status/${jobId}`)
       if (!statusRes.ok) {
         console.error('[OPM] Status poll HTTP error:', statusRes.status)
+        if (statusRes.status === 404) {
+          notFoundCount += 1
+          if (notFoundCount >= 3) {
+            throw new Error('job_not_found')
+          }
+        } else if (statusRes.status >= 500) {
+          transientHttpErrorCount += 1
+          if (transientHttpErrorCount >= 4) {
+            throw new Error('processing_error')
+          }
+        }
         continue
       }
+      notFoundCount = 0
+      transientHttpErrorCount = 0
 
       const statusData = await statusRes.json()
       console.log('[OPM] Polling status:', JSON.stringify(statusData))
@@ -1097,6 +1115,7 @@ export function useVideoRecording({
     const errors: Record<string, string> = {
       processing_timeout: `${ceoName} is in a meeting right now. They'll watch your video as soon as possible.`,
       api_down: `${ceoName} is currently unavailable. Try again in a moment.`,
+      job_not_found: `${ceoName} lost the processing job. Please resend the video.`,
       no_face_detected: `${ceoName} couldn't see your face clearly. Try recording again with better lighting.`,
       processing_error: `${ceoName} had trouble reading your message. Want to send it again?`,
       no_transcript: `${ceoName} watched your video but the audio was unclear. Responding based on what they could see.`,
