@@ -854,15 +854,19 @@ select {
 
 .chat-scroll-surface::after {
   content: 'EXTENDED  HUMAN';
-  position: fixed;
+  position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%) rotate(-12deg);
-  font-size: 140px;
+  font-size: clamp(86px, 10vw, 160px);
   font-weight: 900;
-  letter-spacing: 0.3em;
-  opacity: 0.025;
-  color: white;
+  letter-spacing: 0.24em;
+  opacity: 0.11;
+  color: rgba(255, 255, 255, 0.26);
+  -webkit-text-stroke: 1px rgba(255, 255, 255, 0.44);
+  text-shadow:
+    0 0 18px rgba(255, 255, 255, 0.18),
+    0 0 44px rgba(139, 222, 255, 0.18);
   pointer-events: none;
   white-space: nowrap;
   user-select: none;
