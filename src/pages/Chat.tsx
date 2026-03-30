@@ -2174,6 +2174,35 @@ export default function Chat() {
   const openYouTubeLabel = uiLanguage === 'de' ? 'YouTube öffnen' : uiLanguage === 'es' ? 'Abrir video en YouTube' : 'Open YouTube video'
   const videoTopicsLabel = uiLanguage === 'de' ? 'Video-Themen' : uiLanguage === 'es' ? 'Temas de video' : 'Video Topics'
   const videosFoundLabel = uiLanguage === 'de' ? 'Videos gefunden' : uiLanguage === 'es' ? 'Videos encontrados' : 'Videos Found'
+  const cleanInsightText = (value: string) =>
+    value
+      .replace(/^\[Call summary\]\s*/i, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+  const insightCandidates = messages
+    .filter((message) =>
+      (message.type === 'text' || message.type === 'voice' || message.type === 'video')
+      && typeof message.content === 'string'
+      && message.content.trim().length > 0
+      && !isPlaceholderContent(message)
+    )
+    .map((message) => cleanInsightText(message.content || ''))
+    .filter(Boolean)
+
+  const whatMattersNow = Array.from(new Set(insightCandidates)).slice(-3).reverse()
+
+  const openLoops = messages
+    .filter((message) =>
+      message.sender === 'avatar'
+      && (message.type === 'text' || message.type === 'voice' || message.type === 'video')
+      && typeof message.content === 'string'
+      && message.content.includes('?')
+    )
+    .map((message) => cleanInsightText(message.content || ''))
+    .filter(Boolean)
+    .slice(-3)
+    .reverse()
 
   return (
     <div className="chat-theme chat-theme-extended relative flex h-[100dvh] min-h-[100dvh] flex-col overflow-hidden text-white supports-[-webkit-touch-callout:none]:min-h-[-webkit-fill-available]">
@@ -2181,6 +2210,35 @@ export default function Chat() {
       <div className="chat-theme-layer chat-theme-layer-b" />
       {isDesktopLayout && <div className="chat-theme-layer chat-theme-grid" />}
       <div className="chat-theme-watermark" aria-hidden="true">EXTENDED HUMAN</div>
+      {isDesktopLayout ? (
+        <aside className="absolute right-6 top-24 z-20 hidden h-[calc(100dvh-9rem)] w-72 rounded-[22px] border border-white/10 bg-[linear-gradient(180deg,rgba(13,24,38,0.92),rgba(8,17,28,0.94))] p-4 shadow-[0_24px_80px_rgba(0,0,0,0.35)] backdrop-blur-2xl lg:block">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#9af8ea]/85">What Matters Now</div>
+          <div className="mt-3 space-y-2">
+            {(whatMattersNow.length > 0 ? whatMattersNow : ['No key highlights yet.']).map((item, index) => (
+              <div key={`wmn-${index}`} className="rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2 text-[12px] leading-[1.4] text-white/80">
+                {item.length > 94 ? `${item.slice(0, 94)}...` : item}
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-6 text-[11px] font-semibold uppercase tracking-[0.22em] text-[#9af8ea]/85">Open Loops</div>
+          <div className="mt-3 space-y-2">
+            {(openLoops.length > 0 ? openLoops : ['No open questions right now.']).map((item, index) => (
+              <div key={`loop-${index}`} className="flex items-start gap-2 rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2 text-[12px] leading-[1.4] text-white/78">
+                <span className="mt-[5px] inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-[#79f5df]/85" />
+                <span>{item.length > 86 ? `${item.slice(0, 86)}...` : item}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-6 text-[11px] font-semibold uppercase tracking-[0.22em] text-[#9af8ea]/85">Quick Actions</div>
+          <div className="mt-3 grid grid-cols-1 gap-2">
+            <button type="button" onClick={() => navigate(`/video-call/${conversation.id}`)} className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-left text-[12px] font-medium text-white/88 transition hover:bg-white/[0.08]">Start Call</button>
+            <button type="button" onClick={() => openVoiceOverlay()} className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-left text-[12px] font-medium text-white/88 transition hover:bg-white/[0.08]">Voice Note</button>
+            <button type="button" onClick={() => void handleExportToClipboard()} className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-left text-[12px] font-medium text-white/88 transition hover:bg-white/[0.08]">Export Chat</button>
+          </div>
+        </aside>
+      ) : null}
       <div className={`relative z-10 flex min-h-0 flex-1 flex-col ${isDesktopLayout ? 'mx-auto my-6 w-[min(900px,calc(100vw-80px))] overflow-hidden rounded-[28px] border border-white/[0.08] bg-[rgba(6,14,22,0.62)] shadow-[0_40px_160px_rgba(0,0,0,0.55),0_0_0_1px_rgba(255,255,255,0.03)] backdrop-blur-3xl' : ''}`}>
       <header className={`relative z-10 flex items-center gap-3 border-b border-white/[0.06] px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur-2xl ${isDesktopLayout ? 'bg-[rgba(8,18,28,0.65)] shadow-[0_1px_0_rgba(255,255,255,0.03)]' : 'bg-[#0a1420]/80 shadow-[0_8px_32px_rgba(0,0,0,0.2)]'}`}>
         {selectionMode ? (
