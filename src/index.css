@@ -194,6 +194,23 @@ select {
   mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.9), rgba(0, 0, 0, 0.28));
 }
 
+.chat-scroll-surface::after {
+  content: "EXTENDED HUMAN";
+  position: absolute;
+  inset: 42% 0 auto;
+  text-align: center;
+  pointer-events: none;
+  font-size: clamp(14px, 1.5vw, 22px);
+  letter-spacing: 0.62em;
+  font-weight: 700;
+  color: rgba(150, 255, 230, 0.12);
+  text-transform: uppercase;
+  text-shadow:
+    0 0 26px rgba(56, 212, 177, 0.16),
+    0 0 8px rgba(56, 212, 177, 0.1);
+  mix-blend-mode: screen;
+}
+
 /* ========== VIDEO MESSAGE BUBBLE ========== */
 .video-bubble {
   padding: 4px !important;
