@@ -1184,13 +1184,29 @@ interface CallSummaryPayload {
 
 function parseCallSummary(content?: string | null): CallSummaryPayload | null {
   if (!content) return null
+  const trimmed = content.trim()
+  const normalized = trimmed
+    .replace(/^\[call\s*summary\]\s*/i, '')
+    .trim()
+
+  const candidates = [trimmed, normalized]
+  const jsonTailMatch = normalized.match(/\{[\s\S]*\}$/)
+  if (jsonTailMatch) candidates.push(jsonTailMatch[0])
+
   try {
-    const parsed = JSON.parse(content) as CallSummaryPayload
-    if (!parsed || typeof parsed !== 'object') return null
-    return parsed
+    for (const candidate of candidates) {
+      if (!candidate) continue
+      try {
+        const parsed = JSON.parse(candidate) as CallSummaryPayload
+        if (parsed && typeof parsed === 'object') return parsed
+      } catch {
+        // try next candidate
+      }
+    }
   } catch {
-    return null
+    // no-op
   }
+  return null
 }
 
 function formatCallDuration(seconds?: number | null) {
@@ -1203,11 +1219,11 @@ function formatCallDuration(seconds?: number | null) {
   return `${minutes}m ${remainder}s`
 }
 
-const CallSummaryBubble = memo(function CallSummaryBubble({ message }: { message: Message }) {
-  const payload = parseCallSummary(message.content)
-  const startedAt = payload?.started_at ? new Date(payload.started_at) : null
-  const durationLabel = formatCallDuration(payload?.duration_sec ?? null)
-  const participants = payload?.participants ?? []
+const CallSummaryBubble = memo(function CallSummaryBubble({ message, payload }: { message: Message; payload?: CallSummaryPayload | null }) {
+  const resolvedPayload = payload ?? parseCallSummary(message.content)
+  const startedAt = resolvedPayload?.started_at ? new Date(resolvedPayload.started_at) : null
+  const durationLabel = formatCallDuration(resolvedPayload?.duration_sec ?? null)
+  const participants = resolvedPayload?.participants ?? []
   const participantLabel = participants.length > 0 ? participants.join(', ') : 'Unknown'
 
   return (
@@ -2298,11 +2314,12 @@ export default function Chat() {
 	            const youtubePreviews = extractYouTubePreviews(message.content)
 	            const topicChips = videoTopicsMap[messageId] || []
 	            const videoShelf = videoSuggestionsMap[messageId] || []
+              const parsedCallSummary = parseCallSummary(message.content)
 
-            if (message.type === 'call_summary') {
+            if (message.type === 'call_summary' || parsedCallSummary) {
               return (
                 <div key={message.id} className="my-3 flex justify-center">
-                  <CallSummaryBubble message={message} />
+                  <CallSummaryBubble message={message} payload={parsedCallSummary} />
                 </div>
               )
             }
