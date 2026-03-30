@@ -118,6 +118,51 @@ select {
   text-transform: uppercase;
 }
 
+/* ========== Chat Theme: Extended Human ========== */
+.chat-theme {
+  background: linear-gradient(140deg, #020a12 0%, #071420 35%, #060e1a 65%, #030810 100%);
+}
+
+.chat-theme-layer {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+}
+
+.chat-theme-layer-a {
+  background:
+    radial-gradient(ellipse 86% 56% at 50% -10%, rgba(58, 222, 185, 0.16), transparent 58%),
+    radial-gradient(ellipse 40% 30% at 84% 22%, rgba(70, 170, 255, 0.11), transparent 60%);
+}
+
+.chat-theme-layer-b {
+  background:
+    radial-gradient(ellipse 44% 36% at 12% 78%, rgba(122, 94, 255, 0.08), transparent 68%),
+    linear-gradient(180deg, rgba(7, 18, 27, 0) 0%, rgba(4, 10, 16, 0.48) 100%);
+}
+
+.chat-theme-grid {
+  background-image:
+    linear-gradient(rgba(160, 255, 237, 0.024) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(160, 255, 237, 0.02) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.88), rgba(0, 0, 0, 0.15));
+}
+
+.chat-theme-watermark {
+  pointer-events: none;
+  position: absolute;
+  inset: auto 0 6%;
+  text-align: center;
+  letter-spacing: 0.42em;
+  font-size: clamp(10px, 1.2vw, 13px);
+  font-weight: 600;
+  color: rgba(155, 244, 229, 0.2);
+  text-transform: uppercase;
+  text-shadow: 0 0 24px rgba(67, 219, 184, 0.1);
+  z-index: 1;
+}
+
 /* ========== VIDEO MESSAGE BUBBLE ========== */
 .video-bubble {
   padding: 4px !important;
