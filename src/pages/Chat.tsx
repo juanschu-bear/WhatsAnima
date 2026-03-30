@@ -396,18 +396,14 @@ const VoiceMessageBubble = memo(function VoiceMessageBubble({
 
   return (
     <div
-      className={`relative rounded-[20px] border px-4 py-3 text-sm shadow-[0_2px_8px_rgba(0,0,0,0.12)] ${
-        isContact
-          ? 'rounded-tr-[6px] border-[#00a884]/15 bg-[#005c4b] text-white'
-          : 'rounded-tl-[6px] border-white/[0.06] bg-[#1a2332] text-white'
-      }`}
+      className={`voice-bubble-shell ${isContact ? 'voice-bubble-outgoing' : 'voice-bubble-incoming'}`}
     >
-      <div className="flex items-center gap-2.5">
+      <div className="voice-player">
         <button
           type="button"
           onClick={togglePlay}
           disabled={!hasPlayableAudio}
-          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition disabled:opacity-40 ${isContact ? 'bg-[#00a884]/25 text-[#7be3ce]' : 'bg-white/8 text-white/70'}`}
+          className="voice-play-btn"
         >
           {isPlaying ? (
             <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
@@ -423,7 +419,7 @@ const VoiceMessageBubble = memo(function VoiceMessageBubble({
         {/* Seekable waveform */}
         <div
           ref={waveformRef}
-          className="flex min-w-0 flex-1 cursor-pointer items-center gap-[3px]"
+          className="voice-waveform"
           onClick={seekToPosition}
           onTouchStart={seekToPosition}
           role="slider"
@@ -439,41 +435,33 @@ const VoiceMessageBubble = memo(function VoiceMessageBubble({
             return (
               <span
                 key={bar}
-                className={`w-[3px] rounded-full transition-all duration-150 ${
-                  isActive
-                    ? isContact ? 'bg-[#7be3ce]' : 'bg-[#00d4a1]'
-                    : isContact ? 'bg-white/25' : 'bg-white/20'
-                }`}
+                className={`voice-waveform-bar ${isActive ? 'played' : ''}`}
                 style={{ height: `${heights[bar]}px` }}
               />
             )
           })}
         </div>
 
-        <div className="flex shrink-0 flex-col items-end gap-0.5">
-          <span className="text-[11px] tabular-nums text-white/60">{formatClock(isPlaying ? displaySeconds : durationSeconds)}</span>
+        <div className="voice-right-controls">
+          <span className="voice-duration">{formatClock(isPlaying ? displaySeconds : durationSeconds)}</span>
           {/* Speed toggle */}
           {hasPlayableAudio && (
             <button
               type="button"
               onClick={cycleSpeed}
-              className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums transition ${
-                currentSpeed !== 1
-                  ? isContact ? 'bg-[#00a884]/30 text-[#7be3ce]' : 'bg-[#00d4a1]/20 text-[#00d4a1]'
-                  : 'text-white/40 hover:text-white/60'
-              }`}
+              className={`voice-speed-badge ${currentSpeed !== 1 ? 'active' : ''}`}
             >
               {currentSpeed}x
             </button>
           )}
         </div>
       </div>
-      <div className="mt-2 flex items-center gap-2">
+      <div className="voice-actions">
         {hasPlayableAudio && (
           <a
             href={message.media_url!}
             download={`voice-${message.id.slice(0, 8)}.webm`}
-            className={`inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-medium text-white/80 transition hover:border-white/25`}
+            className="voice-action-btn"
           >
             <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
               <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V3" />
@@ -485,14 +473,14 @@ const VoiceMessageBubble = memo(function VoiceMessageBubble({
           <button
             type="button"
             onClick={() => setIsTranscriptOpen((current) => !current)}
-            className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-medium text-white/80 transition hover:border-white/25"
+            className="voice-action-btn"
           >
             {isTranscriptOpen ? 'Hide transcript' : 'Transcribe'}
           </button>
         ) : null}
       </div>
       {hasTranscript && isTranscriptOpen ? (
-        <div className="mt-2 rounded-2xl bg-black/15 px-3 py-2.5 text-[13px] leading-[1.55] text-white/80">
+        <div className="voice-transcript-panel">
           {transcript!.split(/(?<=[.!?])\s+/).filter(Boolean).map((sentence, i) => (
             <p key={i} className={i > 0 ? 'mt-1.5' : ''}>{sentence}</p>
           ))}
@@ -515,7 +503,7 @@ const VoiceMessageBubble = memo(function VoiceMessageBubble({
           )}
         </div>
       )}
-      <span className={`mt-1 flex items-center justify-end gap-0.5 text-[10px] ${isContact ? 'text-white/40' : 'text-white/30'}`}>
+      <span className={`voice-meta ${isContact ? 'voice-meta-outgoing' : 'voice-meta-incoming'}`}>
         {message._pending && (
           <svg className="mr-1 h-3 w-3 animate-spin text-white/40" viewBox="0 0 24 24" fill="none">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
