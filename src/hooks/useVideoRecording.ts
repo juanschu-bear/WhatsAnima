@@ -1006,31 +1006,36 @@ export function useVideoRecording({
     )
     onStage('\uD83D\uDCE1', uploadLabel, 10)
 
-    const formData = new FormData()
-    formData.append('video', mediaBlob, fileName)
-    formData.append('user_id', conversation.contact_id || conversation.id || '')
-    formData.append('preset', preset)
-    if (conversation.wa_contacts?.display_name) {
-      formData.append('contact_name', conversation.wa_contacts.display_name)
-    }
-    if (opts.orientation) {
-      formData.append('orientation', String(opts.orientation))
-      console.log('[OPM] Sending orientation metadata:', opts.orientation)
+    const submitJob = async () => {
+      const formData = new FormData()
+      formData.append('video', mediaBlob, fileName)
+      formData.append('user_id', conversation.contact_id || conversation.id || '')
+      formData.append('preset', preset)
+      if (conversation.wa_contacts?.display_name) {
+        formData.append('contact_name', conversation.wa_contacts.display_name)
+      }
+      if (opts.orientation) {
+        formData.append('orientation', String(opts.orientation))
+        console.log('[OPM] Sending orientation metadata:', opts.orientation)
+      }
+
+      console.log('[OPM] Uploading, size:', mediaBlob.size, 'type:', mediaBlob.type)
+      const submitRes = await fetch(uploadUrl, { method: 'POST', body: formData })
+      if (!submitRes.ok) {
+        const errData = await submitRes.json().catch(() => ({}))
+        console.error('[OPM] Submit error:', submitRes.status, JSON.stringify(errData))
+        throw new Error(errData.error || 'processing_error')
+      }
+
+      const submitData = await submitRes.json()
+      const submittedJobId = submitData.job_id
+      if (!submittedJobId || typeof submittedJobId !== 'string') {
+        throw new Error('processing_error')
+      }
+      return submittedJobId
     }
 
-    console.log('[OPM] Uploading, size:', mediaBlob.size, 'type:', mediaBlob.type)
-    const submitRes = await fetch(uploadUrl, { method: 'POST', body: formData })
-    if (!submitRes.ok) {
-      const errData = await submitRes.json().catch(() => ({}))
-      console.error('[OPM] Submit error:', submitRes.status, JSON.stringify(errData))
-      throw new Error(errData.error || 'processing_error')
-    }
-
-    const submitData = await submitRes.json()
-    const jobId = submitData.job_id
-    if (!jobId || typeof jobId !== 'string') {
-      throw new Error('processing_error')
-    }
+    let jobId = await submitJob()
     console.log('[OPM] Job submitted, id:', jobId)
 
     onStage('\uD83D\uDD2C', watchingLabel, 25)
@@ -1038,6 +1043,7 @@ export function useVideoRecording({
     let jobComplete = false
     let notFoundCount = 0
     let transientHttpErrorCount = 0
+    let resubmittedAfterNotFound = false
 
     while (Date.now() - startTime < OPM_CLIENT_TIMEOUT_MS) {
       await delay(OPM_CLIENT_POLL_INTERVAL_MS)
@@ -1047,6 +1053,15 @@ export function useVideoRecording({
         if (statusRes.status === 404) {
           notFoundCount += 1
           if (notFoundCount >= 3) {
+            if (!resubmittedAfterNotFound) {
+              resubmittedAfterNotFound = true
+              onStage('\uD83D\uDCE1', 'Re-uploading video after job sync issue...', 22)
+              jobId = await submitJob()
+              console.warn('[OPM] Re-submitted lost job. New id:', jobId)
+              notFoundCount = 0
+              transientHttpErrorCount = 0
+              continue
+            }
             throw new Error('job_not_found')
           }
         } else if (statusRes.status >= 500) {
