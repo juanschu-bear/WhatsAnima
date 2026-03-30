@@ -858,15 +858,17 @@ select {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  font-family: "Orbitron", "Rajdhani", "Bank Gothic", "Eurostile", "Arial Black", sans-serif;
-  font-size: clamp(74px, 9.2vw, 152px);
+  width: min(92%, 1200px);
+  max-width: 92%;
+  font-family: "Audiowide", "Orbitron", "Rajdhani", "Bank Gothic", "Eurostile", "Arial Black", sans-serif;
+  font-size: clamp(42px, 8.2vw, 136px);
   font-weight: 800;
   font-style: normal;
-  line-height: 0.84;
+  line-height: 0.86;
   text-align: center;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  opacity: 0.16;
+  opacity: 0.15;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(219, 234, 255, 0.85) 100%);
   -webkit-background-clip: text;
   background-clip: text;
@@ -876,7 +878,7 @@ select {
     0 0 12px rgba(255, 255, 255, 0.2),
     0 0 42px rgba(126, 163, 255, 0.28);
   pointer-events: none;
-  white-space: pre;
+  white-space: pre-line;
   user-select: none;
   z-index: 0;
 }
