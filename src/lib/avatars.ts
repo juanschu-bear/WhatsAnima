@@ -12,10 +12,12 @@ const AVATAR_MAP: Record<string, string> = {
   'professor brian cox': '/brian-cox-192.jpg',
   'adri kastel': '/adri-kastel_192x192.jpg',
   'adri kastel growth expert': '/adri-kastel_192x192.jpg',
+  'elena navarro': '/elena-navarro-192.jpg',
+  'clara fontaine': '/clara-fontaine-192.jpg',
 }
 
 /** Resolve a local avatar URL for the given display name. Returns the default avatar if no specific match. */
 export function resolveAvatarUrl(displayName: string | null | undefined): string {
   if (!displayName) return DEFAULT_AVATAR
-  return AVATAR_MAP[displayName.toLowerCase()] ?? DEFAULT_AVATAR
+  return AVATAR_MAP[displayName.trim().toLowerCase()] ?? DEFAULT_AVATAR
 }
