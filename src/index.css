@@ -201,9 +201,43 @@ select {
   padding: 6px 0 2px;
 }
 
+.video-duration-badge {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.52);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  padding: 3px 8px;
+  font-size: 11px;
+  line-height: 1.1;
+  color: rgba(255, 255, 255, 0.92);
+  font-variant-numeric: tabular-nums;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  pointer-events: none;
+}
+
 .video-bubble-play.hidden {
   opacity: 0;
   pointer-events: none;
+}
+
+.video-playback-progress {
+  margin: 2px auto 0;
+  width: 88%;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+  overflow: hidden;
+}
+
+.video-playback-progress-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: #00d4ff;
+  transition: width 0.15s linear;
 }
 
 .video-bubble-circle.no-video {

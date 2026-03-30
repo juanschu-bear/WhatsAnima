@@ -1247,6 +1247,9 @@ const VideoMessageBubble = memo(function VideoMessageBubble({
 }) {
   const [isTranscriptOpen, setIsTranscriptOpen] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
+  const [playbackProgress, setPlaybackProgress] = useState(0)
+  const [playbackTime, setPlaybackTime] = useState(0)
+  const [resolvedDuration, setResolvedDuration] = useState(Math.max(0, Number(message.duration_sec || 0)))
   const videoRef = useRef<HTMLVideoElement | null>(null)
 
   useEffect(() => {
@@ -1254,25 +1257,56 @@ const VideoMessageBubble = memo(function VideoMessageBubble({
     if (!video) return
     const onLoaded = () => {
       if (video.currentTime === 0) video.currentTime = 0.001
+      if (Number.isFinite(video.duration) && video.duration > 0) {
+        setResolvedDuration(video.duration)
+      }
     }
-    const onEnded = () => setIsPlaying(false)
+    const onDuration = () => {
+      if (Number.isFinite(video.duration) && video.duration > 0) {
+        setResolvedDuration(video.duration)
+      }
+    }
+    const onTime = () => {
+      const duration = Number.isFinite(video.duration) && video.duration > 0
+        ? video.duration
+        : Math.max(0, Number(message.duration_sec || 0))
+      const current = Number.isFinite(video.currentTime) ? video.currentTime : 0
+      setPlaybackTime(current)
+      setPlaybackProgress(duration > 0 ? Math.max(0, Math.min(1, current / duration)) : 0)
+    }
+    const onEnded = () => {
+      setIsPlaying(false)
+      setPlaybackTime(0)
+      setPlaybackProgress(0)
+    }
     const onPause = () => setIsPlaying(false)
     const onPlay = () => setIsPlaying(true)
     video.addEventListener('loadeddata', onLoaded)
+    video.addEventListener('durationchange', onDuration)
+    video.addEventListener('timeupdate', onTime)
     video.addEventListener('ended', onEnded)
     video.addEventListener('pause', onPause)
     video.addEventListener('play', onPlay)
     return () => {
       video.removeEventListener('loadeddata', onLoaded)
+      video.removeEventListener('durationchange', onDuration)
+      video.removeEventListener('timeupdate', onTime)
       video.removeEventListener('ended', onEnded)
       video.removeEventListener('pause', onPause)
       video.removeEventListener('play', onPlay)
     }
-  }, [message.media_url])
+  }, [message.media_url, message.duration_sec])
+
+  useEffect(() => {
+    setPlaybackProgress(0)
+    setPlaybackTime(0)
+    setResolvedDuration(Math.max(0, Number(message.duration_sec || 0)))
+  }, [message.id, message.duration_sec])
 
   const hasTranscript = Boolean(transcript && transcript.trim())
-  const durationSec = Math.max(0, Number(message.duration_sec || 0))
-  const durationLabel = durationSec > 0 ? `0:${durationSec < 10 ? '0' : ''}${Math.round(durationSec)}` : ''
+  const durationSec = Math.max(0, Number(resolvedDuration || message.duration_sec || 0))
+  const durationLabel = durationSec > 0 ? formatClock(durationSec) : '0:00'
+  const playbackLabel = isPlaying ? `${formatClock(playbackTime)} / ${durationLabel}` : durationLabel
   const videoSrc = message.videoBlobUrl || message.media_url || ''
   const hasVideo = Boolean(videoSrc)
   const isGallery = Boolean(message.isGalleryVideo)
@@ -1314,6 +1348,7 @@ const VideoMessageBubble = memo(function VideoMessageBubble({
         {isGallery && hasVideo ? (
           <div className={`video-bubble-rect-container ${isProcessing ? 'processing' : 'processed'}`} onClick={togglePlay}>
             <video ref={videoRef} src={videoSrc} playsInline muted loop preload="metadata" style={videoTransform ? { transform: videoTransform } : undefined} />
+            <div className="video-duration-badge">{playbackLabel}</div>
             <div className={`video-bubble-play ${isPlaying ? 'hidden' : ''}`}>
               <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3" /></svg>
             </div>
@@ -1325,6 +1360,7 @@ const VideoMessageBubble = memo(function VideoMessageBubble({
             ) : (
               <div className="video-bubble-placeholder"><svg viewBox="0 0 24 24" width="32" height="32" fill="rgba(255,255,255,0.6)"><path d="M17 10.5V7a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h12a1 1 0 001-1v-3.5l4 4v-11l-4 4z" /></svg></div>
             )}
+            {hasVideo ? <div className="video-duration-badge">{playbackLabel}</div> : null}
             {hasVideo ? (
               <div className={`video-bubble-play ${isPlaying ? 'hidden' : ''}`}>
                 <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3" /></svg>
@@ -1332,7 +1368,12 @@ const VideoMessageBubble = memo(function VideoMessageBubble({
             ) : null}
           </div>
         )}
-        <div className="video-bubble-duration">{hasVideo ? durationLabel : 'Video from another device'}</div>
+        <div className="video-bubble-duration">{hasVideo ? playbackLabel : 'Video from another device'}</div>
+        {hasVideo ? (
+          <div className="video-playback-progress">
+            <div className="video-playback-progress-fill" style={{ width: `${Math.max(0, Math.min(100, playbackProgress * 100))}%` }} />
+          </div>
+        ) : null}
       </div>
 
       <div className="mt-2 flex items-center gap-2">
