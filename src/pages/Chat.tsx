@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { getConversation, listMessages, listPerceptionLogs, sendMessage, listAllOwners, findContactByEmail, findOrCreateConversation, createContactForOwner } from '../lib/api'
+import { getConversation, listMessages, listPerceptionLogs, sendMessage, listAllOwners, findContactByEmail, findOrCreateConversation, createContactForOwner, findContactByEmailForOwner, findLatestConversationForOwnerAndEmail } from '../lib/api'
 import { resolveAvatarUrl } from '../lib/avatars'
 import { t } from '../lib/i18n'
 import {
@@ -1444,6 +1444,8 @@ export default function Chat() {
   const [videoSuggestionsMap, setVideoSuggestionsMap] = useState<Record<string, VideoSuggestion[]>>({})
   const [mediaMenuOpen, setMediaMenuOpen] = useState(false)
   const [isDesktopLayout, setIsDesktopLayout] = useState(false)
+  const [railOwners, setRailOwners] = useState<Array<{ id: string; display_name: string }>>([])
+  const [switchingOwnerId, setSwitchingOwnerId] = useState<string | null>(null)
   const avatarReplyInFlight = useRef(new Set<string>())
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
@@ -1732,6 +1734,23 @@ export default function Chat() {
     media.addEventListener('change', sync)
     return () => media.removeEventListener('change', sync)
   }, [])
+
+  useEffect(() => {
+    if (!isDesktopLayout) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const owners = await listAllOwners()
+        if (cancelled) return
+        setRailOwners((owners as Array<{ id: string; display_name: string }>).filter((o) => !!o?.id))
+      } catch {
+        if (!cancelled) setRailOwners([])
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [isDesktopLayout, conversationId])
 
   useEffect(() => {
     return () => {
@@ -2174,44 +2193,45 @@ export default function Chat() {
   const openYouTubeLabel = uiLanguage === 'de' ? 'YouTube öffnen' : uiLanguage === 'es' ? 'Abrir video en YouTube' : 'Open YouTube video'
   const videoTopicsLabel = uiLanguage === 'de' ? 'Video-Themen' : uiLanguage === 'es' ? 'Temas de video' : 'Video Topics'
   const videosFoundLabel = uiLanguage === 'de' ? 'Videos gefunden' : uiLanguage === 'es' ? 'Videos encontrados' : 'Videos Found'
-  const isUsableInsight = (value: string) => {
-    const text = value.trim()
-    if (!text) return false
-    if (text.includes('"session_id"') || text.includes('"started_at"') || text.includes('"ended_at"')) return false
-    if (/^\{[\s\S]*\}$/.test(text)) return false
-    return true
+
+  async function switchToOwner(ownerId: string) {
+    if (!conversation || !ownerId || ownerId === conversation.owner_id || switchingOwnerId) return
+    setSwitchingOwnerId(ownerId)
+    try {
+      const ownerEmail = (conversation as any)?.wa_contacts?.email as string | undefined
+      const auth = await (await import('../lib/supabase')).supabase.auth.getUser()
+      const userEmail = auth.data.user?.email || ''
+      const targetEmail = (ownerEmail || userEmail || '').trim()
+
+      if (!targetEmail) {
+        throw new Error('No contact email for avatar switch')
+      }
+
+      const existingConversationId = await findLatestConversationForOwnerAndEmail(ownerId, targetEmail)
+      if (existingConversationId) {
+        navigate(`/chat/${existingConversationId}`)
+        return
+      }
+
+      let contact = await findContactByEmailForOwner(ownerId, targetEmail)
+      if (!contact) {
+        contact = await createContactForOwner({
+          ownerId,
+          firstName: '',
+          lastName: '',
+          email: targetEmail,
+        })
+      }
+
+      const newConversationId = await findOrCreateConversation(ownerId, contact.id)
+      navigate(`/chat/${newConversationId}`)
+    } catch (switchError) {
+      console.error('Avatar switch failed:', switchError)
+      setError('Unable to switch avatar chat right now.')
+    } finally {
+      setSwitchingOwnerId(null)
+    }
   }
-  const cleanInsightText = (value: string) =>
-    value
-      .replace(/^\[Call summary\]\s*/i, '')
-      .replace(/\{[\s\S]*\}$/g, '')
-      .replace(/\s+/g, ' ')
-      .trim()
-
-  const insightCandidates = messages
-    .filter((message) =>
-      message.sender === 'avatar'
-      && (message.type === 'text' || message.type === 'voice' || message.type === 'video')
-      && typeof message.content === 'string'
-      && message.content.trim().length > 0
-      && !isPlaceholderContent(message)
-    )
-    .map((message) => cleanInsightText(message.content || ''))
-    .filter((item) => isUsableInsight(item))
-
-  const whatMattersNow = Array.from(new Set(insightCandidates)).slice(-3).reverse()
-
-  const openLoops = messages
-    .filter((message) =>
-      message.sender === 'avatar'
-      && (message.type === 'text' || message.type === 'voice' || message.type === 'video')
-      && typeof message.content === 'string'
-      && message.content.includes('?')
-    )
-    .map((message) => cleanInsightText(message.content || ''))
-    .filter((item) => isUsableInsight(item))
-    .slice(-3)
-    .reverse()
 
   return (
     <div className="chat-theme chat-theme-extended relative flex h-[100dvh] min-h-[100dvh] flex-col overflow-hidden text-white supports-[-webkit-touch-callout:none]:min-h-[-webkit-fill-available]">
@@ -2220,28 +2240,38 @@ export default function Chat() {
       {isDesktopLayout && <div className="chat-theme-layer chat-theme-grid" />}
       <div className="chat-theme-watermark" aria-hidden="true">EXTENDED HUMAN</div>
       {isDesktopLayout ? (
-        <aside className="absolute left-6 top-24 z-20 hidden max-h-[calc(100dvh-9.5rem)] w-64 overflow-y-auto rounded-[20px] border border-white/10 bg-[linear-gradient(180deg,rgba(13,24,38,0.92),rgba(8,17,28,0.94))] p-3 shadow-[0_24px_80px_rgba(0,0,0,0.35)] backdrop-blur-2xl lg:block">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#9af8ea]/85">What Matters Now</div>
+        <aside className="absolute right-6 top-24 z-20 hidden max-h-[calc(100dvh-9.5rem)] w-64 overflow-y-auto rounded-[20px] border border-white/10 bg-[linear-gradient(180deg,rgba(13,24,38,0.92),rgba(8,17,28,0.94))] p-3 shadow-[0_24px_80px_rgba(0,0,0,0.35)] backdrop-blur-2xl lg:block">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#9af8ea]/85">Avatars</div>
           <div className="mt-3 space-y-2">
-            {(whatMattersNow.length > 0 ? whatMattersNow : ['No key highlights yet.']).map((item, index) => (
-              <div key={`wmn-${index}`} className="rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2 text-[12px] leading-[1.4] text-white/80">
-                {item.length > 94 ? `${item.slice(0, 94)}...` : item}
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-6 text-[11px] font-semibold uppercase tracking-[0.22em] text-[#9af8ea]/85">Open Loops</div>
-          <div className="mt-3 space-y-2">
-            {(openLoops.length > 0 ? openLoops : ['No open questions right now.']).map((item, index) => (
-              <div key={`loop-${index}`} className="flex items-start gap-2 rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2 text-[12px] leading-[1.4] text-white/78">
-                <span className="mt-[5px] inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-[#79f5df]/85" />
-                <span>{item.length > 86 ? `${item.slice(0, 86)}...` : item}</span>
-              </div>
-            ))}
+            {railOwners.map((ownerItem) => {
+              const isActive = ownerItem.id === conversation.owner_id
+              const isSwitching = switchingOwnerId === ownerItem.id
+              return (
+                <button
+                  key={ownerItem.id}
+                  type="button"
+                  onClick={() => void switchToOwner(ownerItem.id)}
+                  disabled={isSwitching || isActive}
+                  className={`w-full rounded-xl border px-3 py-2 text-left transition ${
+                    isActive
+                      ? 'border-[#7ef5e0]/40 bg-[#7ef5e0]/12 text-white'
+                      : 'border-white/10 bg-white/[0.03] text-white/84 hover:bg-white/[0.08]'
+                  } disabled:opacity-70`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <img src={resolveAvatarUrl(ownerItem.display_name)} alt={ownerItem.display_name} className="h-8 w-8 rounded-full object-cover ring-1 ring-white/15" />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[13px] font-medium">{ownerItem.display_name}</div>
+                      <div className="text-[11px] text-white/55">{isActive ? 'Current chat' : (isSwitching ? 'Switching...' : 'Open chat')}</div>
+                    </div>
+                  </div>
+                </button>
+              )
+            })}
           </div>
         </aside>
       ) : null}
-      <div className={`relative z-10 flex min-h-0 flex-1 flex-col ${isDesktopLayout ? 'mx-auto my-6 w-[min(900px,calc(100vw-360px))] lg:ml-[19.5rem] lg:mr-6 overflow-hidden rounded-[28px] border border-white/[0.08] bg-[rgba(6,14,22,0.62)] shadow-[0_40px_160px_rgba(0,0,0,0.55),0_0_0_1px_rgba(255,255,255,0.03)] backdrop-blur-3xl' : ''}`}>
+      <div className={`relative z-10 flex min-h-0 flex-1 flex-col ${isDesktopLayout ? 'mx-auto my-6 w-[min(900px,calc(100vw-360px))] lg:ml-6 lg:mr-[19.5rem] overflow-hidden rounded-[28px] border border-white/[0.08] bg-[rgba(6,14,22,0.62)] shadow-[0_40px_160px_rgba(0,0,0,0.55),0_0_0_1px_rgba(255,255,255,0.03)] backdrop-blur-3xl' : ''}`}>
       <header className={`relative z-10 flex items-center gap-3 border-b border-white/[0.06] px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur-2xl ${isDesktopLayout ? 'bg-[rgba(8,18,28,0.65)] shadow-[0_1px_0_rgba(255,255,255,0.03)]' : 'bg-[#0a1420]/80 shadow-[0_8px_32px_rgba(0,0,0,0.2)]'}`}>
         {selectionMode ? (
           <>

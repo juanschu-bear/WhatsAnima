@@ -131,8 +131,8 @@ select {
 
 .chat-theme-layer-a {
   background:
-    radial-gradient(ellipse 86% 56% at 50% -10%, rgba(66, 233, 196, 0.28), transparent 56%),
-    radial-gradient(ellipse 40% 30% at 84% 22%, rgba(70, 170, 255, 0.2), transparent 58%),
+    radial-gradient(ellipse 86% 56% at 50% -10%, rgba(66, 233, 196, 0.14), transparent 56%),
+    radial-gradient(ellipse 40% 30% at 84% 22%, rgba(70, 170, 255, 0.15), transparent 58%),
     radial-gradient(ellipse 42% 28% at 14% 86%, rgba(132, 102, 255, 0.16), transparent 68%);
 }
 
