@@ -471,8 +471,9 @@ export default function VideoCall() {
   const languageContextInjectedRef = useRef(false)
   const meetingToken = String(searchParams.get('meeting_token') || '').trim()
   const hasMeetingContext =
+    meetingToken.length > 0 &&
     typeof window !== 'undefined' &&
-    Object.keys(window.sessionStorage || {}).some((key) => key.includes('wa_meeting_context'))
+    Boolean(window.sessionStorage.getItem(`wa_meeting_context:${meetingToken}`))
   const shouldSkipLanguageSelection = Boolean(meetingToken) || hasMeetingContext
   const isMeetingMode = meetingToken.length > 0
   const isMeetingGuest = isMeetingMode && !meetingHostControl
