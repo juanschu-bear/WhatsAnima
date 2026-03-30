@@ -234,6 +234,17 @@ function extractYouTubePreviews(content: string | null | undefined): YouTubePrev
   return previews
 }
 
+function formatSidebarTime(dateStr: string) {
+  const date = new Date(dateStr)
+  const now = new Date()
+  const diffMs = now.getTime() - date.getTime()
+  const diffDays = Math.floor(diffMs / 86_400_000)
+  if (diffDays === 0) return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  if (diffDays === 1) return 'Yesterday'
+  if (diffDays < 7) return date.toLocaleDateString([], { weekday: 'short' })
+  return date.toLocaleDateString([], { month: 'short', day: 'numeric' })
+}
+
 function dateKey(dateStr: string) {
   const date = new Date(dateStr)
   return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
@@ -1444,7 +1455,7 @@ export default function Chat() {
   const [videoSuggestionsMap, setVideoSuggestionsMap] = useState<Record<string, VideoSuggestion[]>>({})
   const [mediaMenuOpen, setMediaMenuOpen] = useState(false)
   const [isDesktopLayout, setIsDesktopLayout] = useState(false)
-  const [railOwners, setRailOwners] = useState<Array<{ id: string; display_name: string }>>([])
+  const [railOwners, setRailOwners] = useState<Array<{ id: string; display_name: string; last_message_text: string | null; last_message_at: string | null }>>([])
   const [switchingOwnerId, setSwitchingOwnerId] = useState<string | null>(null)
   const [avatarSearch, setAvatarSearch] = useState('')
   const avatarReplyInFlight = useRef(new Set<string>())
@@ -1738,20 +1749,53 @@ export default function Chat() {
 
   useEffect(() => {
     if (!isDesktopLayout) return
+    const contactId = conversation?.contact_id
     let cancelled = false
     void (async () => {
       try {
-        const owners = await listAllOwners()
+        const owners = await listAllOwners() as Array<{ id: string; display_name: string }>
         if (cancelled) return
-        setRailOwners((owners as Array<{ id: string; display_name: string }>).filter((o) => !!o?.id))
+        const validOwners = owners.filter((o) => !!o?.id)
+        if (!contactId) {
+          if (!cancelled) setRailOwners(validOwners.map((o) => ({ ...o, last_message_text: null, last_message_at: null })))
+          return
+        }
+        const { supabase } = await import('../lib/supabase')
+        const { data: convRows } = await supabase
+          .from('wa_conversations')
+          .select('id, owner_id')
+          .eq('contact_id', contactId)
+          .in('owner_id', validOwners.map((o) => o.id))
+        if (cancelled || !convRows || convRows.length === 0) {
+          if (!cancelled) setRailOwners(validOwners.map((o) => ({ ...o, last_message_text: null, last_message_at: null })))
+          return
+        }
+        const ownerByConv = new Map(convRows.map((c: { id: string; owner_id: string }) => [c.id, c.owner_id]))
+        const { data: lastMsgs } = await supabase
+          .from('wa_messages')
+          .select('conversation_id, content, type, created_at')
+          .in('conversation_id', convRows.map((c: { id: string }) => c.id))
+          .order('created_at', { ascending: false })
+        const lastByOwner = new Map<string, { content: string | null; type: string; created_at: string }>()
+        for (const msg of lastMsgs ?? []) {
+          const oid = ownerByConv.get(msg.conversation_id as string)
+          if (oid && !lastByOwner.has(oid)) lastByOwner.set(oid, msg as { content: string | null; type: string; created_at: string })
+        }
+        if (!cancelled) {
+          setRailOwners(validOwners.map((o) => {
+            const last = lastByOwner.get(o.id)
+            const preview = last
+              ? (last.type === 'voice' ? 'Voice message' : last.type === 'video' ? 'Video message' : last.type === 'image' ? 'Photo' : (last.content ?? '').slice(0, 50))
+              : null
+            return { ...o, last_message_text: preview, last_message_at: last?.created_at ?? null }
+          }))
+        }
       } catch {
         if (!cancelled) setRailOwners([])
       }
     })()
-    return () => {
-      cancelled = true
-    }
-  }, [isDesktopLayout, conversationId])
+    return () => { cancelled = true }
+  }, [isDesktopLayout, conversationId, conversation?.contact_id])
 
   useEffect(() => {
     return () => {
@@ -2244,7 +2288,7 @@ export default function Chat() {
       {isDesktopLayout && <div className="chat-theme-layer chat-theme-grid" />}
       <div className="chat-theme-watermark" aria-hidden="true">EXTENDED HUMAN</div>
       {isDesktopLayout ? (
-        <aside className="absolute left-6 top-6 z-20 hidden h-[calc(100dvh-3rem)] w-[300px] overflow-hidden rounded-[22px] border border-white/10 bg-[linear-gradient(180deg,rgba(16,24,35,0.95),rgba(10,16,26,0.96))] shadow-[0_24px_80px_rgba(0,0,0,0.36)] backdrop-blur-2xl lg:flex lg:flex-col">
+        <aside className="absolute left-6 top-6 z-20 hidden h-[calc(100dvh-3rem)] w-[320px] overflow-hidden rounded-[22px] border border-white/10 bg-[linear-gradient(180deg,rgba(16,24,35,0.95),rgba(10,16,26,0.96))] shadow-[0_24px_80px_rgba(0,0,0,0.36)] backdrop-blur-2xl lg:flex lg:flex-col">
           <div className="border-b border-white/8 px-4 py-3">
             <div className="text-[26px] font-semibold tracking-[-0.02em] text-white">Chats</div>
             <div className="mt-3">
@@ -2256,7 +2300,7 @@ export default function Chat() {
               />
             </div>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto p-2">
+          <div className="min-h-0 flex-1 overflow-y-auto">
             {filteredRailOwners.map((ownerItem) => {
               const isActive = ownerItem.id === conversation.owner_id
               const isSwitching = switchingOwnerId === ownerItem.id
@@ -2266,17 +2310,22 @@ export default function Chat() {
                   type="button"
                   onClick={() => void switchToOwner(ownerItem.id)}
                   disabled={isSwitching || isActive}
-                  className={`mb-1 w-full rounded-xl border px-3 py-2 text-left transition ${
+                  className={`flex w-full items-center gap-3 px-3 py-[10px] text-left transition ${
                     isActive
-                      ? 'border-[#7ef5e0]/45 bg-[#7ef5e0]/12 text-white'
-                      : 'border-white/10 bg-white/[0.03] text-white/84 hover:bg-white/[0.08]'
+                      ? 'bg-[#7ef5e0]/10'
+                      : 'hover:bg-white/[0.05]'
                   } disabled:opacity-70`}
                 >
-                  <div className="flex items-center gap-2.5">
-                    <img src={resolveAvatarUrl(ownerItem.display_name)} alt={ownerItem.display_name} className="h-10 w-10 rounded-full object-cover ring-1 ring-white/15" />
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-[14px] font-semibold">{ownerItem.display_name}</div>
-                      <div className="text-[12px] text-white/55">{isActive ? 'Current chat' : (isSwitching ? 'Switching...' : 'Tap to open chat')}</div>
+                  <img src={resolveAvatarUrl(ownerItem.display_name)} alt={ownerItem.display_name} className="h-[45px] w-[45px] shrink-0 rounded-full object-cover ring-1 ring-white/12" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="truncate text-[15px] font-semibold text-white">{ownerItem.display_name}</span>
+                      {ownerItem.last_message_at ? (
+                        <span className={`shrink-0 text-[11px] ${isActive ? 'text-[#7ef5e0]/70' : 'text-white/40'}`}>{formatSidebarTime(ownerItem.last_message_at)}</span>
+                      ) : null}
+                    </div>
+                    <div className="mt-0.5 truncate text-[13px] text-white/50">
+                      {isSwitching ? 'Opening...' : (ownerItem.last_message_text || (isActive ? 'Current chat' : 'Start chatting'))}
                     </div>
                   </div>
                 </button>
@@ -2288,7 +2337,7 @@ export default function Chat() {
           </div>
         </aside>
       ) : null}
-      <div className={`relative z-10 flex min-h-0 flex-1 flex-col ${isDesktopLayout ? 'mx-auto my-6 w-[min(980px,calc(100vw-360px))] lg:ml-[324px] lg:mr-6 overflow-hidden rounded-[28px] border border-white/[0.08] bg-[rgba(6,14,22,0.62)] shadow-[0_40px_160px_rgba(0,0,0,0.55),0_0_0_1px_rgba(255,255,255,0.03)] backdrop-blur-3xl' : ''}`}>
+      <div className={`relative z-10 flex min-h-0 flex-1 flex-col ${isDesktopLayout ? 'mx-auto my-6 w-[min(980px,calc(100vw-380px))] lg:ml-[344px] lg:mr-6 overflow-hidden rounded-[28px] border border-white/[0.08] bg-[rgba(6,14,22,0.62)] shadow-[0_40px_160px_rgba(0,0,0,0.55),0_0_0_1px_rgba(255,255,255,0.03)] backdrop-blur-3xl' : ''}`}>
       <header className={`relative z-10 flex items-center gap-3 border-b border-white/[0.06] px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur-2xl ${isDesktopLayout ? 'bg-[rgba(8,18,28,0.65)] shadow-[0_1px_0_rgba(255,255,255,0.03)]' : 'bg-[#0a1420]/80 shadow-[0_8px_32px_rgba(0,0,0,0.2)]'}`}>
         {selectionMode ? (
           <>
