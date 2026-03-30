@@ -1223,26 +1223,22 @@ const CallSummaryBubble = memo(function CallSummaryBubble({ message, payload }: 
   const resolvedPayload = payload ?? parseCallSummary(message.content)
   const startedAt = resolvedPayload?.started_at ? new Date(resolvedPayload.started_at) : null
   const durationLabel = formatCallDuration(resolvedPayload?.duration_sec ?? null)
-  const participants = resolvedPayload?.participants ?? []
-  const participantLabel = participants.length > 0 ? participants.join(', ') : 'Unknown'
+  const startedLabel = startedAt ? startedAt.toLocaleString() : 'Unknown'
 
   return (
-    <div className="w-full max-w-[560px] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white/85 shadow-[0_2px_10px_rgba(0,0,0,0.15)]">
-      <div className="flex items-center gap-2 text-[12px] uppercase tracking-[0.2em] text-white/50">
-        <svg className="h-4 w-4 text-[#9af8ea]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <div className="w-full max-w-[360px] rounded-[22px] border border-[#7eead7]/20 bg-[linear-gradient(135deg,rgba(38,76,72,0.34),rgba(18,34,48,0.72))] px-4 py-3 text-white/90 shadow-[0_14px_36px_rgba(0,0,0,0.28)] backdrop-blur-[10px]">
+      <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.28em] text-[#9feedd]/80">
+        <svg className="h-4 w-4 text-[#87f1df]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <rect x="3" y="6" width="13" height="12" rx="2" />
           <path d="M16 8l5-2v12l-5-2z" />
         </svg>
         Video Call
       </div>
-      <div className="mt-2 text-[14px] text-white/90">
-        {startedAt ? `Started ${startedAt.toLocaleString()}` : 'Call started'}
+      <div className="mt-2 text-[14px] text-white/92">
+        <span className="text-white/70">Video Call start:</span> {startedLabel}
       </div>
-      <div className="mt-1 text-[13px] text-white/70">
-        Duration: {durationLabel}
-      </div>
-      <div className="mt-1 text-[13px] text-white/70">
-        Participants: {participantLabel}
+      <div className="mt-1 text-[14px] text-white/92">
+        <span className="text-white/70">Duration:</span> {durationLabel}
       </div>
     </div>
   )
