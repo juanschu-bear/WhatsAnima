@@ -2042,7 +2042,7 @@ export default function VideoCall() {
               <div className="relative h-full w-full">
                 <div className="absolute inset-0">
                   {visibleParticipants.length === 0 ? (
-                    <div className="flex h-full w-full flex-col items-center justify-start px-6 pb-10 pt-10 text-center sm:pb-12 sm:pt-12">
+                    <div className="flex h-full w-full flex-col items-center justify-start overflow-y-auto px-6 pb-10 pt-10 text-center sm:pb-12 sm:pt-12">
                       <div className="relative">
                         <img
                           src={resolveAvatarUrl(personaName)}
