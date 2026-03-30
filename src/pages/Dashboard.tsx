@@ -4,15 +4,20 @@ import { useAuth } from '../contexts/AuthContext'
 import {
   createOwnerIfNeeded,
   deleteInvitationLink,
+  deleteInvitationBundle,
   generateInvitationLink,
+  generateInvitationBundle,
   getOwnerDashboardStats,
   listAllOwners,
   listConversations,
+  listInvitationBundles,
   listInvitationLinks,
   listMessages,
   softDeleteOwner,
   toggleInvitationLink,
+  toggleInvitationBundle,
   type ConversationListItem,
+  type InvitationBundle,
   type MessageType,
   type OwnerDashboardStats,
 } from '../lib/api'
@@ -298,6 +303,11 @@ export default function Dashboard() {
   const [invitePanelOpen, setInvitePanelOpen] = useState(false)
   const [mobileTab, setMobileTab] = useState<'messages' | 'insights'>('messages')
   const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [bundles, setBundles] = useState<InvitationBundle[]>([])
+  const [bundlePanelOpen, setBundlePanelOpen] = useState(false)
+  const [bundleLabel, setBundleLabel] = useState('')
+  const [bundleSelectedOwnerIds, setBundleSelectedOwnerIds] = useState<Set<string>>(new Set())
+  const [bundleBusy, setBundleBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [conversations, setConversations] = useState<ConversationListItem[]>([])
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
@@ -345,10 +355,11 @@ export default function Dashboard() {
             : [{ id: ownerRow.id, display_name: ownerRow.display_name ?? null }]
         )
 
-        const [conversationResult, linkResult, statsResult] = await Promise.allSettled([
+        const [conversationResult, linkResult, statsResult, bundleResult] = await Promise.allSettled([
           listConversations(ownerRow.id),
           listInvitationLinks(ownerRow.id),
           getOwnerDashboardStats(ownerRow.id),
+          listInvitationBundles(ownerRow.id),
         ])
         const conversationData = conversationResult.status === 'fulfilled' ? conversationResult.value : []
         const linkData = linkResult.status === 'fulfilled' ? linkResult.value : []
@@ -374,8 +385,13 @@ export default function Dashboard() {
           console.error('Dashboard stats error:', statsResult.reason)
         }
 
+        const bundleData = bundleResult.status === 'fulfilled' ? bundleResult.value : []
+        if (bundleResult.status === 'rejected') {
+          console.error('Bundle list error:', bundleResult.reason)
+        }
         setConversations(conversationData)
         setLinks((linkData as InvitationLink[]) ?? [])
+        setBundles(bundleData)
         setStats(statsData)
         setSelectedConversationId((current) => current ?? conversationData[0]?.id ?? null)
       })
@@ -402,10 +418,11 @@ export default function Dashboard() {
     setError(null)
 
     try {
-      const [conversationResult, linkResult, statsResult] = await Promise.allSettled([
+      const [conversationResult, linkResult, statsResult, bundleResult] = await Promise.allSettled([
         listConversations(targetOwner.id),
         listInvitationLinks(targetOwner.id),
         getOwnerDashboardStats(targetOwner.id),
+        listInvitationBundles(targetOwner.id),
       ])
 
       const conversationData = conversationResult.status === 'fulfilled' ? conversationResult.value : []
@@ -418,9 +435,11 @@ export default function Dashboard() {
               totalConversations: conversationData.length,
               totalMessages: conversationData.reduce((total, c) => total + c.message_count, 0),
             }
+      const bundleData = bundleResult.status === 'fulfilled' ? bundleResult.value : []
 
       setConversations(conversationData)
       setLinks((linkData as InvitationLink[]) ?? [])
+      setBundles(bundleData)
       setStats(statsData)
       setSelectedConversationId(conversationData[0]?.id ?? null)
     } catch (err) {
@@ -528,6 +547,56 @@ export default function Dashboard() {
       console.error('Invite delete error:', deleteError)
       setError('Unable to delete this invite link.')
     }
+  }
+
+  const handleGenerateBundle = async () => {
+    if (!ownerId || bundleBusy || bundleSelectedOwnerIds.size === 0) return
+    setBundleBusy(true)
+    setError(null)
+    try {
+      const bundle = await generateInvitationBundle(
+        Array.from(bundleSelectedOwnerIds),
+        bundleLabel || null,
+        ownerId,
+      )
+      setBundles((current) => [bundle, ...current])
+      setBundleLabel('')
+      setBundleSelectedOwnerIds(new Set())
+    } catch (bundleError) {
+      console.error('Bundle generation error:', bundleError)
+      setError('Unable to generate a multi-avatar invite link.')
+    } finally {
+      setBundleBusy(false)
+    }
+  }
+
+  const handleToggleBundle = async (bundleId: string, currentActive: boolean) => {
+    try {
+      await toggleInvitationBundle(bundleId, !currentActive)
+      setBundles((current) =>
+        current.map((b) => (b.id === bundleId ? { ...b, active: !currentActive } : b))
+      )
+    } catch (err) {
+      console.error('Bundle toggle error:', err)
+    }
+  }
+
+  const handleDeleteBundle = async (bundleId: string) => {
+    try {
+      await deleteInvitationBundle(bundleId)
+      setBundles((current) => current.filter((b) => b.id !== bundleId))
+    } catch (err) {
+      console.error('Bundle delete error:', err)
+    }
+  }
+
+  const toggleBundleOwner = (id: string) => {
+    setBundleSelectedOwnerIds((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
   }
 
   const copyLink = (token: string, id: string) => {
@@ -832,6 +901,102 @@ export default function Dashboard() {
                           <button
                             type="button"
                             onClick={() => handleDelete(link.id)}
+                            className="rounded-xl border border-red-400/20 px-3 py-2 text-xs text-red-300/70 transition hover:border-red-400/50 hover:text-red-300"
+                          >
+                            {L('delete')}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="border-t border-white/8 px-4 py-4">
+              <button
+                type="button"
+                onClick={() => setBundlePanelOpen((current) => !current)}
+                className="brand-inset flex w-full items-center justify-between rounded-[24px] px-4 py-4 text-left transition hover:border-[#00a884]/45"
+              >
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.24em] text-white/40">Multi-Avatar</p>
+                  <p className="mt-2 text-lg font-semibold text-white">Bundle Invites</p>
+                </div>
+                <span className="text-sm text-white/54">{bundlePanelOpen ? L('hide') : L('show')}</span>
+              </button>
+
+              {bundlePanelOpen ? (
+                <div className="brand-inset mt-3 rounded-[24px] p-4">
+                  <p className="mb-3 text-xs text-white/50">Select avatars to include in this invite:</p>
+                  <div className="max-h-40 space-y-1.5 overflow-y-auto">
+                    {allOwners.map((ownerItem) => {
+                      const checked = bundleSelectedOwnerIds.has(ownerItem.id)
+                      return (
+                        <label key={ownerItem.id} className={`flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2 transition ${checked ? 'bg-[#00a884]/12' : 'hover:bg-white/[0.04]'}`}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleBundleOwner(ownerItem.id)}
+                            className="h-4 w-4 rounded border-white/20 bg-transparent accent-[#00a884]"
+                          />
+                          <span className="text-sm text-white/88">{ownerItem.display_name || ownerItem.id}</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                  <div className="mt-3 flex gap-3">
+                    <input
+                      type="text"
+                      value={bundleLabel}
+                      onChange={(event) => setBundleLabel(event.target.value)}
+                      placeholder="Optional label"
+                      className="brand-inset min-w-0 flex-1 rounded-2xl px-4 py-3 text-sm text-white placeholder-white/28 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleGenerateBundle}
+                      disabled={bundleBusy || bundleSelectedOwnerIds.size === 0}
+                      className="rounded-2xl bg-[#00a884] px-4 py-3 text-sm font-semibold text-[#07141a] transition hover:brightness-110 disabled:opacity-60"
+                    >
+                      {bundleBusy ? 'Generating...' : 'Generate'}
+                    </button>
+                  </div>
+
+                  <div className="mt-4 max-h-52 space-y-2 overflow-y-auto">
+                    {bundles.length === 0 ? (
+                      <div className="rounded-[20px] border border-white/6 bg-black/14 px-3 py-4 text-sm text-white/56">
+                        No bundle invites yet.
+                      </div>
+                    ) : null}
+                    {bundles.map((bundle) => (
+                      <div key={bundle.id} className="rounded-[20px] border border-white/6 bg-black/14 p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-white">{bundle.label || 'Untitled bundle'}</p>
+                            <p className="mt-1 text-xs text-white/46">{bundle.owner_ids.length} avatars · {bundle.use_count} uses</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleToggleBundle(bundle.id, bundle.active)}
+                            className={`rounded-full px-3 py-1 text-xs font-medium ${
+                              bundle.active ? 'bg-[#00a884]/18 text-[#7be3ce]' : 'bg-white/8 text-white/60'
+                            }`}
+                          >
+                            {bundle.active ? L('active') : L('inactive')}
+                          </button>
+                        </div>
+                        <div className="mt-3 flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => copyLink(bundle.token, bundle.id)}
+                            className="rounded-xl border border-white/10 px-3 py-2 text-xs text-white/78 transition hover:border-[#00a884]/55 hover:text-[#00a884]"
+                          >
+                            {copiedId === bundle.id ? L('copied') : L('copyLink')}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteBundle(bundle.id)}
                             className="rounded-xl border border-red-400/20 px-3 py-2 text-xs text-red-300/70 transition hover:border-red-400/50 hover:text-red-300"
                           >
                             {L('delete')}
