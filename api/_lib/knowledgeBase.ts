@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync } from 'node:fs'
-import { join, dirname } from 'node:path'
+import { join } from 'node:path'
 
 let cachedKnowledge: string | null = null
 
@@ -10,33 +10,24 @@ let cachedKnowledge: string | null = null
 export function getKnowledgeBaseContent(): string {
   if (cachedKnowledge !== null) return cachedKnowledge
 
-  // In Vercel serverless, __dirname points to the bundled function directory.
-  // The knowledge dir is a sibling: go up from _lib/ to api/, then into knowledge/.
-  const candidates = [
-    join(dirname(__dirname), 'knowledge'),
-    join(__dirname, '..', 'knowledge'),
-    join(process.cwd(), 'api', 'knowledge'),
-  ]
-
+  // Vercel serverless runs in ESM mode where __dirname is not defined.
+  // Use process.cwd() which points to the project root in Vercel.
+  const knowledgeDir = join(process.cwd(), 'api', 'knowledge')
   let combined = ''
 
-  for (const knowledgeDir of candidates) {
-    try {
-      const files = readdirSync(knowledgeDir)
-        .filter((f) => f.endsWith('.md'))
-        .sort()
+  try {
+    const files = readdirSync(knowledgeDir)
+      .filter((f) => f.endsWith('.md'))
+      .sort()
 
-      for (const file of files) {
-        const content = readFileSync(join(knowledgeDir, file), 'utf-8').trim()
-        if (content && !content.startsWith('<!-- Replace this placeholder')) {
-          combined += content + '\n\n'
-        }
+    for (const file of files) {
+      const content = readFileSync(join(knowledgeDir, file), 'utf-8').trim()
+      if (content && !content.startsWith('<!-- Replace this placeholder')) {
+        combined += content + '\n\n'
       }
-
-      if (combined.trim()) break // Found and loaded files from this candidate
-    } catch {
-      // Try next candidate path
     }
+  } catch (err) {
+    console.warn('[knowledge] Failed to load knowledge base files:', err instanceof Error ? err.message : err)
   }
 
   cachedKnowledge = combined.trim()
