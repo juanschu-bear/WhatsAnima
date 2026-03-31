@@ -605,8 +605,6 @@ export default function Dashboard() {
     window.setTimeout(() => setCopiedId(null), 1800)
   }
 
-  const isMobileConversationOpen = Boolean(selectedConversationId)
-
   // Reset mobile tab when navigating back to contact list
   useEffect(() => {
     if (!selectedConversationId) setMobileTab('messages')
