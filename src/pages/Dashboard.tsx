@@ -599,8 +599,10 @@ export default function Dashboard() {
     })
   }
 
-  const copyLink = (token: string, id: string) => {
-    navigator.clipboard.writeText(`${window.location.origin}/invite/${token}`)
+  const copyLink = (token: string, id: string, label?: string | null) => {
+    const url = `${window.location.origin}/invite/${token}`
+    const text = label ? `${label}\n${url}` : url
+    navigator.clipboard.writeText(text)
     setCopiedId(id)
     window.setTimeout(() => setCopiedId(null), 1800)
   }
@@ -889,7 +891,7 @@ export default function Dashboard() {
                         <div className="mt-3 flex gap-2">
                           <button
                             type="button"
-                            onClick={() => copyLink(link.token, link.id)}
+                            onClick={() => copyLink(link.token, link.id, link.label)}
                             className="rounded-xl border border-white/10 px-3 py-2 text-xs text-white/78 transition hover:border-[#00a884]/55 hover:text-[#00a884]"
                           >
                             {copiedId === link.id ? L('copied') : L('copyLink')}
@@ -985,7 +987,7 @@ export default function Dashboard() {
                         <div className="mt-3 flex gap-2">
                           <button
                             type="button"
-                            onClick={() => copyLink(bundle.token, bundle.id)}
+                            onClick={() => copyLink(bundle.token, bundle.id, bundle.label)}
                             className="rounded-xl border border-white/10 px-3 py-2 text-xs text-white/78 transition hover:border-[#00a884]/55 hover:text-[#00a884]"
                           >
                             {copiedId === bundle.id ? L('copied') : L('copyLink')}

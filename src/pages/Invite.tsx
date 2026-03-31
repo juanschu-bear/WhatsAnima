@@ -22,7 +22,7 @@ interface InviteData {
 }
 
 interface BundleData {
-  bundle: { id: string; owner_ids: string[] }
+  bundle: { id: string; owner_ids: string[]; label: string | null }
   owners: Array<{ id: string; display_name: string }>
 }
 
@@ -299,11 +299,14 @@ export default function Invite() {
   }
 
   const isBundleFlow = Boolean(bundleInvite)
+  const bundleLabel = isBundleFlow ? bundleInvite!.bundle.label : null
   const displayTitle = isBundleFlow
-    ? bundleInvite!.owners.map((o) => o.display_name).join(' & ')
+    ? (bundleLabel || bundleInvite!.owners.map((o) => o.display_name).join(' & '))
     : invite!.wa_owners.display_name
   const displaySubtitle = isBundleFlow
-    ? `have invited you to start ${bundleInvite!.owners.length} conversations`
+    ? (bundleLabel
+      ? `${bundleInvite!.owners.map((o) => o.display_name).join(', ')} — ${bundleInvite!.owners.length} avatars`
+      : `have invited you to start ${bundleInvite!.owners.length} conversations`)
     : 'has invited you to start a conversation'
 
   return (
