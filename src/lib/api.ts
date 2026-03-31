@@ -821,6 +821,53 @@ export async function createContactForOwner(payload: {
   return { id: contactId, owner_id: payload.ownerId, display_name: displayName, email: payload.email.trim() }
 }
 
+// --- Usage Limits ---
+
+export interface UsageCheckResult {
+  allowed: boolean
+  used: number
+  limit: number
+  remaining: number
+  error?: string
+  reset_at?: string
+}
+
+export async function checkUsage(userId: string | null, feature: 'voice' | 'video' | 'call'): Promise<UsageCheckResult> {
+  if (!userId) {
+    const { data } = await supabase.auth.getUser()
+    userId = data.user?.id ?? null
+  }
+  if (!userId) return { allowed: true, used: 0, limit: 999, remaining: 999 } // no user = fail open
+  const response = await fetch('/api/check-usage', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, feature }),
+  })
+  const data = await response.json()
+  if (response.status === 429) {
+    return { allowed: false, used: data.used, limit: data.limit, remaining: 0, error: data.error, reset_at: data.reset_at }
+  }
+  if (!response.ok) {
+    return { allowed: true, used: 0, limit: 999, remaining: 999 } // fail open
+  }
+  return { allowed: true, ...data }
+}
+
+export async function incrementCallUsage(userId: string | null, minutes: number): Promise<{ limit_reached: boolean; remaining: number }> {
+  if (!userId) {
+    const { data } = await supabase.auth.getUser()
+    userId = data.user?.id ?? null
+  }
+  if (!userId) return { limit_reached: false, remaining: 999 }
+  const response = await fetch('/api/increment-call-usage', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, minutes }),
+  })
+  const data = await response.json()
+  return { limit_reached: Boolean(data.limit_reached), remaining: data.remaining ?? 0 }
+}
+
 export async function sendMessage(
   conversationId: string,
   sender: 'contact' | 'avatar',

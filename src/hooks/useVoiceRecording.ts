@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { createPerceptionLog, sendMessage } from '../lib/api'
+import { createPerceptionLog, sendMessage, checkUsage } from '../lib/api'
 import {
   getFileExtension,
   uploadAudioToStorage,
@@ -102,6 +102,13 @@ export function useVoiceRecording({
 
   async function sendVoiceMessage(blob: Blob, browserTranscript: string, durationSeconds: number) {
     if (!conversationId || !conversation) return
+
+    // Check usage limits
+    const usageCheck = await checkUsage(null, 'voice')
+    if (!usageCheck.allowed) {
+      onError(`Voice message limit reached (${usageCheck.used}/${usageCheck.limit}). Resets ${usageCheck.reset_at ? new Date(usageCheck.reset_at).toLocaleDateString() : 'next month'}.`)
+      return
+    }
 
     const file = new File([blob], `voice-note.${getFileExtension(blob, 'webm')}`, {
       type: blob.type || 'audio/webm',

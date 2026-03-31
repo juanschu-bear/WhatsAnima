@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { resolveAvatarUrl } from '../lib/avatars'
-import { getConversation, sendMessage } from '../lib/api'
+import { getConversation, sendMessage, checkUsage, incrementCallUsage } from '../lib/api'
 
 type ConversationData = Awaited<ReturnType<typeof getConversation>>
 type CallPhase = 'setup' | 'starting' | 'joining' | 'connected' | 'error'
@@ -1081,6 +1081,19 @@ export default function VideoCall() {
     }
   }, [phase, sessionId])
 
+  // Track call minutes for usage limits (every 60s)
+  useEffect(() => {
+    if (!sessionId || phase !== 'connected') return
+    const interval = window.setInterval(() => {
+      void incrementCallUsage(null, 1).then((result) => {
+        if (result.limit_reached) {
+          setError(`Call time limit reached (${result.remaining} minutes remaining). The call will end.`)
+        }
+      })
+    }, 60_000)
+    return () => window.clearInterval(interval)
+  }, [phase, sessionId])
+
   useEffect(() => {
     if (phase !== 'connected') return
     const callObject = callObjectRef.current
@@ -1284,6 +1297,16 @@ export default function VideoCall() {
 
   async function startCall() {
     if (!conversation) return
+
+    // Check call usage limits
+    const usageCheck = await checkUsage(null, 'call')
+    if (!usageCheck.allowed) {
+      setPhase('error')
+      setStatusText('Call limit reached')
+      setError(`Live call limit reached (${usageCheck.used}/${usageCheck.limit} minutes). Resets ${usageCheck.reset_at ? new Date(usageCheck.reset_at).toLocaleDateString() : 'next month'}.`)
+      return
+    }
+
     const resolvedConversationId = resolveConversationId(conversationId, conversation)
     if (!resolvedConversationId) {
       setPhase('error')

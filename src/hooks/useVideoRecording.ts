@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { createPerceptionLog, sendMessage } from '../lib/api'
+import { createPerceptionLog, sendMessage, checkUsage } from '../lib/api'
 import { delay, uploadMediaToStorage } from '../lib/mediaUtils'
 
 const VIDEO_MAX_SECONDS = 300
@@ -1141,6 +1141,13 @@ export function useVideoRecording({
 
   async function processVideoMessage(videoBlob: Blob, durationSeconds: number, opts: { orientation?: number } = {}) {
     if (!conversationId || !conversation) return
+
+    // Check usage limits
+    const usageCheck = await checkUsage(null, 'video')
+    if (!usageCheck.allowed) {
+      onError(`Video message limit reached (${usageCheck.used}/${usageCheck.limit}). Resets ${usageCheck.reset_at ? new Date(usageCheck.reset_at).toLocaleDateString() : 'next month'}.`)
+      return
+    }
 
     const ceoName = conversation.wa_owners?.display_name || 'Avatar'
     const localBlobUrl = URL.createObjectURL(videoBlob)
