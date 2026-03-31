@@ -621,8 +621,8 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="brand-scene flex h-[100dvh] flex-col overflow-y-auto md:overflow-hidden px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-[calc(env(safe-area-inset-top)+1rem)] text-white sm:px-6 sm:pb-[calc(env(safe-area-inset-bottom)+1.5rem)] sm:pt-[calc(env(safe-area-inset-top)+1.5rem)]">
-      <div className="relative z-10 mx-auto flex min-h-0 flex-1 max-w-[1680px] flex-col gap-4">
+    <div className="brand-scene min-h-screen px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-[calc(env(safe-area-inset-top)+1rem)] text-white sm:px-6 sm:pb-[calc(env(safe-area-inset-bottom)+1.5rem)] sm:pt-[calc(env(safe-area-inset-top)+1.5rem)]">
+      <div className="relative z-10 mx-auto max-w-[1680px] space-y-4">
         <header className="brand-panel relative z-20 shrink-0 rounded-[34px] p-4 sm:p-5">
           <div className="grid gap-4 xl:grid-cols-[1.2fr_2fr_auto] xl:items-center">
             <div className="flex items-center gap-4">
@@ -768,11 +768,9 @@ export default function Dashboard() {
           </div>
         ) : null}
 
-        <div className="grid min-h-0 flex-1 gap-4 md:grid-cols-[320px_minmax(0,1fr)] xl:grid-cols-[360px_minmax(0,1fr)_320px]">
+        <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)] xl:grid-cols-[360px_minmax(0,1fr)_320px]">
           <aside
-            className={`brand-panel min-h-0 overflow-y-auto rounded-[32px] transition duration-300 md:flex-none md:h-[calc(100dvh-200px)] ${
-              isMobileConversationOpen ? 'hidden md:block' : 'block'
-            }`}
+            className="brand-panel rounded-[32px] lg:sticky lg:top-4 lg:self-start lg:max-h-[calc(100dvh-2rem)] lg:overflow-y-auto"
           >
             <div className="border-b border-white/8 px-5 pb-4 pt-5">
               <p className="brand-kicker text-[10px] text-white/40">{L('liveInbox')}</p>
@@ -1011,9 +1009,7 @@ export default function Dashboard() {
           </aside>
 
           <section
-            className={`brand-panel min-h-0 flex-1 overflow-hidden rounded-[32px] md:flex-none md:h-[calc(100dvh-200px)] ${
-              isMobileConversationOpen ? 'flex' : 'hidden md:flex'
-            } flex-col`}
+            className="brand-panel flex min-w-0 flex-col rounded-[32px]"
           >
             {selectedConversation ? (
               <>
@@ -1023,7 +1019,7 @@ export default function Dashboard() {
                       <button
                         type="button"
                         onClick={() => setSelectedConversationId(null)}
-                        className="brand-inset flex h-11 w-11 items-center justify-center rounded-2xl text-white md:hidden"
+                        className="brand-inset flex h-11 w-11 items-center justify-center rounded-2xl text-white lg:hidden"
                       >
                         <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" d="M15 19 8 12l7-7" />
@@ -1047,7 +1043,7 @@ export default function Dashboard() {
                 </div>
 
                 {/* Mobile tab bar: Messages / Insights */}
-                <div className="flex border-b border-white/8 md:hidden">
+                <div className="hidden">
                   <button
                     type="button"
                     onClick={() => setMobileTab('messages')}
@@ -1072,7 +1068,7 @@ export default function Dashboard() {
                   </button>
                 </div>
 
-                <div className={`flex-1 overflow-y-auto px-4 py-5 sm:px-6 ${mobileTab === 'insights' ? 'hidden md:block' : ''}`}>
+                <div className="px-4 py-5 sm:px-6">
                   {messagesLoading ? (
                     <div className="flex h-full items-center justify-center">
                       <div className="h-9 w-9 animate-spin rounded-full border-4 border-[#1f2c34] border-t-[#00a884]" />
@@ -1149,7 +1145,7 @@ export default function Dashboard() {
                 </div>
 
                 {/* Mobile insights panel (shown when Insights tab is active) */}
-                <div className={`flex-1 overflow-y-auto px-4 py-4 md:hidden ${mobileTab === 'messages' ? 'hidden' : ''}`}>
+                <div className="px-4 py-4 xl:hidden">
                   <div className="space-y-3">
                     {/* Engagement Score Hero */}
                     <div className="brand-inset rounded-[20px] p-4">
@@ -1318,14 +1314,14 @@ export default function Dashboard() {
             )}
           </section>
 
-          <aside className="brand-panel hidden h-[calc(100dvh-200px)] flex-col overflow-hidden rounded-[32px] xl:flex overflow-y-auto">
+          <aside className="brand-panel hidden rounded-[32px] xl:block xl:sticky xl:top-4 xl:self-start">
             <div className="border-b border-white/8 px-5 pb-4 pt-5">
               <p className="brand-kicker text-[10px] text-white/40">{L('insights')}</p>
               <h2 className="mt-2 text-2xl font-semibold text-white">{L('studentAnalysis')}</h2>
               <p className="mt-2 text-sm text-white/55">{L('learningInsightsDesc')}</p>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-4 py-4">
+            <div className="px-4 py-4">
               {selectedConversation ? (
                 <div className="space-y-3">
                   {/* Engagement Score Hero */}
