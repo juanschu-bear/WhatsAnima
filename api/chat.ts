@@ -846,7 +846,7 @@ export async function loadOwnerPromptAndMemory(
   const databaseUrl = getDatabaseUrl()
   if (!databaseUrl) return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '', stylePrompt: '', behavioralMemory: '', ownerId: null, ownerName: 'Avatar' }
 
-  const client = new Client({ connectionString: databaseUrl, ssl: { rejectUnauthorized: false } })
+  const client = new Client({ connectionString: databaseUrl, ssl: { rejectUnauthorized: false }, connectionTimeoutMillis: 5000 })
   try {
     await client.connect()
     const normalizedOwnerIdHint = typeof ownerIdHint === 'string' && ownerIdHint.trim().length > 0
@@ -1000,6 +1000,10 @@ export async function loadOwnerPromptAndMemory(
     }
 
     return { ownerPrompt, memory, stylePrompt, behavioralMemory, ownerId, ownerName }
+  } catch (dbError) {
+    console.error('[chat] Database connection failed in loadOwnerPromptAndMemory:', dbError instanceof Error ? dbError.message : dbError)
+    // Return defaults so the chat still works (without owner-specific prompt/memory)
+    return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '', stylePrompt: '', behavioralMemory: '', ownerId: null, ownerName: ownerNameHint?.trim() || 'Avatar' }
   } finally {
     await client.end().catch(() => undefined)
   }
