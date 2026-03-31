@@ -265,10 +265,26 @@ export async function createOwnerIfNeeded(payload: {
   return data
 }
 
+function generateSlugToken(label: string | null | undefined): string {
+  if (label && label.trim()) {
+    const slug = label.trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9äöüß]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 40)
+    if (slug.length >= 3) {
+      const suffix = Math.random().toString(36).slice(2, 6)
+      return `${slug}-${suffix}`
+    }
+  }
+  return crypto.randomUUID().slice(0, 12)
+}
+
 export async function generateInvitationLink(ownerId: string, label?: string) {
+  const token = generateSlugToken(label)
   const { error } = await supabase
     .from('wa_invitation_links')
-    .insert({ owner_id: ownerId, label: label || null, active: true })
+    .insert({ owner_id: ownerId, label: label || null, token, active: true })
 
   if (error) throw error
 
@@ -353,9 +369,10 @@ export interface InvitationBundle {
 }
 
 export async function generateInvitationBundle(ownerIds: string[], label: string | null, createdBy: string): Promise<InvitationBundle> {
+  const token = generateSlugToken(label)
   const { data, error } = await supabase
     .from('wa_invitation_bundles')
-    .insert({ owner_ids: ownerIds, label: label || null, created_by: createdBy, active: true })
+    .insert({ owner_ids: ownerIds, label: label || null, token, created_by: createdBy, active: true })
     .select()
     .single()
   if (error) throw error
