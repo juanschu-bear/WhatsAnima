@@ -1769,7 +1769,7 @@ export default function Chat() {
         if (cancelled) return
         const validOwners = owners.filter((o) => !!o?.id)
         if (!contactId) {
-          if (!cancelled) setRailOwners(validOwners.map((o) => ({ ...o, last_message_text: null, last_message_at: null })))
+          if (!cancelled) setRailOwners([])
           return
         }
         const { supabase } = await import('../lib/supabase')
@@ -1779,9 +1779,11 @@ export default function Chat() {
           .eq('contact_id', contactId)
           .in('owner_id', validOwners.map((o) => o.id))
         if (cancelled || !convRows || convRows.length === 0) {
-          if (!cancelled) setRailOwners(validOwners.map((o) => ({ ...o, last_message_text: null, last_message_at: null })))
+          if (!cancelled) setRailOwners([])
           return
         }
+        const ownerIdsWithConversations = new Set(convRows.map((c: { id: string; owner_id: string }) => c.owner_id))
+        const ownersWithConversations = validOwners.filter((o) => ownerIdsWithConversations.has(o.id))
         const ownerByConv = new Map(convRows.map((c: { id: string; owner_id: string }) => [c.id, c.owner_id]))
         const { data: lastMsgs } = await supabase
           .from('wa_messages')
@@ -1794,7 +1796,7 @@ export default function Chat() {
           if (oid && !lastByOwner.has(oid)) lastByOwner.set(oid, msg as { content: string | null; type: string; created_at: string })
         }
         if (!cancelled) {
-          setRailOwners(validOwners.map((o) => {
+          setRailOwners(ownersWithConversations.map((o) => {
             const last = lastByOwner.get(o.id)
             const preview = last
               ? (last.type === 'voice' ? 'Voice message' : last.type === 'video' ? 'Video message' : last.type === 'image' ? 'Photo' : (last.content ?? '').slice(0, 50))

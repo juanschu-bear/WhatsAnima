@@ -8,6 +8,7 @@ export default function Home() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const [checking, setChecking] = useState(true)
+  const [isOwner, setIsOwner] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
   const [profileName, setProfileName] = useState('')
   const [savingAccount, setSavingAccount] = useState(false)
@@ -48,6 +49,7 @@ export default function Home() {
         .maybeSingle()
 
       if (ownerData) {
+        setIsOwner(true)
         setChecking(false)
         return
       }
@@ -198,13 +200,15 @@ export default function Home() {
               Chat
             </button>
             <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => navigate('/dashboard')}
-                className="min-h-[52px] rounded-2xl border border-white/10 bg-[#1f2c34]/80 px-4 py-3 text-sm font-medium transition hover:border-[#00a884]/60 hover:text-[#00a884]"
-              >
-                Dashboard
-              </button>
+              {isOwner && (
+                <button
+                  type="button"
+                  onClick={() => navigate('/dashboard')}
+                  className="min-h-[52px] rounded-2xl border border-white/10 bg-[#1f2c34]/80 px-4 py-3 text-sm font-medium transition hover:border-[#00a884]/60 hover:text-[#00a884]"
+                >
+                  Dashboard
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => navigate('/perception')}
@@ -212,13 +216,15 @@ export default function Home() {
               >
                 Perception
               </button>
-              <button
-                type="button"
-                onClick={() => navigate('/meeting-host')}
-                className="min-h-[52px] rounded-2xl border border-white/10 bg-[#1f2c34]/80 px-4 py-3 text-sm font-medium transition hover:border-[#00a884]/60 hover:text-[#00a884]"
-              >
-                Meeting
-              </button>
+              {isOwner && (
+                <button
+                  type="button"
+                  onClick={() => navigate('/meeting-host')}
+                  className="min-h-[52px] rounded-2xl border border-white/10 bg-[#1f2c34]/80 px-4 py-3 text-sm font-medium transition hover:border-[#00a884]/60 hover:text-[#00a884]"
+                >
+                  Meeting
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => navigate('/settings')}
