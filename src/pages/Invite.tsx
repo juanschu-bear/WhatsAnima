@@ -1,7 +1,12 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { createContactAndConversation, validateInvitationToken } from '../lib/api'
+import {
+  createContactAndConversation,
+  createContactAndConversationsFromBundle,
+  validateInvitationToken,
+  validateBundleToken,
+} from '../lib/api'
 
 interface InviteData {
   id: string
@@ -14,6 +19,11 @@ interface InviteData {
     tavus_replica_id: string | null
     system_prompt?: string | null
   }
+}
+
+interface BundleData {
+  bundle: { id: string; owner_ids: string[] }
+  owners: Array<{ id: string; display_name: string }>
 }
 
 /** Key used to persist pending invite data across the magic-link redirect. */
@@ -31,6 +41,7 @@ export default function Invite() {
   const navigate = useNavigate()
 
   const [invite, setInvite] = useState<InviteData | null>(null)
+  const [bundleInvite, setBundleInvite] = useState<BundleData | null>(null)
   const [loading, setLoading] = useState(true)
   const [invalid, setInvalid] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -44,26 +55,33 @@ export default function Invite() {
   const [submitting, setSubmitting] = useState(false)
   const [welcomeData, setWelcomeData] = useState<{ ownerName: string; chatId: string } | null>(null)
 
-  // --- validate token ---
+  // --- validate token (try bundle first, then single) ---
   useEffect(() => {
     if (!token) {
       setInvalid(true)
       setLoading(false)
       return
     }
-    validateInvitationToken(token).then((data) => {
-      if (!data) {
+    void (async () => {
+      const bundleResult = await validateBundleToken(token)
+      if (bundleResult && bundleResult.owners.length > 0) {
+        setBundleInvite(bundleResult)
+        setLoading(false)
+        return
+      }
+      const singleResult = await validateInvitationToken(token)
+      if (!singleResult) {
         setInvalid(true)
       } else {
-        setInvite(data as InviteData)
+        setInvite(singleResult as InviteData)
       }
       setLoading(false)
-    })
+    })()
   }, [token])
 
   // --- If user already has a session and no pending invite, auto-fill email ---
   useEffect(() => {
-    if (!invite) return
+    if (!invite && !bundleInvite) return
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session?.user?.email) return
       const pending = localStorage.getItem(PENDING_KEY)
@@ -75,12 +93,36 @@ export default function Invite() {
       if (meta?.last_name && !lastName) setLastName(meta.last_name)
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [invite])
+  }, [invite, bundleInvite])
 
   // --- complete the invite after magic-link verification ---
   async function finalisePendingInvite(pending: PendingInvite) {
     console.log('[Invite] finalising invite for', pending.email)
 
+    // Try bundle first
+    const bundleResult = await validateBundleToken(pending.token)
+    if (bundleResult && bundleResult.owners.length > 0) {
+      try {
+        await createContactAndConversationsFromBundle({
+          bundleId: bundleResult.bundle.id,
+          ownerIds: bundleResult.bundle.owner_ids,
+          firstName: pending.firstName,
+          lastName: pending.lastName,
+          email: pending.email,
+        })
+        localStorage.removeItem(PENDING_KEY)
+        const ownerNames = bundleResult.owners.map((o) => o.display_name).join(', ')
+        setWelcomeData({ ownerName: ownerNames, chatId: '' })
+        return
+      } catch (err) {
+        console.error('[Invite] bundle createContacts error:', err)
+        localStorage.removeItem(PENDING_KEY)
+        setError(err instanceof Error ? err.message : 'Unable to start conversations.')
+        return
+      }
+    }
+
+    // Fallback to single invite
     const inviteData = await validateInvitationToken(pending.token)
     if (!inviteData) {
       localStorage.removeItem(PENDING_KEY)
@@ -237,7 +279,7 @@ export default function Invite() {
     )
   }
 
-  if (invalid || !invite) {
+  if (invalid || (!invite && !bundleInvite)) {
     return (
       <div className="brand-scene flex min-h-screen flex-col items-center justify-center px-4 text-center">
         <div className="brand-panel relative z-10 rounded-[30px] p-8">
@@ -256,13 +298,19 @@ export default function Invite() {
     )
   }
 
-  const owner = invite.wa_owners
+  const isBundleFlow = Boolean(bundleInvite)
+  const displayTitle = isBundleFlow
+    ? bundleInvite!.owners.map((o) => o.display_name).join(' & ')
+    : invite!.wa_owners.display_name
+  const displaySubtitle = isBundleFlow
+    ? `have invited you to start ${bundleInvite!.owners.length} conversations`
+    : 'has invited you to start a conversation'
 
   return (
     <div className="brand-scene flex min-h-screen flex-col items-center justify-center px-4 text-center">
       <div className="brand-panel relative z-10 w-full max-w-md rounded-[30px] p-8">
-        <h1 className="text-2xl font-bold text-white">{owner.display_name}</h1>
-        <p className="mt-2 text-white/60">has invited you to start a conversation</p>
+        <h1 className="text-2xl font-bold text-white">{displayTitle}</h1>
+        <p className="mt-2 text-white/60">{displaySubtitle}</p>
 
         {emailSent ? (
           <div className="mt-8 space-y-4">

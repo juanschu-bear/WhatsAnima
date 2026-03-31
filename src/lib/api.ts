@@ -338,6 +338,128 @@ export async function validateInvitationToken(token: string) {
   }
 }
 
+// --- Invitation Bundles (multi-avatar) ---
+
+export interface InvitationBundle {
+  id: string
+  token: string
+  owner_ids: string[]
+  label: string | null
+  max_uses: number | null
+  use_count: number
+  active: boolean
+  created_by: string | null
+  created_at: string
+}
+
+export async function generateInvitationBundle(ownerIds: string[], label: string | null, createdBy: string): Promise<InvitationBundle> {
+  const { data, error } = await supabase
+    .from('wa_invitation_bundles')
+    .insert({ owner_ids: ownerIds, label: label || null, created_by: createdBy, active: true })
+    .select()
+    .single()
+  if (error) throw error
+  return data as InvitationBundle
+}
+
+export async function listInvitationBundles(createdBy: string): Promise<InvitationBundle[]> {
+  const { data, error } = await supabase
+    .from('wa_invitation_bundles')
+    .select('*')
+    .eq('created_by', createdBy)
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return (data ?? []) as InvitationBundle[]
+}
+
+export async function toggleInvitationBundle(bundleId: string, active: boolean) {
+  const { error } = await supabase
+    .from('wa_invitation_bundles')
+    .update({ active })
+    .eq('id', bundleId)
+  if (error) throw error
+}
+
+export async function deleteInvitationBundle(bundleId: string) {
+  const { error } = await supabase
+    .from('wa_invitation_bundles')
+    .delete()
+    .eq('id', bundleId)
+  if (error) throw error
+}
+
+export async function validateBundleToken(token: string): Promise<{ bundle: InvitationBundle; owners: Array<{ id: string; display_name: string }> } | null> {
+  const { data, error } = await supabase
+    .from('wa_invitation_bundles')
+    .select('*')
+    .eq('token', token)
+    .eq('active', true)
+    .single()
+  if (error || !data) return null
+  const bundle = data as InvitationBundle
+  const { data: owners } = await supabase
+    .from('wa_owners')
+    .select('id, display_name')
+    .in('id', bundle.owner_ids)
+    .is('deleted_at', null)
+  return { bundle, owners: (owners ?? []) as Array<{ id: string; display_name: string }> }
+}
+
+export interface BundleConversationPayload {
+  bundleId: string
+  ownerIds: string[]
+  firstName: string
+  lastName: string
+  email: string
+}
+
+export async function createContactAndConversationsFromBundle(payload: BundleConversationPayload) {
+  const firstName = payload.firstName.trim()
+  const lastName = payload.lastName.trim()
+  const email = payload.email.trim()
+  const displayName = [firstName, lastName].filter(Boolean).join(' ').trim() || email
+
+  // Create one contact per owner (wa_contacts has owner_id FK)
+  const conversations: Array<{ id: string; owner_id: string }> = []
+  for (const ownerId of payload.ownerIds) {
+    const contactId = crypto.randomUUID()
+    const conversationId = crypto.randomUUID()
+
+    const { error: contactErr } = await supabase
+      .from('wa_contacts')
+      .insert({ id: contactId, owner_id: ownerId, display_name: displayName, email })
+    if (contactErr) {
+      console.error('[bundle] contact insert error for owner', ownerId, contactErr.message)
+      throw contactErr
+    }
+
+    const { error: convErr } = await supabase
+      .from('wa_conversations')
+      .insert({ id: conversationId, owner_id: ownerId, contact_id: contactId })
+    if (convErr) {
+      console.error('[bundle] conversation insert error for owner', ownerId, convErr.message)
+      throw convErr
+    }
+
+    conversations.push({ id: conversationId, owner_id: ownerId })
+  }
+
+  // Increment use_count
+  const { data: bundle } = await supabase
+    .from('wa_invitation_bundles')
+    .select('use_count')
+    .eq('id', payload.bundleId)
+    .single()
+  if (bundle) {
+    await supabase
+      .from('wa_invitation_bundles')
+      .update({ use_count: (bundle.use_count ?? 0) + 1 })
+      .eq('id', payload.bundleId)
+  }
+
+  return { conversations }
+}
+
 export async function createContactAndConversation(payload: ContactConversationPayload) {
   const contactId = crypto.randomUUID()
   const conversationId = crypto.randomUUID()
