@@ -1221,8 +1221,13 @@ When greeting or introducing yourself, use the name ${ownerName}. First-person s
 
   const IDENTITY_REMINDER = `\n\nREMINDER: You are ${ownerName}. Never identify as Claude or as an AI. Respond only as ${ownerName}.`
 
-  const knowledgeBase = getKnowledgeBaseContent()
-  const knowledgePrefix = knowledgeBase ? `${knowledgeBase}\n\n` : ''
+  let knowledgePrefix = ''
+  try {
+    const knowledgeBase = getKnowledgeBaseContent()
+    knowledgePrefix = knowledgeBase ? `${knowledgeBase}\n\n` : ''
+  } catch (kbError) {
+    console.error('[chat] Knowledge base load error:', kbError instanceof Error ? kbError.message : kbError)
+  }
 
   return `${knowledgePrefix}${IDENTITY_OVERRIDE}\n\n${LANGUAGE_INSTRUCTION}\n\n${ownerPrompt}\n\n${RESPONSE_FORMAT_MATCHING}\n\n${FORMATTING_INSTRUCTION}\n\n${FLASHCARD_INSTRUCTION}\n\n${IMAGE_GENERATION_INSTRUCTION}\n\n${MESSAGE_TYPE_AWARENESS}${stylePrompt}${memory}${behavioralMemory}${youtubeWebSearchInstruction}${buildPerceptionPrompt(perception)}${IDENTITY_REMINDER}`
 }
@@ -1482,10 +1487,11 @@ export default async function handler(req: any, res: any) {
     if (anthropicApiKey) {
       if (!content) {
         try {
+          console.log('[chat] Calling Anthropic', JSON.stringify({ systemPromptLength: systemPrompt.length, messageCount: messages.length }))
           content = await callAnthropic(anthropicApiKey, systemPrompt, messages)
         } catch (error) {
           lastError = error instanceof Error ? error : new Error(String(error))
-          console.error('[chat] Anthropic failed, falling back if available:', lastError.message)
+          console.error('[chat] Anthropic failed:', lastError.message)
         }
       }
     }
@@ -1518,7 +1524,13 @@ export default async function handler(req: any, res: any) {
     return res.status(200).json({ content })
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
-    console.error('Chat API error:', err.message, err.stack)
+    console.error('[chat] FULL ERROR:', JSON.stringify({
+      message: err.message,
+      stack: (err.stack || '').split('\n').slice(0, 5).join(' | '),
+      conversationId: conversationId || null,
+      ownerIdHint: ownerIdHint || null,
+      hasMessage: Boolean(message),
+    }))
     return res.status(500).json({ error: 'Chat processing failed' })
   }
 }
