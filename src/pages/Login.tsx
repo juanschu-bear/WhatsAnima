@@ -33,6 +33,19 @@ export default function Login() {
   const [owners, setOwners] = useState<OwnerOption[]>([])
   const [selectedOwner, setSelectedOwner] = useState<OwnerOption | null>(null)
   const [ownersLoading, setOwnersLoading] = useState(false)
+  const [resetSent, setResetSent] = useState(false)
+
+  async function handleForgotPassword() {
+    if (!email.trim()) {
+      setError('Enter your email address.')
+      return
+    }
+    setError(null)
+    await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: `${window.location.origin}/auth/callback?next=/login`,
+    })
+    setResetSent(true)
+  }
 
   function pickLocale(l: Locale) {
     setLocale(l)
@@ -404,6 +417,9 @@ export default function Login() {
                   className="brand-inset w-full rounded-2xl px-4 py-3.5 text-white placeholder-white/28 outline-none transition focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20"
                   placeholder={t(locale, 'passwordPlaceholder')}
                 />
+                <button type="button" onClick={handleForgotPassword} className="mt-2 text-xs text-white/45 transition hover:text-[#00a884]">
+                  {resetSent ? 'Password reset email sent. Check your inbox.' : 'Forgot password?'}
+                </button>
               </div>
             )}
 
@@ -524,6 +540,9 @@ export default function Login() {
                   className="brand-inset w-full rounded-2xl px-4 py-3.5 text-white placeholder-white/28 outline-none transition focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20"
                   placeholder={t(locale, 'passwordPlaceholder')}
                 />
+                <button type="button" onClick={handleForgotPassword} className="mt-2 text-xs text-white/45 transition hover:text-[#00a884]">
+                  {resetSent ? 'Password reset email sent. Check your inbox.' : 'Forgot password?'}
+                </button>
               </div>
             )}
 

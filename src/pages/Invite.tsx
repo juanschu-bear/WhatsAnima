@@ -52,6 +52,8 @@ export default function Invite() {
   const [lastName, setLastName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [resetSent, setResetSent] = useState(false)
 
   const [authMode, setAuthMode] = useState<'password' | 'magic-link'>('password')
   const [emailSent, setEmailSent] = useState(false)
@@ -232,14 +234,22 @@ export default function Invite() {
       setError('Please fill in all fields.')
       return
     }
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters.')
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters.')
+      return
+    }
+    if (!/[a-z]/.test(password) || !/[A-Z]/.test(password) || !/[0-9]/.test(password)) {
+      setError('Password must contain at least one lowercase letter, one uppercase letter, and one digit.')
+      return
+    }
+    if (password !== confirmPassword) {
+      setError('Passwords do not match.')
       return
     }
     setError(null)
     setSubmitting(true)
 
-    // Persist form data in case we need fallback
+    // Persist form data so we can pick it up after email confirmation redirect
     const pending: PendingInvite = {
       token: token!,
       firstName: firstName.trim(),
@@ -253,6 +263,7 @@ export default function Invite() {
       email: email.trim(),
       password: password.trim(),
       options: {
+        emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(`/invite/${token}`)}`,
         data: {
           first_name: firstName.trim(),
           last_name: lastName.trim(),
@@ -283,24 +294,9 @@ export default function Invite() {
       return
     }
 
-    // signUp succeeded — try immediate signIn (works when auto-confirm is enabled)
-    const { error: autoSignInError } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password: password.trim(),
-    })
-    if (!autoSignInError) {
-      // Signed in — onAuthStateChange will fire and finalise
-      return
-    }
-
-    // signIn failed — email confirmation likely required
-    const { data: { session } } = await supabase.auth.getSession()
-    if (session) {
-      await finalisePendingInvite(pending)
-    } else {
-      setEmailSent(true)
-      setSubmitting(false)
-    }
+    // signUp succeeded — show email confirmation message
+    setEmailSent(true)
+    setSubmitting(false)
   }
 
   // --- send magic link (alternative) ---
@@ -422,7 +418,7 @@ export default function Invite() {
           <div className="mt-8 space-y-4">
             <div className="rounded-2xl border border-[#00a884]/20 bg-[#00a884]/10 px-5 py-4 text-sm leading-relaxed text-[#00a884]">
               {authMode === 'password'
-                ? <>Check your email to confirm your account, then come back here.</>
+                ? <>We've sent a confirmation email to <strong>{email}</strong>. Please check your inbox and click the link to activate your account. After confirming, you can log in with your password.</>
                 : <>We sent a verification link to <strong>{email}</strong>. Open your email and click the link to continue.</>}
             </div>
             <button
@@ -454,17 +450,35 @@ export default function Invite() {
             </div>
             <div>
               <label htmlFor="invite-password" className="mb-2 block text-sm font-medium text-white/80">Password</label>
-              <input id="invite-password" type="password" required minLength={6} value={password} onChange={(e) => setPassword(e.target.value)}
-                className="brand-inset w-full rounded-2xl px-4 py-3 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20" placeholder="Min. 6 characters" />
+              <input id="invite-password" type="password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)}
+                className="brand-inset w-full rounded-2xl px-4 py-3 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20" placeholder="Min. 8 chars, upper + lower + digit" />
+            </div>
+            <div>
+              <label htmlFor="invite-confirm-password" className="mb-2 block text-sm font-medium text-white/80">Confirm Password</label>
+              <input id="invite-confirm-password" type="password" required minLength={8} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)}
+                className="brand-inset w-full rounded-2xl px-4 py-3 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20" placeholder="Repeat password" />
             </div>
 
             {error && (
               <p className="rounded-2xl border border-red-400/15 bg-red-500/15 px-4 py-3 text-sm text-red-200">{error}</p>
             )}
 
+            {resetSent ? (
+              <p className="rounded-2xl border border-[#00a884]/20 bg-[#00a884]/10 px-4 py-3 text-sm text-[#00a884]">Password reset email sent. Check your inbox.</p>
+            ) : null}
+
             <button type="submit" disabled={submitting}
               className="w-full rounded-2xl bg-[#00a884] py-3 font-semibold text-[#0b141a] transition hover:brightness-110 disabled:opacity-50">
               {submitting ? 'Creating account...' : 'Create Account & Start'}
+            </button>
+
+            <button type="button" onClick={async () => {
+              if (!email.trim()) { setError('Enter your email to reset password.'); return }
+              setError(null)
+              await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(`/invite/${token}`)}` })
+              setResetSent(true)
+            }} className="w-full text-center text-sm text-white/50 transition hover:text-white/80">
+              Forgot password?
             </button>
 
             <button type="button" onClick={() => { setAuthMode('magic-link'); setError(null) }}
