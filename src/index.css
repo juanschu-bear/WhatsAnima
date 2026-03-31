@@ -59,14 +59,14 @@ select {
   background-position: center;
   background-size: cover;
   background-repeat: no-repeat;
-  opacity: 0.28;
+  opacity: 0.2;
   transform: scale(1.02);
 }
 
 @media (min-width: 768px) {
   .brand-scene::before {
     background-image: url("/hero.png");
-    opacity: 0.22;
+    opacity: 0.16;
   }
 }
 
