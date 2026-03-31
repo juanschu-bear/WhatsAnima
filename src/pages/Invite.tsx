@@ -283,14 +283,21 @@ export default function Invite() {
       return
     }
 
-    // signUp succeeded — Supabase may auto-confirm or require email confirmation
-    // If auto-confirmed, onAuthStateChange fires. If not, we need to tell user.
+    // signUp succeeded — try immediate signIn (works when auto-confirm is enabled)
+    const { error: autoSignInError } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password: password.trim(),
+    })
+    if (!autoSignInError) {
+      // Signed in — onAuthStateChange will fire and finalise
+      return
+    }
+
+    // signIn failed — email confirmation likely required
     const { data: { session } } = await supabase.auth.getSession()
     if (session) {
-      // Auto-confirmed — finalise immediately
       await finalisePendingInvite(pending)
     } else {
-      // Email confirmation required
       setEmailSent(true)
       setSubmitting(false)
     }
