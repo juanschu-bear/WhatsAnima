@@ -1761,22 +1761,34 @@ export default function Chat() {
 
   useEffect(() => {
     if (!isDesktopLayout) return
-    const contactId = conversation?.contact_id
     let cancelled = false
     void (async () => {
       try {
         const owners = await listAllOwners() as Array<{ id: string; display_name: string }>
         if (cancelled) return
         const validOwners = owners.filter((o) => !!o?.id)
-        if (!contactId) {
+
+        // Find ALL contacts for this user's email (bundle invites create one contact per owner)
+        const { supabase } = await import('../lib/supabase')
+        const { data: { user } } = await supabase.auth.getUser()
+        const userEmail = user?.email
+        if (!userEmail) {
           if (!cancelled) setRailOwners([])
           return
         }
-        const { supabase } = await import('../lib/supabase')
+        const { data: allContacts } = await supabase
+          .from('wa_contacts')
+          .select('id')
+          .eq('email', userEmail)
+        const contactIds = (allContacts ?? []).map((c: { id: string }) => c.id)
+        if (contactIds.length === 0) {
+          if (!cancelled) setRailOwners([])
+          return
+        }
         const { data: convRows } = await supabase
           .from('wa_conversations')
-          .select('id, owner_id')
-          .eq('contact_id', contactId)
+          .select('id, owner_id, contact_id')
+          .in('contact_id', contactIds)
           .in('owner_id', validOwners.map((o) => o.id))
         if (cancelled || !convRows || convRows.length === 0) {
           if (!cancelled) setRailOwners([])
@@ -2260,10 +2272,8 @@ export default function Chat() {
     if (!conversation || !ownerId || ownerId === conversation.owner_id || switchingOwnerId) return
     setSwitchingOwnerId(ownerId)
     try {
-      const ownerEmail = (conversation as any)?.wa_contacts?.email as string | undefined
       const auth = await (await import('../lib/supabase')).supabase.auth.getUser()
-      const userEmail = auth.data.user?.email || ''
-      const targetEmail = (ownerEmail || userEmail || '').trim()
+      const targetEmail = (auth.data.user?.email || '').trim()
 
       if (!targetEmail) {
         throw new Error('No contact email for avatar switch')

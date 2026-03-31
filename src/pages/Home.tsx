@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
-import { findContactByEmail } from '../lib/api'
 
 export default function Home() {
   const { user } = useAuth()
@@ -54,16 +53,19 @@ export default function Home() {
         return
       }
 
-      // Not an owner — check if they're a contact with an existing conversation
+      // Not an owner — find their most recent conversation via email
       if (user!.email) {
         try {
-          const contact = await findContactByEmail(user!.email)
-          if (contact) {
-            // Find their most recent conversation
+          const { data: contacts } = await supabase
+            .from('wa_contacts')
+            .select('id')
+            .eq('email', user!.email)
+          const contactIds = (contacts ?? []).map((c: { id: string }) => c.id)
+          if (contactIds.length > 0) {
             const { data: conv } = await supabase
               .from('wa_conversations')
               .select('id')
-              .eq('contact_id', contact.id)
+              .in('contact_id', contactIds)
               .order('updated_at', { ascending: false })
               .limit(1)
               .maybeSingle()
