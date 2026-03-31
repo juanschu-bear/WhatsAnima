@@ -842,9 +842,9 @@ export async function loadOwnerPromptAndMemory(
   conversationId: string | undefined,
   ownerIdHint?: string | null,
   ownerNameHint?: string | null
-): Promise<{ ownerPrompt: string; memory: string; stylePrompt: string; behavioralMemory: string; ownerId: string | null; ownerName: string }> {
+): Promise<{ ownerPrompt: string; memory: string; stylePrompt: string; behavioralMemory: string; ownerId: string | null; ownerName: string; llmProvider: string | null }> {
   const databaseUrl = getDatabaseUrl()
-  if (!databaseUrl) return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '', stylePrompt: '', behavioralMemory: '', ownerId: null, ownerName: 'Avatar' }
+  if (!databaseUrl) return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '', stylePrompt: '', behavioralMemory: '', ownerId: null, ownerName: 'Avatar', llmProvider: null }
 
   const client = new Client({ connectionString: databaseUrl, ssl: { rejectUnauthorized: false }, connectionTimeoutMillis: 5000 })
   try {
@@ -862,7 +862,7 @@ export async function loadOwnerPromptAndMemory(
     if (conversationId) {
       const [ownerResultByConversation, memoryResultByConversation] = await Promise.all([
         client.query(
-          `select o.id, o.display_name, o.system_prompt, o.is_self_avatar, o.communication_style
+          `select o.id, o.display_name, o.system_prompt, o.is_self_avatar, o.communication_style, o.llm_provider
            from public.wa_conversations c
            join public.wa_owners o on o.id = c.owner_id
            where c.id = $1 and o.deleted_at is null
@@ -883,7 +883,7 @@ export async function loadOwnerPromptAndMemory(
 
     if (!ownerRow && normalizedOwnerIdHint) {
       const ownerResultById = await client.query(
-        `select id, display_name, system_prompt, is_self_avatar, communication_style
+        `select id, display_name, system_prompt, is_self_avatar, communication_style, llm_provider
          from public.wa_owners
          where id = $1 and deleted_at is null
          limit 1`,
@@ -894,7 +894,7 @@ export async function loadOwnerPromptAndMemory(
 
     if (!ownerRow && normalizedOwnerNameHint) {
       const ownerResultByName = await client.query(
-        `select id, display_name, system_prompt, is_self_avatar, communication_style
+        `select id, display_name, system_prompt, is_self_avatar, communication_style, llm_provider
          from public.wa_owners
          where lower(display_name) = lower($1) and deleted_at is null
          order by updated_at desc nulls last
@@ -906,7 +906,7 @@ export async function loadOwnerPromptAndMemory(
 
     if (!ownerRow && normalizedOwnerNameHint) {
       const ownerResultByNameLike = await client.query(
-        `select id, display_name, system_prompt, is_self_avatar, communication_style
+        `select id, display_name, system_prompt, is_self_avatar, communication_style, llm_provider
          from public.wa_owners
          where lower(display_name) like lower($1) and deleted_at is null
          order by updated_at desc nulls last
@@ -924,7 +924,7 @@ export async function loadOwnerPromptAndMemory(
     if (!ownerRow && hintedProfile) {
       const canonicalOwnerId = hintedProfile === 'adri' ? ADRI_KASTEL_OWNER_ID : BRIAN_COX_OWNER_ID
       const ownerResultByCanonicalId = await client.query(
-        `select id, display_name, system_prompt, is_self_avatar, communication_style
+        `select id, display_name, system_prompt, is_self_avatar, communication_style, llm_provider
          from public.wa_owners
          where id = $1 and deleted_at is null
          limit 1`,
@@ -999,11 +999,11 @@ export async function loadOwnerPromptAndMemory(
       behavioralMemory = '\n\n' + bLines.join('\n')
     }
 
-    return { ownerPrompt, memory, stylePrompt, behavioralMemory, ownerId, ownerName }
+    const llmProvider = typeof ownerRow?.llm_provider === 'string' ? ownerRow.llm_provider.trim() : null
+    return { ownerPrompt, memory, stylePrompt, behavioralMemory, ownerId, ownerName, llmProvider }
   } catch (dbError) {
     console.error('[chat] Database connection failed in loadOwnerPromptAndMemory:', dbError instanceof Error ? dbError.message : dbError)
-    // Return defaults so the chat still works (without owner-specific prompt/memory)
-    return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '', stylePrompt: '', behavioralMemory: '', ownerId: null, ownerName: ownerNameHint?.trim() || 'Avatar' }
+    return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '', stylePrompt: '', behavioralMemory: '', ownerId: null, ownerName: ownerNameHint?.trim() || 'Avatar', llmProvider: null }
   } finally {
     await client.end().catch(() => undefined)
   }
@@ -1099,6 +1099,39 @@ export async function callAnthropic(apiKey: string, systemPrompt: string, messag
 
   let text = result.content?.[0]?.text?.trim() || ''
   // Strip any [Voice Response], [Voice message], [Text], etc. prefixes the LLM may add
+  text = text.replace(/^\[(?:Voice\s*(?:Response|message)|Text|Audio)\]\s*/i, '')
+  return text
+}
+
+export async function callMimo(apiKey: string, systemPrompt: string, messages: ChatMessage[]) {
+  const openAiMessages = [
+    { role: 'system' as const, content: systemPrompt },
+    ...messages.map((message) => {
+      const tag = message.role === 'user' ? getMessageTypeTag(message) : ''
+      return { role: message.role as 'user' | 'assistant', content: tag ? `${tag}${message.content}` : message.content }
+    }),
+  ]
+
+  const response = await fetch('https://api.mimo.xiaomi.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: 'MiMo-V2-Pro',
+      messages: openAiMessages,
+      max_tokens: 2048,
+      temperature: 0.7,
+    }),
+  })
+
+  const result = await response.json() as { choices?: Array<{ message?: { content?: string } }>; error?: { message?: string } }
+  if (!response.ok) {
+    throw new Error(result.error?.message || `MiMo error ${response.status}`)
+  }
+
+  let text = (result.choices?.[0]?.message?.content ?? '').trim()
   text = text.replace(/^\[(?:Voice\s*(?:Response|message)|Text|Audio)\]\s*/i, '')
   return text
 }
@@ -1387,7 +1420,7 @@ export default async function handler(req: any, res: any) {
     : []
 
   try {
-    const { ownerPrompt, memory, stylePrompt, behavioralMemory, ownerId, ownerName } = await loadOwnerPromptAndMemory(conversationId, ownerIdHint, ownerNameHint)
+    const { ownerPrompt, memory, stylePrompt, behavioralMemory, ownerId, ownerName, llmProvider } = await loadOwnerPromptAndMemory(conversationId, ownerIdHint, ownerNameHint)
     const normalizedOwnerIdHint = typeof ownerIdHint === 'string' && ownerIdHint.trim().length > 0
       ? ownerIdHint.trim()
       : null
@@ -1484,15 +1517,26 @@ export default async function handler(req: any, res: any) {
         console.error('[chat] Anthropic web_search failed, falling back to normal chat:', lastError.message)
       }
     }
-    if (anthropicApiKey) {
-      if (!content) {
-        try {
-          console.log('[chat] Calling Anthropic', JSON.stringify({ systemPromptLength: systemPrompt.length, messageCount: messages.length }))
-          content = await callAnthropic(anthropicApiKey, systemPrompt, messages)
-        } catch (error) {
-          lastError = error instanceof Error ? error : new Error(String(error))
-          console.error('[chat] Anthropic failed:', lastError.message)
-        }
+    // Determine LLM provider: owner setting → env var → default anthropic
+    const mimoApiKey = process.env.MIMO_API_KEY || ''
+    const chatProvider = llmProvider || process.env.CHAT_LLM_PROVIDER || 'anthropic'
+
+    if (chatProvider === 'mimo' && mimoApiKey && !content) {
+      try {
+        console.log('[chat] Calling MiMo', JSON.stringify({ systemPromptLength: systemPrompt.length, messageCount: messages.length }))
+        content = await callMimo(mimoApiKey, systemPrompt, messages)
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error))
+        console.error('[chat] MiMo failed, falling back to Anthropic:', lastError.message)
+      }
+    }
+    if (anthropicApiKey && !content) {
+      try {
+        console.log('[chat] Calling Anthropic', JSON.stringify({ systemPromptLength: systemPrompt.length, messageCount: messages.length, provider: chatProvider }))
+        content = await callAnthropic(anthropicApiKey, systemPrompt, messages)
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error))
+        console.error('[chat] Anthropic failed:', lastError.message)
       }
     }
     if (!content && openaiApiKey) {
