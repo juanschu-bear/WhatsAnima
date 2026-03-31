@@ -43,6 +43,7 @@ export default function Invite() {
   const [invite, setInvite] = useState<InviteData | null>(null)
   const [bundleInvite, setBundleInvite] = useState<BundleData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [finalising, setFinalising] = useState(false)
   const [invalid, setInvalid] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -50,7 +51,9 @@ export default function Invite() {
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
   const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
 
+  const [authMode, setAuthMode] = useState<'password' | 'magic-link'>('password')
   const [emailSent, setEmailSent] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [welcomeData, setWelcomeData] = useState<{ ownerName: string; chatId: string } | null>(null)
@@ -79,31 +82,50 @@ export default function Invite() {
     })()
   }, [token])
 
-  // --- If user already has a session and no pending invite, auto-fill email ---
+  // --- If user already logged in: auto-finalise the invite immediately ---
   useEffect(() => {
     if (!invite && !bundleInvite) return
+    if (finalising) return
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session?.user?.email) return
       const pending = localStorage.getItem(PENDING_KEY)
       if (pending) return // Let the normal pending flow handle it
-      // Pre-fill the email so they don't have to type it again
-      setEmail(session.user.email)
+
+      // User is already logged in — auto-finalise with their session data
       const meta = session.user.user_metadata
-      if (meta?.first_name && !firstName) setFirstName(meta.first_name)
-      if (meta?.last_name && !lastName) setLastName(meta.last_name)
+      const autoFirst = String(meta?.first_name || '').trim()
+      const autoLast = String(meta?.last_name || '').trim()
+      const autoEmail = session.user.email
+
+      if (autoFirst && autoLast && autoEmail) {
+        // All data available — finalise immediately
+        setFinalising(true)
+        void finalisePendingInvite({
+          token: token!,
+          firstName: autoFirst,
+          lastName: autoLast,
+          email: autoEmail,
+        })
+      } else {
+        // Pre-fill what we have, let them complete the form
+        if (autoEmail) setEmail(autoEmail)
+        if (autoFirst) setFirstName(autoFirst)
+        if (autoLast) setLastName(autoLast)
+      }
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [invite, bundleInvite])
 
-  // --- complete the invite after magic-link verification ---
+  // --- complete the invite ---
   async function finalisePendingInvite(pending: PendingInvite) {
     console.log('[Invite] finalising invite for', pending.email)
+    setFinalising(true)
 
     // Try bundle first
     const bundleResult = await validateBundleToken(pending.token)
     if (bundleResult && bundleResult.owners.length > 0) {
       try {
-        await createContactAndConversationsFromBundle({
+        const result = await createContactAndConversationsFromBundle({
           bundleId: bundleResult.bundle.id,
           ownerIds: bundleResult.bundle.owner_ids,
           firstName: pending.firstName,
@@ -112,12 +134,14 @@ export default function Invite() {
         })
         localStorage.removeItem(PENDING_KEY)
         const ownerNames = bundleResult.owners.map((o) => o.display_name).join(', ')
-        setWelcomeData({ ownerName: ownerNames, chatId: '' })
+        const firstChatId = result.conversations[0]?.id || ''
+        setWelcomeData({ ownerName: ownerNames, chatId: firstChatId })
         return
       } catch (err) {
         console.error('[Invite] bundle createContacts error:', err)
         localStorage.removeItem(PENDING_KEY)
         setError(err instanceof Error ? err.message : 'Unable to start conversations.')
+        setFinalising(false)
         return
       }
     }
@@ -127,6 +151,7 @@ export default function Invite() {
     if (!inviteData) {
       localStorage.removeItem(PENDING_KEY)
       setError('This invitation link is no longer active.')
+      setFinalising(false)
       return
     }
 
@@ -148,17 +173,14 @@ export default function Invite() {
       console.error('[Invite] createContactAndConversation error:', err)
       localStorage.removeItem(PENDING_KEY)
       setError(err instanceof Error ? err.message : 'Unable to start the conversation.')
+      setFinalising(false)
     }
   }
 
-  // Handle magic-link return. Two cases:
-  // 1. SIGNED_IN fires while we're mounted (listener catches it)
-  // 2. Session already exists by the time we mount (race: event fired before
-  //    this component rendered). We check getSession() to cover that case.
+  // Handle magic-link return or password-based sign-in completion
   useEffect(() => {
     let cancelled = false
 
-    // Helper: read and validate pending data
     function readPending(): PendingInvite | null {
       const raw = localStorage.getItem(PENDING_KEY)
       if (!raw) return null
@@ -167,7 +189,6 @@ export default function Invite() {
       return pending
     }
 
-    // Case 1 — listen for future SIGNED_IN events
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event) => {
         if (cancelled) return
@@ -178,8 +199,6 @@ export default function Invite() {
       },
     )
 
-    // Case 2 — session may already exist (magic-link hash was processed
-    // before this component mounted)
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (cancelled) return
       if (!session) return
@@ -199,13 +218,85 @@ export default function Invite() {
   // --- auto-navigate after welcome screen ---
   useEffect(() => {
     if (!welcomeData) return
+    const dest = welcomeData.chatId ? `/chat/${welcomeData.chatId}` : '/avatars'
     const timer = window.setTimeout(() => {
-      navigate('/avatars')
+      navigate(dest, { replace: true })
     }, 2000)
     return () => window.clearTimeout(timer)
   }, [welcomeData, navigate])
 
-  // --- send magic link ---
+  // --- register with password (primary) ---
+  async function handlePasswordSignup(event: FormEvent) {
+    event.preventDefault()
+    if (!firstName.trim() || !lastName.trim() || !email.trim() || !password.trim()) {
+      setError('Please fill in all fields.')
+      return
+    }
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters.')
+      return
+    }
+    setError(null)
+    setSubmitting(true)
+
+    // Persist form data in case we need fallback
+    const pending: PendingInvite = {
+      token: token!,
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      email: email.trim(),
+    }
+    localStorage.setItem(PENDING_KEY, JSON.stringify(pending))
+
+    // Try signUp first (new user)
+    const { error: signUpError } = await supabase.auth.signUp({
+      email: email.trim(),
+      password: password.trim(),
+      options: {
+        data: {
+          first_name: firstName.trim(),
+          last_name: lastName.trim(),
+          full_name: `${firstName.trim()} ${lastName.trim()}`,
+        },
+      },
+    })
+
+    if (signUpError) {
+      // If user already exists, try signIn
+      if (signUpError.message.includes('already registered') || signUpError.message.includes('already been registered')) {
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password: password.trim(),
+        })
+        if (signInError) {
+          setError(signInError.message)
+          localStorage.removeItem(PENDING_KEY)
+          setSubmitting(false)
+          return
+        }
+        // signIn succeeded — onAuthStateChange will fire and finalise
+        return
+      }
+      setError(signUpError.message)
+      localStorage.removeItem(PENDING_KEY)
+      setSubmitting(false)
+      return
+    }
+
+    // signUp succeeded — Supabase may auto-confirm or require email confirmation
+    // If auto-confirmed, onAuthStateChange fires. If not, we need to tell user.
+    const { data: { session } } = await supabase.auth.getSession()
+    if (session) {
+      // Auto-confirmed — finalise immediately
+      await finalisePendingInvite(pending)
+    } else {
+      // Email confirmation required
+      setEmailSent(true)
+      setSubmitting(false)
+    }
+  }
+
+  // --- send magic link (alternative) ---
   async function handleSendLink(event: FormEvent) {
     event.preventDefault()
     if (!firstName.trim() || !lastName.trim() || !email.trim()) {
@@ -216,9 +307,7 @@ export default function Invite() {
     setSubmitting(true)
 
     const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(`/invite/${token}`)}`
-    console.log('[Invite] sending magic link to', email, 'redirect →', redirectTo)
 
-    // Persist form data so we can pick it up after the redirect
     const pending: PendingInvite = {
       token: token!,
       firstName: firstName.trim(),
@@ -232,11 +321,15 @@ export default function Invite() {
       options: {
         shouldCreateUser: true,
         emailRedirectTo: redirectTo,
+        data: {
+          first_name: firstName.trim(),
+          last_name: lastName.trim(),
+          full_name: `${firstName.trim()} ${lastName.trim()}`,
+        },
       },
     })
 
     if (otpError) {
-      console.error('[Invite] magic-link error:', otpError.message, otpError)
       setError(otpError.message)
       localStorage.removeItem(PENDING_KEY)
       setSubmitting(false)
@@ -249,10 +342,13 @@ export default function Invite() {
 
   // ---------- render ----------
 
-  if (loading) {
+  if (loading || finalising) {
     return (
       <div className="brand-scene flex min-h-screen items-center justify-center">
-        <div className="h-10 w-10 animate-spin rounded-full border-4 border-[#1f2c34] border-t-[#00a884]" />
+        <div className="text-center">
+          <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-[#1f2c34] border-t-[#00a884]" />
+          {finalising && <p className="mt-4 text-sm text-white/60">Setting up your conversations...</p>}
+        </div>
       </div>
     )
   }
@@ -272,7 +368,7 @@ export default function Invite() {
           </div>
           <h1 className="text-2xl font-bold text-white">You're now connected with</h1>
           <p className="mt-2 text-xl font-semibold text-[#00a884]">{welcomeData.ownerName}</p>
-          <p className="mt-4 text-sm text-white/60">Starting your conversation...</p>
+          <p className="mt-4 text-sm text-white/60">Opening your conversation...</p>
           <div className="mx-auto mt-6 h-8 w-8 animate-spin rounded-full border-4 border-[#1f2c34] border-t-[#00a884]" />
         </div>
       </div>
@@ -318,90 +414,91 @@ export default function Invite() {
         {emailSent ? (
           <div className="mt-8 space-y-4">
             <div className="rounded-2xl border border-[#00a884]/20 bg-[#00a884]/10 px-5 py-4 text-sm leading-relaxed text-[#00a884]">
-              We sent a verification link to <strong>{email}</strong>.
-              <br />
-              Open your email and click the link to continue.
+              {authMode === 'password'
+                ? <>Check your email to confirm your account, then come back here.</>
+                : <>We sent a verification link to <strong>{email}</strong>. Open your email and click the link to continue.</>}
             </div>
-
             <button
               type="button"
-              onClick={() => {
-                setEmailSent(false)
-                setSubmitting(false)
-              }}
+              onClick={() => { setEmailSent(false); setSubmitting(false) }}
               className="text-sm text-white/50 underline transition hover:text-white/80"
             >
-              Use a different email
+              Try again
             </button>
           </div>
+        ) : authMode === 'password' ? (
+          <form onSubmit={handlePasswordSignup} className="mt-6 space-y-4 text-left">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label htmlFor="invite-first" className="mb-2 block text-sm font-medium text-white/80">First Name</label>
+                <input id="invite-first" type="text" required value={firstName} onChange={(e) => setFirstName(e.target.value)}
+                  className="brand-inset w-full rounded-2xl px-4 py-3 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20" placeholder="Juan" />
+              </div>
+              <div>
+                <label htmlFor="invite-last" className="mb-2 block text-sm font-medium text-white/80">Last Name</label>
+                <input id="invite-last" type="text" required value={lastName} onChange={(e) => setLastName(e.target.value)}
+                  className="brand-inset w-full rounded-2xl px-4 py-3 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20" placeholder="Schubert" />
+              </div>
+            </div>
+            <div>
+              <label htmlFor="invite-email" className="mb-2 block text-sm font-medium text-white/80">Email</label>
+              <input id="invite-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
+                className="brand-inset w-full rounded-2xl px-4 py-3 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20" placeholder="you@example.com" />
+            </div>
+            <div>
+              <label htmlFor="invite-password" className="mb-2 block text-sm font-medium text-white/80">Password</label>
+              <input id="invite-password" type="password" required minLength={6} value={password} onChange={(e) => setPassword(e.target.value)}
+                className="brand-inset w-full rounded-2xl px-4 py-3 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20" placeholder="Min. 6 characters" />
+            </div>
+
+            {error && (
+              <p className="rounded-2xl border border-red-400/15 bg-red-500/15 px-4 py-3 text-sm text-red-200">{error}</p>
+            )}
+
+            <button type="submit" disabled={submitting}
+              className="w-full rounded-2xl bg-[#00a884] py-3 font-semibold text-[#0b141a] transition hover:brightness-110 disabled:opacity-50">
+              {submitting ? 'Creating account...' : 'Create Account & Start'}
+            </button>
+
+            <button type="button" onClick={() => { setAuthMode('magic-link'); setError(null) }}
+              className="w-full text-center text-sm text-white/50 transition hover:text-white/80">
+              Or sign in with magic link instead
+            </button>
+          </form>
         ) : (
           <form onSubmit={handleSendLink} className="mt-6 space-y-4 text-left">
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
-                <label htmlFor="invite-first" className="mb-2 block text-sm font-medium text-white/80">
-                  First Name
-                </label>
-                <input
-                  id="invite-first"
-                  type="text"
-                  required
-                  value={firstName}
-                  onChange={(e) => setFirstName(e.target.value)}
-                  className="brand-inset w-full rounded-2xl px-4 py-3 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20"
-                  placeholder="Juan"
-                />
+                <label htmlFor="invite-first-ml" className="mb-2 block text-sm font-medium text-white/80">First Name</label>
+                <input id="invite-first-ml" type="text" required value={firstName} onChange={(e) => setFirstName(e.target.value)}
+                  className="brand-inset w-full rounded-2xl px-4 py-3 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20" placeholder="Juan" />
               </div>
               <div>
-                <label htmlFor="invite-last" className="mb-2 block text-sm font-medium text-white/80">
-                  Last Name
-                </label>
-                <input
-                  id="invite-last"
-                  type="text"
-                  required
-                  value={lastName}
-                  onChange={(e) => setLastName(e.target.value)}
-                  className="brand-inset w-full rounded-2xl px-4 py-3 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20"
-                  placeholder="Schubert"
-                />
+                <label htmlFor="invite-last-ml" className="mb-2 block text-sm font-medium text-white/80">Last Name</label>
+                <input id="invite-last-ml" type="text" required value={lastName} onChange={(e) => setLastName(e.target.value)}
+                  className="brand-inset w-full rounded-2xl px-4 py-3 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20" placeholder="Schubert" />
               </div>
             </div>
-
             <div>
-              <label htmlFor="invite-email" className="mb-2 block text-sm font-medium text-white/80">
-                Email
-              </label>
-              <input
-                id="invite-email"
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="brand-inset w-full rounded-2xl px-4 py-3 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20"
-                placeholder="you@example.com"
-              />
+              <label htmlFor="invite-email-ml" className="mb-2 block text-sm font-medium text-white/80">Email</label>
+              <input id="invite-email-ml" type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
+                className="brand-inset w-full rounded-2xl px-4 py-3 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20" placeholder="you@example.com" />
             </div>
 
             {error && (
-              <p className="rounded-2xl border border-red-400/15 bg-red-500/15 px-4 py-3 text-sm text-red-200">
-                {error}
-              </p>
+              <p className="rounded-2xl border border-red-400/15 bg-red-500/15 px-4 py-3 text-sm text-red-200">{error}</p>
             )}
 
-            <button
-              type="submit"
-              disabled={submitting}
-              className="w-full rounded-2xl bg-[#00a884] py-3 font-semibold text-[#0b141a] transition hover:brightness-110 disabled:opacity-50"
-            >
+            <button type="submit" disabled={submitting}
+              className="w-full rounded-2xl bg-[#00a884] py-3 font-semibold text-[#0b141a] transition hover:brightness-110 disabled:opacity-50">
               {submitting ? 'Sending...' : 'Send Verification Email'}
             </button>
-          </form>
-        )}
 
-        {error && emailSent && (
-          <p className="mt-4 rounded-2xl border border-red-400/15 bg-red-500/15 px-4 py-3 text-sm text-red-200">
-            {error}
-          </p>
+            <button type="button" onClick={() => { setAuthMode('password'); setError(null) }}
+              className="w-full text-center text-sm text-white/50 transition hover:text-white/80">
+              Or create account with password instead
+            </button>
+          </form>
         )}
       </div>
     </div>
