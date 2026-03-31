@@ -37,7 +37,7 @@ export default function Login() {
 
   async function handleForgotPassword() {
     if (!email.trim()) {
-      setError(t(locale, 'enterEmail') || 'Enter your email address.')
+      setError('Enter your email address.')
       return
     }
     setError(null)
