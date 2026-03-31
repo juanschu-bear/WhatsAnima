@@ -868,17 +868,14 @@ select {
   text-align: center;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  opacity: 0.15;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(219, 234, 255, 0.85) 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  -webkit-text-stroke: 1px rgba(197, 221, 255, 0.42);
+  opacity: 0.18;
+  color: rgba(211, 228, 255, 0.22);
+  -webkit-text-stroke: 1px rgba(214, 232, 255, 0.34);
   text-shadow:
-    0 0 12px rgba(255, 255, 255, 0.2),
-    0 0 42px rgba(126, 163, 255, 0.28);
+    0 0 10px rgba(255, 255, 255, 0.16),
+    0 0 34px rgba(126, 163, 255, 0.24);
   pointer-events: none;
   white-space: pre-line;
   user-select: none;
-  z-index: 0;
+  z-index: 1;
 }
