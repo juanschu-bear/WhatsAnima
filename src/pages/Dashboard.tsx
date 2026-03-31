@@ -1068,7 +1068,7 @@ export default function Dashboard() {
                   </button>
                 </div>
 
-                <div className="px-4 py-5 sm:px-6">
+                <div className="max-h-[70vh] overflow-y-auto px-4 py-5 sm:px-6">
                   {messagesLoading ? (
                     <div className="flex h-full items-center justify-center">
                       <div className="h-9 w-9 animate-spin rounded-full border-4 border-[#1f2c34] border-t-[#00a884]" />

@@ -14,7 +14,6 @@ import Status from './pages/Status'
 import AuthCallback from './pages/AuthCallback'
 import VideoCall from './pages/VideoCall'
 import Perception from './pages/Perception'
-import ExtendedPerception from './pages/ExtendedPerception'
 import MeetingLobby from './pages/MeetingLobby'
 import MeetingHost from './pages/MeetingHost'
 import OPMPerceptionPanelPreviewScreen from './screens/OPMPerceptionPanelPreviewScreen'
@@ -67,14 +66,6 @@ export default function App() {
             }
           />
           <Route
-            path="/perception/extended"
-            element={
-              <ProtectedRoute>
-                <ExtendedPerception />
-              </ProtectedRoute>
-            }
-          />
-          <Route
             path="/settings"
             element={
               <OwnerRoute>
@@ -85,9 +76,9 @@ export default function App() {
           <Route
             path="/meeting-host"
             element={
-              <ProtectedRoute>
+              <OwnerRoute>
                 <MeetingHost />
-              </ProtectedRoute>
+              </OwnerRoute>
             }
           />
         </Routes>
