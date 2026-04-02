@@ -1500,6 +1500,31 @@ export default async function handler(req: any, res: any) {
     }
     const messages = prepareMessages(priorMessages, message, { image_url, isImage, isVideo, isVoice })
 
+    // Log assembled prompt to wa_prompt_logs for MOMO Dashboard
+    try {
+      const sbUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+      const sbKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY || '';
+      if (sbUrl && sbKey) {
+        const sb = createClient(sbUrl, sbKey);
+        const knowledgeBaseChars = (() => { try { return getKnowledgeBaseContent()?.length || 0; } catch { return 0; } })();
+        const perceptionChars = buildPerceptionPrompt(perception)?.length || 0;
+        await sb.from('wa_prompt_logs').insert({
+          conversation_id: conversationId,
+          knowledge_base_chars: knowledgeBaseChars,
+          identity_chars: ownerPrompt?.length || 0,
+          memory_chars: memory?.length || 0,
+          perception_chars: perceptionChars,
+          total_chars: systemPrompt.length,
+          knowledge_base_loaded: knowledgeBaseChars > 0,
+          session_summary_loaded: (memory?.length || 0) > 0,
+          message_count: messages.length,
+          full_prompt: systemPrompt,
+        });
+      }
+    } catch (e) {
+      console.error('[chat] prompt log failed:', e);
+    }
+
     let content = ''
     let lastError: Error | null = null
     if (anthropicApiKey && hasYouTubeProfile && shouldUseVideoWebSearch) {
