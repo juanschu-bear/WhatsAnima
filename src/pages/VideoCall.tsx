@@ -2066,19 +2066,19 @@ export default function VideoCall() {
               <div className="relative h-full w-full">
                 <div className="absolute inset-0">
                   {visibleParticipants.length === 0 ? (
-                    <div className="flex h-full w-full flex-col items-center justify-start overflow-y-auto px-6 pb-10 pt-10 text-center sm:pb-12 sm:pt-12">
+                    <div className="flex h-full w-full flex-col items-center justify-start overflow-y-auto px-4 pb-6 pt-6 text-center sm:px-6 sm:pb-12 sm:pt-12">
                       <div className="relative">
                         <img
                           src={resolveAvatarUrl(personaName)}
                           alt={personaName}
-                          className="h-24 w-24 rounded-full object-cover ring-1 ring-white/10 sm:h-36 sm:w-36"
+                          className="h-16 w-16 rounded-full object-cover ring-1 ring-white/10 sm:h-36 sm:w-36"
                         />
                         <span className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full border-4 border-[#08111a] bg-[#70f0de]" />
                       </div>
-                      <p className="mt-6 text-2xl font-semibold tracking-[-0.03em] text-white sm:text-3xl">
+                      <p className="mt-3 text-xl font-semibold tracking-[-0.03em] text-white sm:mt-6 sm:text-3xl">
                         {personaName}
                       </p>
-                      <p className="mt-3 text-sm leading-6 text-white/62 sm:text-base">
+                      <p className="mt-1.5 text-sm leading-6 text-white/62 sm:mt-3 sm:text-base">
                         {phase === 'setup'
                           ? (isMeetingGuest ? 'Joining existing live meeting room...' : 'Choose a language and start the room.')
                           : statusText}
