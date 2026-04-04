@@ -439,6 +439,18 @@ export async function createContactAndConversationsFromBundle(payload: BundleCon
   // Create one contact per owner (wa_contacts has owner_id FK)
   const conversations: Array<{ id: string; owner_id: string }> = []
   for (const ownerId of payload.ownerIds) {
+    // Duplicate-check: skip if contact with same email+owner already exists
+    const { data: existing } = await supabase
+      .from('wa_contacts')
+      .select('id')
+      .eq('owner_id', ownerId)
+      .eq('email', email)
+      .maybeSingle()
+    if (existing) {
+      console.warn('[bundle] contact already exists for owner', ownerId, '— skipping')
+      continue
+    }
+
     const contactId = crypto.randomUUID()
     const conversationId = crypto.randomUUID()
 
@@ -447,7 +459,7 @@ export async function createContactAndConversationsFromBundle(payload: BundleCon
       .insert({ id: contactId, owner_id: ownerId, display_name: displayName, email })
     if (contactErr) {
       console.error('[bundle] contact insert error for owner', ownerId, contactErr.message)
-      throw contactErr
+      continue
     }
 
     const { error: convErr } = await supabase
@@ -455,10 +467,14 @@ export async function createContactAndConversationsFromBundle(payload: BundleCon
       .insert({ id: conversationId, owner_id: ownerId, contact_id: contactId })
     if (convErr) {
       console.error('[bundle] conversation insert error for owner', ownerId, convErr.message)
-      throw convErr
+      continue
     }
 
     conversations.push({ id: conversationId, owner_id: ownerId })
+  }
+
+  if (conversations.length === 0) {
+    throw new Error(`[bundle] all owner inserts failed for bundle ${payload.bundleId}`)
   }
 
   // Increment use_count
