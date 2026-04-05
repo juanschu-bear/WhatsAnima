@@ -42,6 +42,53 @@ const LANGUAGES: Array<{ code: SupportedLanguage; label: string; accent: string 
   { code: 'es', label: 'Español', accent: 'from-amber-400/75 to-orange-500/80' },
 ]
 
+const FILLER_PHRASES = [
+  "Hmm, that's actually a really good point. Let me think about that.",
+  "Okay wow, there's a lot there.",
+  "Yeah I feel you on that. Give me a second.",
+  "Oh man, that's deep. Hold on.",
+  "Interesting. Let me process that for a moment.",
+  "Right, okay. There's a few things I want to say about that.",
+  "Hmm yeah, that's not a simple one.",
+  "That's real. Let me sit with that for a second.",
+  "Okay I see where you're going with this. Let me think.",
+  "Man, I appreciate you sharing that. Let me think about how to respond properly.",
+  "Okay so there's layers to this. Give me a sec.",
+  "Hmm, you know what, that actually hits different. Give me a moment.",
+  "Yeah that makes sense. Let me figure out how to put this.",
+  "Oh that's interesting actually. Hold on, let me gather my thoughts.",
+]
+
+const FILLER_PHRASES_DE = [
+  "Hmm, das ist tatsächlich ein guter Punkt. Lass mich kurz nachdenken.",
+  "Okay wow, da steckt viel drin.",
+  "Ja, das verstehe ich. Gib mir eine Sekunde.",
+  "Oh Mann, das geht tief. Moment.",
+  "Interessant. Lass mich das kurz verarbeiten.",
+  "Richtig, okay. Da gibt es einiges, was ich dazu sagen will.",
+  "Hmm ja, das ist nicht einfach.",
+  "Das ist echt. Lass mich kurz darüber nachdenken.",
+  "Okay, ich sehe worauf du hinauswillst. Lass mich kurz überlegen.",
+  "Hey, ich schätze es, dass du das teilst. Lass mich kurz nachdenken wie ich darauf antworte.",
+  "Okay, da stecken mehrere Ebenen drin. Gib mir eine Sekunde.",
+]
+
+const FILLER_PHRASES_ES = [
+  "Hmm, ese es un muy buen punto. Déjame pensar un momento.",
+  "Wow, hay mucho ahí.",
+  "Sí, te entiendo. Dame un segundo.",
+  "Oh, eso es profundo. Un momento.",
+  "Interesante. Déjame procesar eso un momento.",
+  "Bien, okay. Hay varias cosas que quiero decir sobre eso.",
+  "Hmm sí, eso no es tan simple.",
+  "Eso es real. Déjame pensar un momento.",
+  "Okay, veo a dónde vas con esto. Déjame pensar.",
+  "Oye, aprecio que compartas eso. Déjame pensar cómo responder.",
+  "Okay, hay capas en esto. Dame un segundo.",
+]
+
+const MIN_SPEECH_DURATION_FOR_FILLER_MS = 3000 // Only send filler if user spoke for 3+ seconds
+
 function normalizeLanguageCode(value: string | null | undefined): SupportedLanguage {
   const candidate = (value || '').trim().toLowerCase()
   if (candidate.startsWith('de')) return 'de'
@@ -460,6 +507,9 @@ export default function VideoCall() {
   const lastUserSpeechEndAtRef = useRef<number | null>(null)
   const lastLatencyLoggedAtRef = useRef<number | null>(null)
   const lastActiveSpeakerIdRef = useRef<string | null>(null)
+  const userSpeechStartAtRef = useRef<number | null>(null)
+  const fillerSentForUtteranceRef = useRef<number | null>(null)
+  const lastFillerIndexRef = useRef<number>(-1)
   const endingSessionRef = useRef(false)
   const hiddenTimeoutRef = useRef<number | null>(null)
   const meetingAutoStartRef = useRef(false)
@@ -719,6 +769,39 @@ export default function VideoCall() {
     callObject.sendAppMessage(payload, '*')
     participantsInjectedRef.current = true
     console.log('[OPM-CONTEXT] participants pre-injected', { text: contextText })
+  }
+
+  const sendFillerResponse = () => {
+    const callObject = callObjectRef.current
+    const conversationId = tavusConversationIdRef.current
+    if (!callObject || !conversationId || !joinedRef.current) return
+
+    const meetingState = typeof callObject.meetingState === 'function' ? callObject.meetingState() : null
+    if (meetingState !== 'joined-meeting') return
+
+    // Pick language-appropriate fillers
+    const lang = normalizeLanguageCode(languageRef.current)
+    const phrases = lang === 'de' ? FILLER_PHRASES_DE : lang === 'es' ? FILLER_PHRASES_ES : FILLER_PHRASES
+
+    // Pick a random filler, avoiding the last one used
+    let index = Math.floor(Math.random() * phrases.length)
+    if (index === lastFillerIndexRef.current && phrases.length > 1) {
+      index = (index + 1) % phrases.length
+    }
+    lastFillerIndexRef.current = index
+    const filler = phrases[index]
+
+    const payload = {
+      message_type: 'conversation',
+      event_type: 'conversation.echo',
+      conversation_id: conversationId,
+      properties: {
+        text: filler,
+      },
+    }
+
+    console.log('[FILLER] sending filler response', { filler, lang })
+    callObject.sendAppMessage(payload, '*')
   }
 
   async function notifySessionStart(nextSessionId: string, joinUrl: string, personaName: string, replicaId: string) {
@@ -1854,7 +1937,27 @@ export default function VideoCall() {
         lastActiveSpeakerIdRef.current = nextActive
 
         if (userId && previousActive === userId && nextActive !== userId) {
-          lastUserSpeechEndAtRef.current = Date.now()
+          const now = Date.now()
+          lastUserSpeechEndAtRef.current = now
+
+          // Send filler response if user spoke for 3+ seconds
+          const speechStart = userSpeechStartAtRef.current
+          if (speechStart && (now - speechStart) >= MIN_SPEECH_DURATION_FOR_FILLER_MS) {
+            // Don't send filler twice for the same utterance
+            if (fillerSentForUtteranceRef.current !== speechStart) {
+              fillerSentForUtteranceRef.current = speechStart
+              // Small delay to ensure Sparrow has committed the turn
+              window.setTimeout(() => {
+                sendFillerResponse()
+              }, 200)
+            }
+          }
+          userSpeechStartAtRef.current = null
+        }
+
+        // Track when user STARTS speaking
+        if (userId && nextActive === userId && previousActive !== userId) {
+          userSpeechStartAtRef.current = Date.now()
         }
 
         if (avatarId && nextActive === avatarId && lastUserSpeechEndAtRef.current) {
