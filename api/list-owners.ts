@@ -25,7 +25,7 @@ export default async function handler(req: any, res: any) {
   try {
     const { data, error } = await supabase
       .from('wa_owners')
-      .select('id, display_name')
+      .select('id, display_name, avatar_url')
       .is('deleted_at', null)
       .order('display_name', { ascending: true })
 

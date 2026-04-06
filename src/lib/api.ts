@@ -64,7 +64,7 @@ export async function listAllOwners() {
     console.warn('[listAllOwners] API route failed, falling back to client query:', error)
     const { data, error: queryError } = await supabase
       .from('wa_owners')
-      .select('id, display_name')
+      .select('id, display_name, avatar_url')
       .is('deleted_at', null)
       .order('display_name', { ascending: true })
 
@@ -698,7 +698,7 @@ export async function getConversation(conversationId: string) {
   const [{ data: owner }, { data: contact }] = await Promise.all([
     supabase
       .from('wa_owners')
-      .select('id, display_name, email, voice_id, tavus_replica_id, system_prompt, settings, bio, expertise')
+      .select('id, display_name, email, avatar_url, voice_id, tavus_replica_id, system_prompt, settings, bio, expertise')
       .eq('id', conversation.owner_id)
       .is('deleted_at', null)
       .maybeSingle(),
@@ -715,6 +715,7 @@ export async function getConversation(conversationId: string) {
       id: conversation.owner_id,
       display_name: 'Avatar',
       email: null,
+      avatar_url: null,
       voice_id: null,
       tavus_replica_id: null,
       system_prompt: null,

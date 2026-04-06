@@ -72,6 +72,7 @@ interface ConversationData {
   wa_owners: {
     id?: string
     display_name: string
+    avatar_url?: string | null
     voice_id: string | null
     system_prompt?: string | null
     tavus_replica_id: string | null
@@ -1456,13 +1457,15 @@ export default function Chat() {
   const [videoSuggestionsMap, setVideoSuggestionsMap] = useState<Record<string, VideoSuggestion[]>>({})
   const [mediaMenuOpen, setMediaMenuOpen] = useState(false)
   const [isDesktopLayout, setIsDesktopLayout] = useState(false)
-  const [railOwners, setRailOwners] = useState<Array<{ id: string; display_name: string; last_message_text: string | null; last_message_at: string | null }>>([])
+  const [railOwners, setRailOwners] = useState<Array<{ id: string; display_name: string; avatar_url?: string | null; last_message_text: string | null; last_message_at: string | null }>>([])
   const [switchingOwnerId, setSwitchingOwnerId] = useState<string | null>(null)
   const [avatarSearch, setAvatarSearch] = useState('')
   const avatarReplyInFlight = useRef(new Set<string>())
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const initialScrollDone = useRef(false)
   const imageInputRef = useRef<HTMLInputElement>(null)
+  const avatarSrc = (ownerLike: { display_name: string; avatar_url?: string | null }) =>
+    ownerLike.avatar_url?.trim() || resolveAvatarUrl(ownerLike.display_name)
 
   // --- Extracted hooks ---
   const {
@@ -1578,7 +1581,7 @@ export default function Chat() {
     setForwardLoading(true)
     try {
       const owners = await listAllOwners()
-      setForwardOwners(owners as Array<{ id: string; display_name: string }>)
+      setForwardOwners(owners as Array<{ id: string; display_name: string; avatar_url?: string | null }>)
     } catch {
       setForwardOwners([])
     } finally {
@@ -1764,7 +1767,7 @@ export default function Chat() {
     let cancelled = false
     void (async () => {
       try {
-        const owners = await listAllOwners() as Array<{ id: string; display_name: string }>
+        const owners = await listAllOwners() as Array<{ id: string; display_name: string; avatar_url?: string | null }>
         if (cancelled) return
         const validOwners = owners.filter((o) => !!o?.id)
 
@@ -2340,7 +2343,7 @@ export default function Chat() {
                       : 'hover:bg-white/[0.05]'
                   } disabled:opacity-70`}
                 >
-                  <img src={resolveAvatarUrl(ownerItem.display_name)} alt={ownerItem.display_name} className="h-[45px] w-[45px] shrink-0 rounded-full object-cover ring-1 ring-white/12" />
+                  <img src={avatarSrc(ownerItem)} alt={ownerItem.display_name} className="h-[45px] w-[45px] shrink-0 rounded-full object-cover ring-1 ring-white/12" />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline justify-between gap-2">
                       <span className="truncate text-[15px] font-semibold text-white">{ownerItem.display_name}</span>
@@ -2404,7 +2407,7 @@ export default function Chat() {
               className="flex min-w-0 flex-1 items-center gap-3 rounded-xl text-left transition hover:bg-white/5"
             >
               <div className="relative shrink-0">
-                <img src={resolveAvatarUrl(owner.display_name)} alt={owner.display_name} className="h-10 w-10 shrink-0 rounded-full object-cover ring-1 ring-white/10" />
+                <img src={avatarSrc(owner)} alt={owner.display_name} className="h-10 w-10 shrink-0 rounded-full object-cover ring-1 ring-white/10" />
                 <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-[#0a1420] bg-[#00d4a1]" />
               </div>
               <div className="min-w-0 flex-1">
@@ -2772,7 +2775,7 @@ export default function Chat() {
 
             <div className="flex flex-col items-center text-center">
               <img
-                src={resolveAvatarUrl(owner.display_name)}
+                src={avatarSrc(owner)}
                 alt={owner.display_name}
                 className="h-28 w-28 rounded-full object-cover ring-2 ring-white/12"
               />
@@ -3115,7 +3118,7 @@ export default function Chat() {
                     } disabled:opacity-60`}
                   >
                     <div className="flex items-center gap-3">
-                      <img src={resolveAvatarUrl(fw.display_name)} alt={fw.display_name} className="h-11 w-11 rounded-full object-cover ring-2 ring-white/10" />
+                      <img src={avatarSrc(fw)} alt={fw.display_name} className="h-11 w-11 rounded-full object-cover ring-2 ring-white/10" />
                       <p className="flex-1 truncate text-sm font-semibold text-white">{fw.display_name}</p>
                       {forwardSending === fw.id ? (
                         <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#1f2c34] border-t-[#00a884]" />
