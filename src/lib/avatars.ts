@@ -14,6 +14,7 @@ const AVATAR_MAP: Record<string, string> = {
   'adri kastel growth expert': '/adri-kastel_192x192.jpg',
   'elena navarro': '/elena-navarro-192.jpg',
   'clara fontaine': '/clara-fontaine-192.jpg',
+  'trace flores': '/trace-flores-192.jpg',
 }
 
 /** Resolve a local avatar URL for the given display name. Returns the default avatar if no specific match. */
