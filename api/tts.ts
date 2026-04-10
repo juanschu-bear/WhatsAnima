@@ -26,12 +26,11 @@ export default async function handler(req: any, res: any) {
     }
     const url = `https://api.elevenlabs.io/v1/text-to-speech/${voice}`;
 
-    // Only ElevenLabs designed/library voices verified to sound good on v3
-    // IVCs and PVCs stay on Multilingual v2 for voice consistency
-    const V3_VOICES = new Set([
-      'c6SfcYrb2t09NHXiT80T', // Trace Flores
+    // Default: v3 for all voices. Only exclude voices that don't sound good on v3.
+    const V2_ONLY_VOICES = new Set([
+      'lx8LAX2EUAKftVz0Dk5z', // Juan Schubert (PVC — v3 alters voice character)
     ])
-    const model_id = V3_VOICES.has(voice) ? 'eleven_v3' : 'eleven_multilingual_v2'
+    const model_id = V2_ONLY_VOICES.has(voice) ? 'eleven_multilingual_v2' : 'eleven_v3'
 
     const payload = JSON.stringify({
       text,
