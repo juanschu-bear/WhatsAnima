@@ -25,17 +25,9 @@ export default async function handler(req: any, res: any) {
       return res.status(400).json({ error: 'Missing voiceId (and no default voice configured)' });
     }
     const url = `https://api.elevenlabs.io/v1/text-to-speech/${voice}`;
-
-    // Voices verified to sound good on Eleven v3 (designed/library voices only)
-    // All other voices (IVCs, PVCs) stay on Multilingual v2 for consistency
-    const V3_VOICES = new Set([
-      'c6SfcYrb2t09NHXiT80T', // Trace Flores (ElevenLabs designed voice)
-    ])
-    const model_id = V3_VOICES.has(voice) ? 'eleven_v3' : 'eleven_multilingual_v2'
-
     const payload = JSON.stringify({
       text,
-      model_id,
+      model_id: 'eleven_v3',
       voice_settings: { stability: 0.5, similarity_boost: 0.75 }
     });
 
