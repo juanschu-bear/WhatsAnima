@@ -1262,7 +1262,31 @@ When greeting or introducing yourself, use the name ${ownerName}. First-person s
     console.error('[chat] Knowledge base load error:', kbError instanceof Error ? kbError.message : kbError)
   }
 
-  return `${knowledgePrefix}${IDENTITY_OVERRIDE}\n\n${LANGUAGE_INSTRUCTION}\n\n${ownerPrompt}\n\n${RESPONSE_FORMAT_MATCHING}\n\n${FORMATTING_INSTRUCTION}\n\n${FLASHCARD_INSTRUCTION}\n\n${IMAGE_GENERATION_INSTRUCTION}\n\n${MESSAGE_TYPE_AWARENESS}${stylePrompt}${memory}${behavioralMemory}${youtubeWebSearchInstruction}${buildPerceptionPrompt(perception)}${IDENTITY_REMINDER}`
+  const CHAT_VOICE_EXPRESSIVENESS = `\n\n[VOICE EXPRESSIVENESS — CHAT MODE]
+Your text responses will be spoken aloud by ElevenLabs v3 TTS. Use audio tags in square brackets to control delivery:
+
+Emotions:
+- [excited] before enthusiastic moments or breakthroughs
+- [warmly] before supportive, calm, reflective statements
+- [confident] before direct, assertive insights or when calling something out
+- [curious] when genuinely intrigued by what someone said
+- [sad] before empathetic moments when someone shares something heavy
+- [nervous] before uncertain or vulnerable moments
+- [thoughtfully] before important, grounding delivery
+
+Actions:
+- [laughs] where you'd genuinely laugh — not forced, only real
+- [light chuckle] for subtle amusement
+- [sigh] when something is heavy or when exhaling before a real point
+- [whispers] for intimate, private delivery
+- [softly] for gentle, quiet moments
+
+Write naturally with these tags woven in. Example:
+"[warmly] That's actually a really important insight. [light chuckle] And you almost missed it. [thoughtfully] Here's the thing though..."
+
+DO NOT overuse tags. Use 2-3 per response maximum. Let your words carry the emotion — tags are accents, not the main act.`
+
+  return `${knowledgePrefix}${IDENTITY_OVERRIDE}\n\n${LANGUAGE_INSTRUCTION}\n\n${ownerPrompt}${CHAT_VOICE_EXPRESSIVENESS}\n\n${RESPONSE_FORMAT_MATCHING}\n\n${FORMATTING_INSTRUCTION}\n\n${FLASHCARD_INSTRUCTION}\n\n${IMAGE_GENERATION_INSTRUCTION}\n\n${MESSAGE_TYPE_AWARENESS}${stylePrompt}${memory}${behavioralMemory}${youtubeWebSearchInstruction}${buildPerceptionPrompt(perception)}${IDENTITY_REMINDER}`
 }
 
 /** Prepare the messages array for the Claude API, including language switch detection. */

@@ -27,7 +27,7 @@ export default async function handler(req: any, res: any) {
     const url = `https://api.elevenlabs.io/v1/text-to-speech/${voice}`;
     const payload = JSON.stringify({
       text,
-      model_id: 'eleven_multilingual_v2',
+      model_id: 'eleven_v3',
       voice_settings: { stability: 0.5, similarity_boost: 0.75 }
     });
 

@@ -111,6 +111,7 @@ function stripVoiceTags(text: string): string {
     .replace(/<emotion\s+value="[^"]*"\s*\/?>/g, '')
     .replace(/<speed\s+ratio="[^"]*"\s*\/?>/g, '')
     .replace(/\[laughter\]/g, '')
+    .replace(/\[(excited|warmly|confident|curious|sad|nervous|thoughtfully|laughs|light chuckle|sigh|sigh of relief|whispers|softly|SHOUTING|whispering|cheerful|tired|frustrated|sorrowful|dismissive|gasps|gulps|quietly)\]/gi, '')
     .trim()
 }
 
