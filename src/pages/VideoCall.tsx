@@ -756,7 +756,7 @@ export default function VideoCall() {
     const conversationIdForContext = tavusConversationIdRef.current
     if (!conversationIdForContext) return
 
-    const callerDisplayName = buildUserName(user, conversation).trim() || 'the user'
+    const callerDisplayName = buildUserName(user, conversation).trim().split(' ')[0] || 'the user'
     const contextText = `[MEETING] The person in this call is ${callerDisplayName}. Address them by name naturally.`
 
     const payload = {
