@@ -105,8 +105,17 @@ function formatMessageTime(dateStr: string) {
   return new Date(dateStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
+/** Strip TTS/SSML voice tags that should not be visible in chat */
+function stripVoiceTags(text: string): string {
+  return text
+    .replace(/<emotion\s+value="[^"]*"\s*\/?>/g, '')
+    .replace(/<speed\s+ratio="[^"]*"\s*\/?>/g, '')
+    .replace(/\[laughter\]/g, '')
+    .trim()
+}
+
 function renderMessageTextWithLinks(content: string | null | undefined) {
-  const text = content || ''
+  const text = stripVoiceTags(content || '')
   if (!text) return ''
 
   const parts: ReactNode[] = []
@@ -494,7 +503,7 @@ const VoiceMessageBubble = memo(function VoiceMessageBubble({
       </div>
       {hasTranscript && isTranscriptOpen ? (
         <div className="voice-transcript-panel">
-          {transcript!.split(/(?<=[.!?])\s+/).filter(Boolean).map((sentence, i) => (
+          {stripVoiceTags(transcript!).split(/(?<=[.!?])\s+/).filter(Boolean).map((sentence, i) => (
             <p key={i} className={i > 0 ? 'mt-1.5' : ''}>{sentence}</p>
           ))}
         </div>
@@ -1424,7 +1433,7 @@ const VideoMessageBubble = memo(function VideoMessageBubble({
 
       {hasTranscript && isTranscriptOpen ? (
         <div className="mt-2 rounded-2xl bg-black/15 px-3 py-2.5 text-[13px] leading-[1.55] text-white/80">
-          {transcript}
+          {stripVoiceTags(transcript!)}
         </div>
       ) : null}
 
