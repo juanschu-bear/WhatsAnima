@@ -1916,7 +1916,7 @@ export default function VideoCall() {
       callObject.on('track-stopped', (event: any) => handleParticipantChange('track-stopped', event))
       callObject.on('active-speaker-change', (event: any) => {
         logEvent('active-speaker-change', event)
-        const nextActive = event?.activeSpeaker ? getParticipantId(event.activeSpeaker) : null
+        const nextActive = event?.activeSpeaker?.peerId || (event?.activeSpeaker ? getParticipantId(event.activeSpeaker) : null)
         const participantsSnapshot = participantsRef.current || []
         const userParticipant = participantsSnapshot.find((participant) => participant?.local)
         const userId = userParticipant ? getParticipantId(userParticipant) : null
