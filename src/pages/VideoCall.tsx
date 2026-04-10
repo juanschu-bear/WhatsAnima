@@ -1936,24 +1936,21 @@ export default function VideoCall() {
         const previousActive = lastActiveSpeakerIdRef.current
         lastActiveSpeakerIdRef.current = nextActive
 
-        console.log('[FILLER-DEBUG]', { userId, avatarId, previousActive, nextActive, speechStart: userSpeechStartAtRef.current, activeSpeakerRaw: event?.activeSpeaker })
-
         if (userId && previousActive === userId && nextActive !== userId) {
           const now = Date.now()
           lastUserSpeechEndAtRef.current = now
 
-          // Send filler response if user spoke for 3+ seconds
-          const speechStart = userSpeechStartAtRef.current
-          if (speechStart && (now - speechStart) >= MIN_SPEECH_DURATION_FOR_FILLER_MS) {
-            // Don't send filler twice for the same utterance
-            if (fillerSentForUtteranceRef.current !== speechStart) {
-              fillerSentForUtteranceRef.current = speechStart
-              // Small delay to ensure Sparrow has committed the turn
-              window.setTimeout(() => {
-                sendFillerResponse()
-              }, 200)
-            }
-          }
+          // DISABLED: Filler responses via conversation.echo collide with LLM answers.
+          // Needs a different approach — either Tavus-native or coordinated with LLM response timing.
+          // const speechStart = userSpeechStartAtRef.current
+          // if (speechStart && (now - speechStart) >= MIN_SPEECH_DURATION_FOR_FILLER_MS) {
+          //   if (fillerSentForUtteranceRef.current !== speechStart) {
+          //     fillerSentForUtteranceRef.current = speechStart
+          //     window.setTimeout(() => {
+          //       sendFillerResponse()
+          //     }, 200)
+          //   }
+          // }
           userSpeechStartAtRef.current = null
         }
 
