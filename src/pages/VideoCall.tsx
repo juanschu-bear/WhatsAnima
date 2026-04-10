@@ -1936,7 +1936,7 @@ export default function VideoCall() {
         const previousActive = lastActiveSpeakerIdRef.current
         lastActiveSpeakerIdRef.current = nextActive
 
-        console.log('[FILLER-DEBUG]', { userId, avatarId, previousActive, nextActive, speechStart: userSpeechStartAtRef.current })
+        console.log('[FILLER-DEBUG]', { userId, avatarId, previousActive, nextActive, speechStart: userSpeechStartAtRef.current, activeSpeakerRaw: event?.activeSpeaker })
 
         if (userId && previousActive === userId && nextActive !== userId) {
           const now = Date.now()
