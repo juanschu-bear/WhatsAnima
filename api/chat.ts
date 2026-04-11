@@ -842,9 +842,9 @@ export async function loadOwnerPromptAndMemory(
   conversationId: string | undefined,
   ownerIdHint?: string | null,
   ownerNameHint?: string | null
-): Promise<{ ownerPrompt: string; memory: string; stylePrompt: string; behavioralMemory: string; ownerId: string | null; ownerName: string; llmProvider: string | null }> {
+): Promise<{ ownerPrompt: string; memory: string; stylePrompt: string; behavioralMemory: string; ownerId: string | null; ownerName: string; llmProvider: string | null; voiceId: string | null }> {
   const databaseUrl = getDatabaseUrl()
-  if (!databaseUrl) return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '', stylePrompt: '', behavioralMemory: '', ownerId: null, ownerName: 'Avatar', llmProvider: null }
+  if (!databaseUrl) return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '', stylePrompt: '', behavioralMemory: '', ownerId: null, ownerName: 'Avatar', llmProvider: null, voiceId: null }
 
   const client = new Client({ connectionString: databaseUrl, ssl: { rejectUnauthorized: false }, connectionTimeoutMillis: 5000 })
   try {
@@ -864,7 +864,7 @@ export async function loadOwnerPromptAndMemory(
     if (conversationId) {
       const [ownerResultByConversation, memoryResultByConversation, conversationContactResult] = await Promise.all([
         client.query(
-          `select o.id, o.display_name, o.system_prompt, o.is_self_avatar, o.communication_style, o.llm_provider
+          `select o.id, o.display_name, o.system_prompt, o.is_self_avatar, o.communication_style, o.llm_provider, o.voice_id
            from public.wa_conversations c
            join public.wa_owners o on o.id = c.owner_id
            where c.id = $1 and o.deleted_at is null
@@ -903,7 +903,7 @@ export async function loadOwnerPromptAndMemory(
 
     if (!ownerRow && normalizedOwnerIdHint) {
       const ownerResultById = await client.query(
-        `select id, display_name, system_prompt, is_self_avatar, communication_style, llm_provider
+        `select id, display_name, system_prompt, is_self_avatar, communication_style, llm_provider, voice_id
          from public.wa_owners
          where id = $1 and deleted_at is null
          limit 1`,
@@ -914,7 +914,7 @@ export async function loadOwnerPromptAndMemory(
 
     if (!ownerRow && normalizedOwnerNameHint) {
       const ownerResultByName = await client.query(
-        `select id, display_name, system_prompt, is_self_avatar, communication_style, llm_provider
+        `select id, display_name, system_prompt, is_self_avatar, communication_style, llm_provider, voice_id
          from public.wa_owners
          where lower(display_name) = lower($1) and deleted_at is null
          order by updated_at desc nulls last
@@ -926,7 +926,7 @@ export async function loadOwnerPromptAndMemory(
 
     if (!ownerRow && normalizedOwnerNameHint) {
       const ownerResultByNameLike = await client.query(
-        `select id, display_name, system_prompt, is_self_avatar, communication_style, llm_provider
+        `select id, display_name, system_prompt, is_self_avatar, communication_style, llm_provider, voice_id
          from public.wa_owners
          where lower(display_name) like lower($1) and deleted_at is null
          order by updated_at desc nulls last
@@ -944,7 +944,7 @@ export async function loadOwnerPromptAndMemory(
     if (!ownerRow && hintedProfile) {
       const canonicalOwnerId = hintedProfile === 'adri' ? ADRI_KASTEL_OWNER_ID : BRIAN_COX_OWNER_ID
       const ownerResultByCanonicalId = await client.query(
-        `select id, display_name, system_prompt, is_self_avatar, communication_style, llm_provider
+        `select id, display_name, system_prompt, is_self_avatar, communication_style, llm_provider, voice_id
          from public.wa_owners
          where id = $1 and deleted_at is null
          limit 1`,
@@ -1033,10 +1033,11 @@ export async function loadOwnerPromptAndMemory(
     }
 
     const llmProvider = typeof ownerRow?.llm_provider === 'string' ? ownerRow.llm_provider.trim() : null
-    return { ownerPrompt, memory, stylePrompt, behavioralMemory, ownerId, ownerName, llmProvider }
+    const voiceId = typeof ownerRow?.voice_id === 'string' ? ownerRow.voice_id.trim() : null
+    return { ownerPrompt, memory, stylePrompt, behavioralMemory, ownerId, ownerName, llmProvider, voiceId }
   } catch (dbError) {
     console.error('[chat] Database connection failed in loadOwnerPromptAndMemory:', dbError instanceof Error ? dbError.message : dbError)
-    return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '', stylePrompt: '', behavioralMemory: '', ownerId: null, ownerName: ownerNameHint?.trim() || 'Avatar', llmProvider: null }
+    return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '', stylePrompt: '', behavioralMemory: '', ownerId: null, ownerName: ownerNameHint?.trim() || 'Avatar', llmProvider: null, voiceId: null }
   } finally {
     await client.end().catch(() => undefined)
   }
@@ -1275,6 +1276,7 @@ export function buildSystemPrompt(
   ownerId?: string | null,
   profileName?: string,
   youtubeWebSearchInstruction = '',
+  voiceId?: string | null,
 ): string {
   const nameMatch = ownerPrompt.match(/(?:^#.*?—\s*(.+)|^I am (.+?)[.\n])/m)
   const ownerName = profileName?.trim() || nameMatch?.[1]?.trim() || nameMatch?.[2]?.trim() || 'the person described below'
@@ -1295,7 +1297,15 @@ When greeting or introducing yourself, use the name ${ownerName}. First-person s
     console.error('[chat] Knowledge base load error:', kbError instanceof Error ? kbError.message : kbError)
   }
 
-  const CHAT_VOICE_EXPRESSIVENESS = `\n\n[VOICE EXPRESSIVENESS — CHAT MODE]
+  // Juan Schubert (PVC) runs on Multilingual v2 which reads tags as literal text
+  const JUAN_SCHUBERT_VOICE_ID = 'lx8LAX2EUAKftVz0Dk5z'
+  const isJuanV2 = voiceId === JUAN_SCHUBERT_VOICE_ID
+
+  const CHAT_VOICE_EXPRESSIVENESS = isJuanV2
+    ? `\n\n[VOICE EXPRESSIVENESS]
+Your text responses will be spoken aloud. Do NOT use any tags, brackets, or special markers in your text.
+Express emotion purely through your writing style: word choice, sentence rhythm, punctuation. No [tags], no <tags>, no special formatting for voice control.`
+    : `\n\n[VOICE EXPRESSIVENESS — CHAT MODE]
 Your text responses will be spoken aloud by ElevenLabs v3 TTS. Use audio tags in square brackets to control delivery:
 
 Emotions:
@@ -1477,7 +1487,7 @@ export default async function handler(req: any, res: any) {
     : []
 
   try {
-    const { ownerPrompt, memory, stylePrompt, behavioralMemory, ownerId, ownerName, llmProvider } = await loadOwnerPromptAndMemory(conversationId, ownerIdHint, ownerNameHint)
+    const { ownerPrompt, memory, stylePrompt, behavioralMemory, ownerId, ownerName, llmProvider, voiceId } = await loadOwnerPromptAndMemory(conversationId, ownerIdHint, ownerNameHint)
     const normalizedOwnerIdHint = typeof ownerIdHint === 'string' && ownerIdHint.trim().length > 0
       ? ownerIdHint.trim()
       : null
@@ -1519,6 +1529,7 @@ export default async function handler(req: any, res: any) {
       effectiveOwnerId,
       effectiveOwnerName,
       youtubeWebSearchInstruction,
+      voiceId,
     )
     if (hasYouTubeProfile && shouldUseVideoWebSearch) {
       console.log(
