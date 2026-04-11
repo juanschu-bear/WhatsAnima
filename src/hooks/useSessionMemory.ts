@@ -17,7 +17,7 @@ interface UseSessionMemoryOptions {
   sendAvatarReply: (text: string, options?: { useVoice?: boolean }) => Promise<boolean>
 }
 
-const SESSION_TIMEOUT_MS = 600_000 // 10 minutes
+const SESSION_TIMEOUT_MS = 180_000 // 3 minutes
 const DEFAULT_BUSY_COOLDOWN_MS = 600_000 // 10 minutes fallback when user says "busy" without duration
 const REMINDER_CHECK_INTERVAL_MS = 60_000 // check for due reminders every 60s
 
