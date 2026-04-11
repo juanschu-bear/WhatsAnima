@@ -858,9 +858,11 @@ export async function loadOwnerPromptAndMemory(
 
     let ownerRow: any = null
     let memoryResult: { rows: any[] } = { rows: [] }
+    let callMemoryResult: { rows: any[] } = { rows: [] }
+    let conversationContactId: string | null = null
 
     if (conversationId) {
-      const [ownerResultByConversation, memoryResultByConversation] = await Promise.all([
+      const [ownerResultByConversation, memoryResultByConversation, conversationContactResult] = await Promise.all([
         client.query(
           `select o.id, o.display_name, o.system_prompt, o.is_self_avatar, o.communication_style, o.llm_provider
            from public.wa_conversations c
@@ -876,9 +878,27 @@ export async function loadOwnerPromptAndMemory(
            limit 1`,
           [conversationId]
         ).catch(() => ({ rows: [] })),
+        client.query(
+          `select contact_id, owner_id from public.wa_conversations where id = $1 limit 1`,
+          [conversationId]
+        ).catch(() => ({ rows: [] })),
       ])
       ownerRow = ownerResultByConversation.rows[0] ?? null
       memoryResult = memoryResultByConversation
+      conversationContactId = conversationContactResult.rows[0]?.contact_id ?? null
+
+      // Load call memories from wa_memories (written by MOMO after calls)
+      const convOwnerId = conversationContactResult.rows[0]?.owner_id ?? null
+      if (convOwnerId && conversationContactId) {
+        callMemoryResult = await client.query(
+          `select summary, raw_text, entities, topics, importance, created_at
+           from public.wa_memories
+           where owner_id = $1 and contact_id = $2
+           order by created_at desc
+           limit 5`,
+          [convOwnerId, conversationContactId]
+        ).catch(() => ({ rows: [] }))
+      }
     }
 
     if (!ownerRow && normalizedOwnerIdHint) {
@@ -976,6 +996,19 @@ export async function loadOwnerPromptAndMemory(
       }
       lines.push('\nUse this memory naturally. Reference past events, milestones, and user details when relevant. Never say "according to my memory" or "I remember" explicitly — just know these things like a close friend would.')
       memory = '\n\n' + lines.join('\n')
+    }
+
+    // Append call memories from wa_memories (written by MOMO after video/voice calls)
+    if (callMemoryResult.rows.length > 0) {
+      const callLines = ['[CALL MEMORY — things discussed in previous video/voice calls with this user]']
+      for (const row of callMemoryResult.rows) {
+        if (row.summary) {
+          const dateStr = row.created_at ? new Date(row.created_at).toLocaleDateString() : ''
+          callLines.push(`\n${dateStr ? `[${dateStr}] ` : ''}${row.summary}`)
+        }
+      }
+      callLines.push('\nThese are from your live conversations. Reference them naturally — you spoke with this person face to face.')
+      memory += '\n\n' + callLines.join('\n')
     }
 
     // Build behavioral memory from OPM/Canon persistent data
