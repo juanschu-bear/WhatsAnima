@@ -64,8 +64,13 @@ export default async function handler(req: any, res: any) {
     const today = new Date().toISOString().split('T')[0]
 
     // Build the conversation excerpt for the LLM
+    // Strip TTS audio tags that may be in avatar responses
+    const stripTtsTags = (text: string) => text
+      .replace(/<emotion\s+value="[^"]*"\s*\/?>/g, '')
+      .replace(/<speed\s+ratio="[^"]*"\s*\/?>/g, '')
+      .replace(/\[(excited|warmly|confident|curious|sad|nervous|thoughtfully|laughs|light chuckle|sigh|sigh of relief|whispers|softly|SHOUTING|whispering|cheerful|tired|frustrated|sorrowful|dismissive|gasps|gulps|quietly|laughter)\]/gi, '')
     const conversationExcerpt = recentMessages
-      .map((m: any) => `${m.role === 'user' ? 'User' : 'Avatar'}: ${m.content}`)
+      .map((m: any) => `${m.role === 'user' ? 'User' : 'Avatar'}: ${stripTtsTags(m.content || '')}`)
       .join('\n')
 
     // --- Load OPM perception logs for this session ---

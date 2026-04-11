@@ -90,7 +90,7 @@ async function parseOpmRequest(req: any): Promise<{ blob: Blob; conversationId: 
 }
 
 // OPM v4.0 — async job-based API (was /api/v1/process, now POST /analyze)
-const OPM_BASE = 'https://boardroom-api.onioko.com';
+const OPM_BASE = 'https://opm.onioko.com';
 const OPM_POLL_INTERVAL_MS = 3000;
 const OPM_TIMEOUT_MS = 180000;
 

@@ -85,7 +85,7 @@ async function checkDbSchema(supabase: any): Promise<CheckResult> {
 }
 
 async function checkOpm(): Promise<CheckResult> {
-  const url = 'https://boardroom-api.onioko.com/health'
+  const url = 'https://opm.onioko.com/health'
   try {
     const resp = await fetch(url, {
       method: 'GET',
@@ -231,7 +231,7 @@ async function checkAvatarReply(baseUrl: string): Promise<CheckResult> {
 }
 
 async function checkTunnelLatency(): Promise<CheckResult> {
-  const url = 'https://boardroom-api.onioko.com/health'
+  const url = 'https://opm.onioko.com/health'
   try {
     const start = Date.now()
     const resp = await fetch(url, {
