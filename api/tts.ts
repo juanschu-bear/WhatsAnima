@@ -33,7 +33,9 @@ export default async function handler(req: any, res: any) {
     const model_id = V2_ONLY_VOICES.has(voice) ? 'eleven_multilingual_v2' : 'eleven_v3'
 
     const payload = JSON.stringify({
-      text,
+      text: V2_ONLY_VOICES.has(voice)
+        ? text.replace(/\[(excited|warmly|confident|curious|sad|nervous|thoughtfully|laughs|light chuckle|sigh|sigh of relief|whispers|softly|SHOUTING|whispering|cheerful|tired|frustrated|sorrowful|dismissive|gasps|gulps|quietly|laughter)\]/gi, '').replace(/\s{2,}/g, ' ').trim()
+        : text,
       model_id,
       voice_settings: { stability: 0.5, similarity_boost: 0.75 }
     });
