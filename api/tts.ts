@@ -34,7 +34,7 @@ export default async function handler(req: any, res: any) {
 
     const payload = JSON.stringify({
       text: V2_ONLY_VOICES.has(voice)
-        ? text.replace(/\[(excited|warmly|confident|curious|sad|nervous|thoughtfully|laughs|light chuckle|sigh|sigh of relief|whispers|softly|SHOUTING|whispering|cheerful|tired|frustrated|sorrowful|dismissive|gasps|gulps|quietly|laughter)\]/gi, '').replace(/\s{2,}/g, ' ').trim()
+        ? text.replace(/\[[a-zA-Z][a-zA-Z\s]{0,30}\]/g, '').replace(/\s{2,}/g, ' ').trim()
         : text,
       model_id,
       voice_settings: { stability: 0.5, similarity_boost: 0.75 }
