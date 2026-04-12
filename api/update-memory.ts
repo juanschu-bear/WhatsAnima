@@ -68,7 +68,7 @@ export default async function handler(req: any, res: any) {
     const stripTtsTags = (text: string) => text
       .replace(/<emotion\s+value="[^"]*"\s*\/?>/g, '')
       .replace(/<speed\s+ratio="[^"]*"\s*\/?>/g, '')
-      .replace(/\[(excited|warmly|confident|curious|sad|nervous|thoughtfully|laughs|light chuckle|sigh|sigh of relief|whispers|softly|SHOUTING|whispering|cheerful|tired|frustrated|sorrowful|dismissive|gasps|gulps|quietly|laughter)\]/gi, '')
+      .replace(/\[[a-zA-Z][a-zA-Z\s]{0,30}\]/g, '')
     const conversationExcerpt = recentMessages
       .map((m: any) => `${m.role === 'user' ? 'User' : 'Avatar'}: ${stripTtsTags(m.content || '')}`)
       .join('\n')
