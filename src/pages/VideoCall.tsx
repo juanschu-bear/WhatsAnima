@@ -1,5 +1,5 @@
 import DailyIframe from '@daily-co/daily-js'
-import { Room, RoomEvent, Track } from 'livekit-client'
+import { ParticipantKind, Room, RoomEvent, Track } from 'livekit-client'
 import type {
   RemoteTrack,
   RemoteTrackPublication,
@@ -12,6 +12,7 @@ import type {
   Participant,
   TrackPublication,
   TranscriptionSegment,
+  TextStreamInfo,
 } from 'livekit-client'
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
@@ -545,18 +546,34 @@ function LivekitAudioSink({ track }: { track: RemoteAudioTrack | null }) {
   return <audio ref={audioRef} autoPlay playsInline className="hidden" />
 }
 
-interface LivekitTranscriptEntry {
+type LivekitSpeakerKind = 'user' | 'agent'
+
+interface LivekitTranscriptSegmentState {
   id: string
-  participantIdentity: string
-  participantName: string
-  isLocal: boolean
   text: string
-  timestamp: number
   final: boolean
+  updatedAt: number
+}
+
+interface LivekitTranscriptBlock {
+  blockId: string
+  kind: LivekitSpeakerKind
+  displayName: string
+  segments: LivekitTranscriptSegmentState[]
+  startedAt: number
+  lastUpdatedAt: number
 }
 
 const LIVEKIT_AGENT_DISPLAY_NAME = 'Trace Flores'
 const LIVEKIT_AGENT_IDENTITY_PATTERNS = [/^keyframe-avatar-agent/i, /^agent[-_]/i, /-agent$/i]
+const LIVEKIT_TURN_MERGE_WINDOW_MS = 1500
+const LIVEKIT_DEDUPE_WINDOW_MS = 3000
+const LIVEKIT_TRANSCRIPT_BLOCK_LIMIT = 80
+const LIVEKIT_TRANSCRIPTION_TOPIC = 'lk.transcription'
+const LIVEKIT_CHAT_TOPIC = 'lk.chat'
+const LIVEKIT_SEGMENT_ID_ATTR = 'lk.segment_id'
+const LIVEKIT_TRACK_ID_ATTR = 'lk.transcribed_track_id'
+const LIVEKIT_FINAL_ATTR = 'lk.transcription_final'
 
 function isLivekitAgentIdentity(identity: string | null | undefined): boolean {
   const value = (identity || '').trim()
@@ -564,24 +581,27 @@ function isLivekitAgentIdentity(identity: string | null | undefined): boolean {
   return LIVEKIT_AGENT_IDENTITY_PATTERNS.some((pattern) => pattern.test(value))
 }
 
-function isPlaceholderLivekitName(name: string | null | undefined): boolean {
-  const value = (name || '').trim().toLowerCase()
-  if (!value) return true
-  return value === 'juan human' || value === 'human' || value.startsWith('user-') || value.startsWith('participant-')
+function isLivekitAgentParticipant(participant: Pick<Participant, 'kind' | 'identity'> | null | undefined): boolean {
+  if (!participant) return false
+  if (participant.kind === ParticipantKind.AGENT) return true
+  return isLivekitAgentIdentity(participant.identity)
 }
 
-function resolveLivekitDisplayName(
-  participant: Pick<Participant, 'identity' | 'name' | 'isLocal'>,
-  localFallback?: string,
-  remoteFallback?: string,
-): string {
-  const identity = participant.identity || ''
-  if (isLivekitAgentIdentity(identity)) return LIVEKIT_AGENT_DISPLAY_NAME
-  const rawName = (participant.name || '').trim()
-  if (rawName && !isPlaceholderLivekitName(rawName)) return rawName
-  if (participant.isLocal && localFallback) return localFallback
-  if (!participant.isLocal && remoteFallback) return remoteFallback
-  return rawName || identity || (participant.isLocal ? 'You' : 'Participant')
+function computeBlockDisplayText(segments: LivekitTranscriptSegmentState[]): string {
+  const ordered = [...segments].sort((a, b) => a.updatedAt - b.updatedAt)
+  if (ordered.length === 0) return ''
+  if (ordered.length === 1) return ordered[0].text.trim()
+  let cumulative = true
+  for (let i = 1; i < ordered.length; i++) {
+    const prev = ordered[i - 1].text.trim()
+    const cur = ordered[i].text.trim()
+    if (!prev || !cur.startsWith(prev)) {
+      cumulative = false
+      break
+    }
+  }
+  if (cumulative) return ordered[ordered.length - 1].text.trim()
+  return ordered.map((segment) => segment.text.trim()).filter(Boolean).join(' ')
 }
 
 export default function VideoCall() {
@@ -621,13 +641,17 @@ export default function VideoCall() {
   const [livekitRemoteVideo, setLivekitRemoteVideo] = useState<RemoteVideoTrack | null>(null)
   const [livekitRemoteAudio, setLivekitRemoteAudio] = useState<RemoteAudioTrack | null>(null)
   const [livekitLocalVideo, setLivekitLocalVideo] = useState<LocalVideoTrack | null>(null)
-  const [livekitRemoteIdentity, setLivekitRemoteIdentity] = useState<string | null>(null)
-  const [livekitLocalIdentity, setLivekitLocalIdentity] = useState<string | null>(null)
+  const livekitRemoteIdentityRef = useRef<string | null>(null)
+  const livekitLocalIdentityRef = useRef<string | null>(null)
   const [livekitRemoteName, setLivekitRemoteName] = useState<string>('')
   const [livekitLocalName, setLivekitLocalName] = useState<string>('')
-  const [livekitActiveIdentities, setLivekitActiveIdentities] = useState<string[]>([])
-  const [livekitTranscript, setLivekitTranscript] = useState<LivekitTranscriptEntry[]>([])
+  const [livekitActiveKinds, setLivekitActiveKinds] = useState<LivekitSpeakerKind[]>([])
+  const [livekitTranscriptBlocks, setLivekitTranscriptBlocks] = useState<LivekitTranscriptBlock[]>([])
   const [showTranscript, setShowTranscript] = useState(false)
+  const livekitAgentAudioSidsRef = useRef<Set<string>>(new Set())
+  const livekitLocalAudioSidsRef = useRef<Set<string>>(new Set())
+  const livekitRemoteNameRef = useRef<string>('')
+  const livekitLocalNameRef = useRef<string>('')
   const sessionIdRef = useRef<string | null>(null)
   const languageRef = useRef<SupportedLanguage>('en')
   const creatorModeRef = useRef(false)
@@ -1195,17 +1219,31 @@ export default function VideoCall() {
     const room = livekitRoomRef.current
     livekitRoomRef.current = null
     if (room) {
+      try {
+        room.unregisterTextStreamHandler(LIVEKIT_TRANSCRIPTION_TOPIC)
+      } catch {
+        // ignore
+      }
+      try {
+        room.unregisterTextStreamHandler(LIVEKIT_CHAT_TOPIC)
+      } catch {
+        // ignore
+      }
       void room.disconnect().catch(() => undefined)
     }
+    livekitAgentAudioSidsRef.current.clear()
+    livekitLocalAudioSidsRef.current.clear()
+    livekitRemoteNameRef.current = ''
+    livekitLocalNameRef.current = ''
     setLivekitRemoteVideo(null)
     setLivekitRemoteAudio(null)
     setLivekitLocalVideo(null)
-    setLivekitRemoteIdentity(null)
-    setLivekitLocalIdentity(null)
+    livekitRemoteIdentityRef.current = null
+    livekitLocalIdentityRef.current = null
     setLivekitRemoteName('')
     setLivekitLocalName('')
-    setLivekitActiveIdentities([])
-    setLivekitTranscript([])
+    setLivekitActiveKinds([])
+    setLivekitTranscriptBlocks([])
   }
 
   useEffect(() => {
@@ -1664,6 +1702,8 @@ export default function VideoCall() {
 
       if (isLivekitJoin) {
         setIsLivekit(true)
+        livekitRemoteNameRef.current = personaName
+        livekitLocalNameRef.current = dailyUserName
         setLivekitRemoteName(personaName)
         setLivekitLocalName(dailyUserName)
         const parsed = new URL(rawJoinUrl.replace(/^livekit:\/\//i, 'https://'))
@@ -1678,106 +1718,181 @@ export default function VideoCall() {
         const room = new Room()
         livekitRoomRef.current = room
 
-        const appendTranscriptSegment = (
-          participantIdentity: string,
-          participantName: string,
-          isLocal: boolean,
-          segmentId: string,
-          text: string,
-          isFinal: boolean,
-          firstReceivedTime?: number,
-        ) => {
-          setLivekitTranscript((prev) => {
+        const resolveDisplayNameForKind = (kind: LivekitSpeakerKind): string =>
+          kind === 'agent'
+            ? livekitRemoteNameRef.current || LIVEKIT_AGENT_DISPLAY_NAME
+            : livekitLocalNameRef.current || dailyUserName || 'You'
+
+        const resolveSpeakerKind = (
+          trackId?: string | null,
+          participant?: Pick<Participant, 'identity' | 'kind' | 'isLocal'> | null,
+        ): LivekitSpeakerKind => {
+          if (trackId) {
+            if (livekitLocalAudioSidsRef.current.has(trackId)) return 'user'
+            if (livekitAgentAudioSidsRef.current.has(trackId)) return 'agent'
+          }
+          if (participant) {
+            if (participant.isLocal) return 'user'
+            if (isLivekitAgentParticipant(participant)) return 'agent'
+          }
+          return 'agent'
+        }
+
+        const aggregateSegment = (params: {
+          kind: LivekitSpeakerKind
+          segmentId: string
+          text: string
+          isFinal: boolean
+          timestamp?: number
+        }) => {
+          const { kind, segmentId, isFinal } = params
+          const cleaned = (params.text || '').trim()
+          if (!cleaned) return
+          const now = params.timestamp || Date.now()
+          setLivekitTranscriptBlocks((prev) => {
             const next = [...prev]
-            let activeIdx = -1
-            for (let i = next.length - 1; i >= 0; i--) {
-              const candidate = next[i]
-              if (candidate.participantIdentity !== participantIdentity) continue
-              if (!candidate.final) activeIdx = i
-              break
-            }
-            if (activeIdx >= 0) {
-              const existing = next[activeIdx]
-              const cleanedText = text.trim()
-              const mergedText =
-                existing.id === segmentId
-                  ? cleanedText || existing.text
-                  : cleanedText
-                    ? `${existing.text} ${cleanedText}`.replace(/\s+/g, ' ').trim()
-                    : existing.text
-              next[activeIdx] = {
-                ...existing,
-                id: segmentId,
-                text: mergedText,
-                final: isFinal,
-                participantName,
+            const last = next[next.length - 1]
+            const canMerge =
+              last &&
+              last.kind === kind &&
+              now - last.lastUpdatedAt <= LIVEKIT_TURN_MERGE_WINDOW_MS
+
+            if (canMerge && last) {
+              const segIdx = last.segments.findIndex((segment) => segment.id === segmentId)
+              if (segIdx >= 0) {
+                const existingSeg = last.segments[segIdx]
+                if (existingSeg.final && existingSeg.text === cleaned) {
+                  return prev
+                }
+                const updatedSegments = [...last.segments]
+                updatedSegments[segIdx] = {
+                  ...existingSeg,
+                  text: cleaned,
+                  final: isFinal,
+                  updatedAt: now,
+                }
+                next[next.length - 1] = {
+                  ...last,
+                  displayName: resolveDisplayNameForKind(kind),
+                  segments: updatedSegments,
+                  lastUpdatedAt: now,
+                }
+                return next
               }
-            } else {
-              next.push({
-                id: segmentId,
-                participantIdentity,
-                participantName,
-                isLocal,
-                text: text.trim(),
-                timestamp: firstReceivedTime || Date.now(),
-                final: isFinal,
-              })
+              const lastSeg = last.segments[last.segments.length - 1]
+              if (
+                lastSeg &&
+                lastSeg.final &&
+                isFinal &&
+                lastSeg.text === cleaned &&
+                now - lastSeg.updatedAt < LIVEKIT_DEDUPE_WINDOW_MS
+              ) {
+                return prev
+              }
+              next[next.length - 1] = {
+                ...last,
+                displayName: resolveDisplayNameForKind(kind),
+                segments: [
+                  ...last.segments,
+                  { id: segmentId, text: cleaned, final: isFinal, updatedAt: now },
+                ],
+                lastUpdatedAt: now,
+              }
+              return next
             }
-            return next.slice(-200)
+
+            next.push({
+              blockId: `${kind}-${segmentId}`,
+              kind,
+              displayName: resolveDisplayNameForKind(kind),
+              segments: [{ id: segmentId, text: cleaned, final: isFinal, updatedAt: now }],
+              startedAt: now,
+              lastUpdatedAt: now,
+            })
+            if (next.length > LIVEKIT_TRANSCRIPT_BLOCK_LIMIT) {
+              next.splice(0, next.length - LIVEKIT_TRANSCRIPT_BLOCK_LIMIT)
+            }
+            return next
           })
         }
 
-        room.on(RoomEvent.TrackSubscribed, (
-          track: RemoteTrack,
-          _publication: RemoteTrackPublication,
-          participant: RemoteParticipant,
-        ) => {
-          console.log('[LiveKit] track subscribed', {
-            kind: track.kind,
-            sid: track.sid,
-            participant: participant.identity,
-          })
-          if (track.kind === Track.Kind.Video) {
-            setLivekitRemoteVideo(track as RemoteVideoTrack)
-            setLivekitRemoteIdentity(participant.identity)
-            setLivekitRemoteName(resolveLivekitDisplayName(participant, undefined, personaName))
-          } else if (track.kind === Track.Kind.Audio) {
-            setLivekitRemoteAudio(track as RemoteAudioTrack)
-          }
-        })
+        room.on(
+          RoomEvent.TrackSubscribed,
+          (track: RemoteTrack, _publication: RemoteTrackPublication, participant: RemoteParticipant) => {
+            console.log('[LiveKit] track subscribed', {
+              kind: track.kind,
+              sid: track.sid,
+              participant: participant.identity,
+              participantKind: participant.kind,
+            })
+            const isAgent = isLivekitAgentParticipant(participant)
+            if (track.kind === Track.Kind.Video) {
+              if (isAgent) {
+                setLivekitRemoteVideo(track as RemoteVideoTrack)
+                livekitRemoteIdentityRef.current = participant.identity
+                const resolvedName = isLivekitAgentParticipant(participant)
+                  ? LIVEKIT_AGENT_DISPLAY_NAME
+                  : personaName
+                livekitRemoteNameRef.current = resolvedName
+                setLivekitRemoteName(resolvedName)
+              }
+            } else if (track.kind === Track.Kind.Audio) {
+              if (isAgent) {
+                if (track.sid) livekitAgentAudioSidsRef.current.add(track.sid)
+                setLivekitRemoteAudio(track as RemoteAudioTrack)
+              }
+            }
+          },
+        )
 
         room.on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => {
           if (track.kind === Track.Kind.Video) setLivekitRemoteVideo(null)
-          if (track.kind === Track.Kind.Audio) setLivekitRemoteAudio(null)
-        })
-
-        room.on(RoomEvent.LocalTrackPublished, (publication: LocalTrackPublication, _participant: LocalParticipant) => {
-          if (publication.track?.kind === Track.Kind.Video) {
-            setLivekitLocalVideo(publication.track as LocalVideoTrack)
+          if (track.kind === Track.Kind.Audio) {
+            if (track.sid) livekitAgentAudioSidsRef.current.delete(track.sid)
+            setLivekitRemoteAudio(null)
           }
         })
+
+        room.on(
+          RoomEvent.LocalTrackPublished,
+          (publication: LocalTrackPublication, _participant: LocalParticipant) => {
+            if (publication.track?.kind === Track.Kind.Video) {
+              setLivekitLocalVideo(publication.track as LocalVideoTrack)
+            }
+            if (publication.track?.kind === Track.Kind.Audio && publication.trackSid) {
+              livekitLocalAudioSidsRef.current.add(publication.trackSid)
+            }
+          },
+        )
 
         room.on(RoomEvent.LocalTrackUnpublished, (publication: LocalTrackPublication) => {
           if (publication.track?.kind === Track.Kind.Video) {
             setLivekitLocalVideo(null)
           }
+          if (publication.track?.kind === Track.Kind.Audio && publication.trackSid) {
+            livekitLocalAudioSidsRef.current.delete(publication.trackSid)
+          }
         })
 
         room.on(RoomEvent.ActiveSpeakersChanged, (speakers: Participant[]) => {
-          setLivekitActiveIdentities(speakers.map((speaker) => speaker.identity))
+          const kinds = new Set<LivekitSpeakerKind>()
+          for (const speaker of speakers) {
+            if (speaker.isLocal) kinds.add('user')
+            else if (isLivekitAgentParticipant(speaker)) kinds.add('agent')
+          }
+          setLivekitActiveKinds(Array.from(kinds))
         })
 
         room.on(
           RoomEvent.TranscriptionReceived,
-          (segments: TranscriptionSegment[], participant?: Participant, _publication?: TrackPublication) => {
-            if (!participant || segments.length === 0) return
-            const identity = participant.identity
-            const isLocal = participant.isLocal
-            const name = resolveLivekitDisplayName(participant, dailyUserName, personaName)
-            console.log('[LiveKit] transcription', {
-              identity,
-              isLocal,
-              name,
+          (segments: TranscriptionSegment[], participant?: Participant, publication?: TrackPublication) => {
+            if (segments.length === 0) return
+            const trackId = publication?.trackSid
+            console.log('[LiveKit] transcription event', {
+              identity: participant?.identity,
+              participantKind: participant?.kind,
+              isLocal: participant?.isLocal,
+              trackId,
               segments: segments.map((segment) => ({
                 id: segment.id,
                 final: segment.final,
@@ -1785,96 +1900,89 @@ export default function VideoCall() {
               })),
             })
             for (const segment of segments) {
-              appendTranscriptSegment(
-                identity,
-                name,
-                isLocal,
-                segment.id,
-                segment.text || '',
-                segment.final,
-                segment.firstReceivedTime,
-              )
+              const kind = resolveSpeakerKind(trackId, participant)
+              aggregateSegment({
+                kind,
+                segmentId: segment.id,
+                text: segment.text || '',
+                isFinal: segment.final,
+                timestamp: segment.firstReceivedTime,
+              })
             }
           },
         )
 
-        room.on(
-          RoomEvent.DataReceived,
-          (payload: Uint8Array, participant?: RemoteParticipant, _kind?: unknown, topic?: string) => {
-            if (!payload || payload.byteLength === 0) return
-            let decoded = ''
-            try {
-              decoded = new TextDecoder().decode(payload)
-            } catch {
-              return
-            }
-            console.log('[LiveKit] data received', {
-              topic,
-              participant: participant?.identity,
-              length: decoded.length,
+        const handleTranscriptionTextStream = async (
+          reader: { info: TextStreamInfo; readAll: () => Promise<string> },
+          participantInfo: { identity: string },
+        ) => {
+          try {
+            const info = reader.info
+            const attrs = info.attributes || {}
+            const segmentId = attrs[LIVEKIT_SEGMENT_ID_ATTR] || info.id
+            const trackId = attrs[LIVEKIT_TRACK_ID_ATTR]
+            const isFinal = attrs[LIVEKIT_FINAL_ATTR] !== 'false'
+            const text = await reader.readAll()
+            const senderIdentity = participantInfo.identity
+            const senderParticipant =
+              room.getParticipantByIdentity(senderIdentity) ||
+              (room.localParticipant.identity === senderIdentity ? room.localParticipant : null)
+            const kind = resolveSpeakerKind(trackId, senderParticipant)
+            console.log('[LiveKit] transcription stream', {
+              senderIdentity,
+              segmentId,
+              trackId,
+              isFinal,
+              resolvedKind: kind,
+              length: text.length,
+              attrs,
             })
+            aggregateSegment({
+              kind,
+              segmentId,
+              text,
+              isFinal,
+            })
+          } catch (streamError) {
+            console.warn('[LiveKit] transcription stream failed', streamError)
+          }
+        }
 
-            let parsed: unknown = null
+        try {
+          room.registerTextStreamHandler(
+            LIVEKIT_TRANSCRIPTION_TOPIC,
+            handleTranscriptionTextStream,
+          )
+        } catch (registrationError) {
+          console.warn('[LiveKit] failed to register transcription handler', registrationError)
+        }
+
+        try {
+          room.registerTextStreamHandler(LIVEKIT_CHAT_TOPIC, async (reader, participantInfo) => {
             try {
-              parsed = JSON.parse(decoded)
-            } catch {
-              return
+              const text = await reader.readAll()
+              console.log('[LiveKit] chat stream', {
+                sender: participantInfo.identity,
+                text,
+              })
+              const senderParticipant =
+                room.getParticipantByIdentity(participantInfo.identity) ||
+                (room.localParticipant.identity === participantInfo.identity
+                  ? room.localParticipant
+                  : null)
+              aggregateSegment({
+                kind: resolveSpeakerKind(null, senderParticipant),
+                segmentId: reader.info.id,
+                text,
+                isFinal: true,
+              })
+            } catch (chatError) {
+              console.warn('[LiveKit] chat stream failed', chatError)
             }
-            if (!parsed || typeof parsed !== 'object') return
-
-            const data = parsed as Record<string, unknown>
-            const textCandidate =
-              typeof data.text === 'string'
-                ? data.text
-                : typeof data.content === 'string'
-                  ? data.content
-                  : typeof data.transcript === 'string'
-                    ? data.transcript
-                    : typeof data.message === 'string'
-                      ? data.message
-                      : ''
-            if (!textCandidate.trim()) return
-
-            const isFinalCandidate =
-              typeof data.final === 'boolean'
-                ? data.final
-                : typeof data.is_final === 'boolean'
-                  ? data.is_final
-                  : typeof data.isFinal === 'boolean'
-                    ? data.isFinal
-                    : true
-            const segmentIdCandidate =
-              typeof data.id === 'string' && data.id
-                ? data.id
-                : typeof data.segment_id === 'string' && data.segment_id
-                  ? data.segment_id
-                  : `${participant?.identity || 'agent'}-${Date.now()}`
-            const role = typeof data.role === 'string' ? data.role.toLowerCase() : ''
-            const identityFromData = typeof data.participant_identity === 'string' ? data.participant_identity : ''
-            const identity =
-              identityFromData ||
-              participant?.identity ||
-              (role === 'assistant' || role === 'agent' ? 'keyframe-avatar-agent' : 'unknown')
-            const resolvedIsLocal = participant ? participant.isLocal : role === 'user'
-            const nameForDisplay = participant
-              ? resolveLivekitDisplayName(participant, dailyUserName, personaName)
-              : isLivekitAgentIdentity(identity)
-                ? LIVEKIT_AGENT_DISPLAY_NAME
-                : role === 'user'
-                  ? dailyUserName
-                  : personaName
-
-            appendTranscriptSegment(
-              identity,
-              nameForDisplay,
-              resolvedIsLocal,
-              segmentIdCandidate,
-              textCandidate,
-              isFinalCandidate,
-              typeof data.timestamp === 'number' ? data.timestamp : undefined,
-            )
-          },
-        )
+          })
+        } catch (registrationError) {
+          console.warn('[LiveKit] failed to register chat handler', registrationError)
+        }
 
         room.on(RoomEvent.Disconnected, () => {
           console.log('[LiveKit] disconnected')
@@ -1882,16 +1990,19 @@ export default function VideoCall() {
         })
 
         await room.connect(wsUrl, token)
-        setLivekitLocalIdentity(room.localParticipant.identity || null)
-        setLivekitLocalName(
-          resolveLivekitDisplayName(room.localParticipant, dailyUserName, personaName),
-        )
+        livekitLocalIdentityRef.current = room.localParticipant.identity || null
+        livekitLocalNameRef.current = dailyUserName
+        setLivekitLocalName(dailyUserName)
         try {
           await room.localParticipant.setMicrophoneEnabled(isMicEnabled)
           await room.localParticipant.setCameraEnabled(isCameraEnabled)
           const cameraPub = room.localParticipant.getTrackPublication(Track.Source.Camera)
           if (cameraPub?.track?.kind === Track.Kind.Video) {
             setLivekitLocalVideo(cameraPub.track as LocalVideoTrack)
+          }
+          const micPub = room.localParticipant.getTrackPublication(Track.Source.Microphone)
+          if (micPub?.trackSid) {
+            livekitLocalAudioSidsRef.current.add(micPub.trackSid)
           }
         } catch (publishError) {
           console.warn('[LiveKit] failed to publish local tracks', publishError)
@@ -2586,10 +2697,7 @@ export default function VideoCall() {
                             track={livekitRemoteVideo}
                             isLocal={false}
                             label={livekitRemoteName || personaName}
-                            isActive={
-                              Boolean(livekitRemoteIdentity) &&
-                              livekitActiveIdentities.includes(livekitRemoteIdentity ?? '')
-                            }
+                            isActive={livekitActiveKinds.includes('agent')}
                             cameraEnabled
                           />
                         </div>
@@ -2598,10 +2706,7 @@ export default function VideoCall() {
                             track={livekitLocalVideo}
                             isLocal
                             label={livekitLocalName || 'You'}
-                            isActive={
-                              Boolean(livekitLocalIdentity) &&
-                              livekitActiveIdentities.includes(livekitLocalIdentity ?? '')
-                            }
+                            isActive={livekitActiveKinds.includes('user')}
                             cameraEnabled={isCameraEnabled}
                           />
                         </div>
@@ -2615,20 +2720,14 @@ export default function VideoCall() {
                           track={livekitRemoteVideo}
                           isLocal={false}
                           label={livekitRemoteName || personaName}
-                          isActive={
-                            Boolean(livekitRemoteIdentity) &&
-                            livekitActiveIdentities.includes(livekitRemoteIdentity ?? '')
-                          }
+                          isActive={livekitActiveKinds.includes('agent')}
                           cameraEnabled
                         />
                         <LivekitVideoTile
                           track={livekitLocalVideo}
                           isLocal
                           label={livekitLocalName || 'You'}
-                          isActive={
-                            Boolean(livekitLocalIdentity) &&
-                            livekitActiveIdentities.includes(livekitLocalIdentity ?? '')
-                          }
+                          isActive={livekitActiveKinds.includes('user')}
                           cameraEnabled={isCameraEnabled}
                         />
                       </div>
@@ -2781,37 +2880,37 @@ export default function VideoCall() {
                       </svg>
                     </button>
                   </div>
-                  <div className="flex flex-1 flex-col gap-2.5 overflow-y-auto px-3 py-3">
-                    {livekitTranscript.length === 0 ? (
+                  <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
+                    {livekitTranscriptBlocks.length === 0 ? (
                       <div className="flex flex-1 items-center justify-center px-4 text-center text-xs text-white/50">
                         Transcript will appear here once the conversation starts.
                       </div>
                     ) : (
-                      livekitTranscript.map((entry) => {
-                        const isSpeaking = livekitActiveIdentities.includes(entry.participantIdentity)
-                        const align = entry.isLocal ? 'items-end' : 'items-start'
-                        const bubble = entry.isLocal
-                          ? 'bg-[linear-gradient(135deg,rgba(121,245,228,0.22),rgba(72,194,255,0.2))] text-white'
-                          : 'bg-white/[0.06] text-white/90'
-                        const highlight = isSpeaking ? 'ring-1 ring-[#70f0de]/50' : 'ring-0'
+                      livekitTranscriptBlocks.map((block) => {
+                        const isSpeaking = livekitActiveKinds.includes(block.kind)
+                        const text = computeBlockDisplayText(block.segments)
+                        const lastSegment = block.segments[block.segments.length - 1]
+                        const isInterim = lastSegment ? !lastSegment.final : false
+                        const color = block.kind === 'agent' ? 'text-[#70f0de]' : 'text-white/90'
                         return (
-                          <div key={entry.id} className={`flex flex-col gap-0.5 ${align}`}>
-                            <div className="flex items-center gap-2 px-1 text-[10px] uppercase tracking-[0.22em] text-white/45">
-                              <span className="truncate">{entry.participantName}</span>
+                          <div key={block.blockId} className="flex flex-col gap-1">
+                            <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.22em] text-white/40">
+                              <span className={`truncate ${isSpeaking ? 'text-[#70f0de]' : ''}`}>
+                                {block.displayName}
+                              </span>
                               <span>·</span>
                               <span>
-                                {new Date(entry.timestamp).toLocaleTimeString([], {
+                                {new Date(block.startedAt).toLocaleTimeString([], {
                                   hour: '2-digit',
                                   minute: '2-digit',
                                 })}
                               </span>
-                              {!entry.final ? <span className="text-[#70f0de]/80">typing…</span> : null}
+                              {isInterim ? <span className="text-[#70f0de]/70">typing…</span> : null}
                             </div>
-                            <div
-                              className={`max-w-[85%] rounded-2xl border border-white/10 px-3 py-2 text-sm leading-5 ${bubble} ${highlight}`}
-                            >
-                              {entry.text}
-                            </div>
+                            <p className={`text-[15px] leading-[1.5] ${color}`}>
+                              {text}
+                              {isInterim ? <span className="text-[#70f0de]/60"> ▍</span> : null}
+                            </p>
                           </div>
                         )
                       })
