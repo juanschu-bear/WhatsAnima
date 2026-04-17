@@ -1,6 +1,18 @@
 import DailyIframe from '@daily-co/daily-js'
 import { Room, RoomEvent, Track } from 'livekit-client'
-import type { RemoteTrack, RemoteTrackPublication, RemoteParticipant } from 'livekit-client'
+import type {
+  RemoteTrack,
+  RemoteTrackPublication,
+  RemoteParticipant,
+  LocalTrackPublication,
+  LocalParticipant,
+  LocalVideoTrack,
+  RemoteVideoTrack,
+  RemoteAudioTrack,
+  Participant,
+  TrackPublication,
+  TranscriptionSegment,
+} from 'livekit-client'
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
@@ -462,6 +474,87 @@ function ParticipantTile({
   )
 }
 
+type LivekitVideoTrack = RemoteVideoTrack | LocalVideoTrack
+
+function LivekitVideoTile({
+  track,
+  isLocal,
+  label,
+  isActive,
+  cameraEnabled,
+}: {
+  track: LivekitVideoTrack | null
+  isLocal: boolean
+  label: string
+  isActive: boolean
+  cameraEnabled: boolean
+}) {
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const shouldShow = Boolean(track) && (!isLocal || cameraEnabled)
+
+  useEffect(() => {
+    const element = videoRef.current
+    if (!element || !track || !shouldShow) return
+    track.attach(element)
+    return () => {
+      track.detach(element)
+    }
+  }, [track, shouldShow])
+
+  return (
+    <div
+      className={`relative h-full w-full overflow-hidden rounded-[22px] border bg-black/70 shadow-[0_18px_60px_rgba(0,0,0,0.35)] ${
+        isActive ? 'border-[#70f0de]/70 ring-2 ring-[#70f0de]/30' : 'border-white/10'
+      }`}
+    >
+      {shouldShow ? (
+        <video
+          ref={videoRef}
+          autoPlay
+          muted={isLocal}
+          playsInline
+          className="h-full w-full object-contain"
+          style={isLocal ? { transform: 'scaleX(-1)' } : undefined}
+        />
+      ) : (
+        <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.08),transparent_45%),linear-gradient(180deg,rgba(14,19,30,0.98),rgba(7,10,18,0.98))] px-4 text-center">
+          <div className="text-sm font-semibold text-white/85">{label}</div>
+          <div className="text-xs text-white/55">{isLocal ? 'Camera off' : 'Waiting for video...'}</div>
+        </div>
+      )}
+      <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/72 to-transparent px-3 py-2 text-[11px] text-white/80">
+        <span className="truncate">{label}</span>
+        {isActive ? (
+          <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#70f0de]">Live</span>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+function LivekitAudioSink({ track }: { track: RemoteAudioTrack | null }) {
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+  useEffect(() => {
+    const element = audioRef.current
+    if (!element || !track) return
+    track.attach(element)
+    return () => {
+      track.detach(element)
+    }
+  }, [track])
+  return <audio ref={audioRef} autoPlay playsInline className="hidden" />
+}
+
+interface LivekitTranscriptEntry {
+  id: string
+  participantIdentity: string
+  participantName: string
+  isLocal: boolean
+  text: string
+  timestamp: number
+  final: boolean
+}
+
 export default function VideoCall() {
   const navigate = useNavigate()
   const { conversationId } = useParams<{ conversationId: string }>()
@@ -495,9 +588,17 @@ export default function VideoCall() {
 
   const callObjectRef = useRef<ReturnType<typeof DailyIframe.createCallObject> | null>(null)
   const livekitRoomRef = useRef<Room | null>(null)
-  const livekitVideoContainerRef = useRef<HTMLDivElement | null>(null)
-  const livekitAudioElementsRef = useRef<HTMLMediaElement[]>([])
   const [isLivekit, setIsLivekit] = useState(false)
+  const [livekitRemoteVideo, setLivekitRemoteVideo] = useState<RemoteVideoTrack | null>(null)
+  const [livekitRemoteAudio, setLivekitRemoteAudio] = useState<RemoteAudioTrack | null>(null)
+  const [livekitLocalVideo, setLivekitLocalVideo] = useState<LocalVideoTrack | null>(null)
+  const [livekitRemoteIdentity, setLivekitRemoteIdentity] = useState<string | null>(null)
+  const [livekitLocalIdentity, setLivekitLocalIdentity] = useState<string | null>(null)
+  const [livekitRemoteName, setLivekitRemoteName] = useState<string>('')
+  const [livekitLocalName, setLivekitLocalName] = useState<string>('')
+  const [livekitActiveIdentities, setLivekitActiveIdentities] = useState<string[]>([])
+  const [livekitTranscript, setLivekitTranscript] = useState<LivekitTranscriptEntry[]>([])
+  const [showTranscript, setShowTranscript] = useState(false)
   const sessionIdRef = useRef<string | null>(null)
   const languageRef = useRef<SupportedLanguage>('en')
   const creatorModeRef = useRef(false)
@@ -1067,15 +1168,15 @@ export default function VideoCall() {
     if (room) {
       void room.disconnect().catch(() => undefined)
     }
-    if (livekitVideoContainerRef.current) {
-      while (livekitVideoContainerRef.current.firstChild) {
-        livekitVideoContainerRef.current.firstChild.remove()
-      }
-    }
-    livekitAudioElementsRef.current.forEach((element) => {
-      element.remove()
-    })
-    livekitAudioElementsRef.current = []
+    setLivekitRemoteVideo(null)
+    setLivekitRemoteAudio(null)
+    setLivekitLocalVideo(null)
+    setLivekitRemoteIdentity(null)
+    setLivekitLocalIdentity(null)
+    setLivekitRemoteName('')
+    setLivekitLocalName('')
+    setLivekitActiveIdentities([])
+    setLivekitTranscript([])
   }
 
   useEffect(() => {
@@ -1534,6 +1635,8 @@ export default function VideoCall() {
 
       if (isLivekitJoin) {
         setIsLivekit(true)
+        setLivekitRemoteName(personaName)
+        setLivekitLocalName(dailyUserName)
         const parsed = new URL(rawJoinUrl.replace(/^livekit:\/\//i, 'https://'))
         const token = parsed.searchParams.get('token')
         const roomName = parsed.searchParams.get('room')
@@ -1557,28 +1660,68 @@ export default function VideoCall() {
             participant: participant.identity,
           })
           if (track.kind === Track.Kind.Video) {
-            const element = track.attach()
-            element.setAttribute('autoplay', 'true')
-            element.setAttribute('playsinline', 'true')
-            element.style.width = '100%'
-            element.style.height = '100%'
-            element.style.objectFit = 'cover'
-            livekitVideoContainerRef.current?.appendChild(element)
+            setLivekitRemoteVideo(track as RemoteVideoTrack)
+            setLivekitRemoteIdentity(participant.identity)
+            const displayName = (participant.name || participant.identity || '').trim()
+            if (displayName) setLivekitRemoteName(displayName)
           } else if (track.kind === Track.Kind.Audio) {
-            const element = track.attach()
-            livekitAudioElementsRef.current.push(element)
-            document.body.appendChild(element)
+            setLivekitRemoteAudio(track as RemoteAudioTrack)
           }
         })
 
         room.on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => {
-          track.detach().forEach((element) => {
-            element.remove()
-            livekitAudioElementsRef.current = livekitAudioElementsRef.current.filter(
-              (existing) => existing !== element,
-            )
-          })
+          if (track.kind === Track.Kind.Video) setLivekitRemoteVideo(null)
+          if (track.kind === Track.Kind.Audio) setLivekitRemoteAudio(null)
         })
+
+        room.on(RoomEvent.LocalTrackPublished, (publication: LocalTrackPublication, _participant: LocalParticipant) => {
+          if (publication.track?.kind === Track.Kind.Video) {
+            setLivekitLocalVideo(publication.track as LocalVideoTrack)
+          }
+        })
+
+        room.on(RoomEvent.LocalTrackUnpublished, (publication: LocalTrackPublication) => {
+          if (publication.track?.kind === Track.Kind.Video) {
+            setLivekitLocalVideo(null)
+          }
+        })
+
+        room.on(RoomEvent.ActiveSpeakersChanged, (speakers: Participant[]) => {
+          setLivekitActiveIdentities(speakers.map((speaker) => speaker.identity))
+        })
+
+        room.on(
+          RoomEvent.TranscriptionReceived,
+          (segments: TranscriptionSegment[], participant?: Participant, _publication?: TrackPublication) => {
+            if (!participant || segments.length === 0) return
+            const identity = participant.identity
+            const name = (participant.name || participant.identity || '').trim() || 'Participant'
+            const isLocal = participant.isLocal
+            setLivekitTranscript((prev) => {
+              const next = [...prev]
+              for (const segment of segments) {
+                const text = segment.text || ''
+                const timestamp = segment.firstReceivedTime || Date.now()
+                const existingIndex = next.findIndex((entry) => entry.id === segment.id)
+                const entry: LivekitTranscriptEntry = {
+                  id: segment.id,
+                  participantIdentity: identity,
+                  participantName: name,
+                  isLocal,
+                  text,
+                  timestamp,
+                  final: segment.final,
+                }
+                if (existingIndex >= 0) {
+                  next[existingIndex] = entry
+                } else {
+                  next.push(entry)
+                }
+              }
+              return next.slice(-200)
+            })
+          },
+        )
 
         room.on(RoomEvent.Disconnected, () => {
           console.log('[LiveKit] disconnected')
@@ -1586,9 +1729,16 @@ export default function VideoCall() {
         })
 
         await room.connect(wsUrl, token)
+        setLivekitLocalIdentity(room.localParticipant.identity || null)
+        const localDisplayName = (room.localParticipant.name || dailyUserName || '').trim()
+        if (localDisplayName) setLivekitLocalName(localDisplayName)
         try {
           await room.localParticipant.setMicrophoneEnabled(isMicEnabled)
           await room.localParticipant.setCameraEnabled(isCameraEnabled)
+          const cameraPub = room.localParticipant.getTrackPublication(Track.Source.Camera)
+          if (cameraPub?.track?.kind === Track.Kind.Video) {
+            setLivekitLocalVideo(cameraPub.track as LocalVideoTrack)
+          }
         } catch (publishError) {
           console.warn('[LiveKit] failed to publish local tracks', publishError)
         }
@@ -2275,12 +2425,60 @@ export default function VideoCall() {
               <div className="relative h-full w-full">
                 <div className="absolute inset-0">
                   {isLivekit ? (
-                    <div className="relative h-full w-full p-3 sm:p-4">
+                    viewMode === 'speaker' ? (
+                      <div className="relative h-full w-full p-3 sm:p-4">
+                        <div className="h-full w-full">
+                          <LivekitVideoTile
+                            track={livekitRemoteVideo}
+                            isLocal={false}
+                            label={livekitRemoteName || personaName}
+                            isActive={
+                              Boolean(livekitRemoteIdentity) &&
+                              livekitActiveIdentities.includes(livekitRemoteIdentity ?? '')
+                            }
+                            cameraEnabled
+                          />
+                        </div>
+                        <div className="absolute bottom-4 right-4 aspect-video w-40 sm:bottom-6 sm:right-6 sm:w-48">
+                          <LivekitVideoTile
+                            track={livekitLocalVideo}
+                            isLocal
+                            label={livekitLocalName || 'You'}
+                            isActive={
+                              Boolean(livekitLocalIdentity) &&
+                              livekitActiveIdentities.includes(livekitLocalIdentity ?? '')
+                            }
+                            cameraEnabled={isCameraEnabled}
+                          />
+                        </div>
+                      </div>
+                    ) : (
                       <div
-                        ref={livekitVideoContainerRef}
-                        className="relative h-full w-full overflow-hidden rounded-[22px] border border-white/10 bg-black/50 shadow-[0_18px_60px_rgba(0,0,0,0.35)]"
-                      />
-                    </div>
+                        className="grid h-full w-full gap-3 p-3 sm:gap-4 sm:p-4"
+                        style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}
+                      >
+                        <LivekitVideoTile
+                          track={livekitRemoteVideo}
+                          isLocal={false}
+                          label={livekitRemoteName || personaName}
+                          isActive={
+                            Boolean(livekitRemoteIdentity) &&
+                            livekitActiveIdentities.includes(livekitRemoteIdentity ?? '')
+                          }
+                          cameraEnabled
+                        />
+                        <LivekitVideoTile
+                          track={livekitLocalVideo}
+                          isLocal
+                          label={livekitLocalName || 'You'}
+                          isActive={
+                            Boolean(livekitLocalIdentity) &&
+                            livekitActiveIdentities.includes(livekitLocalIdentity ?? '')
+                          }
+                          cameraEnabled={isCameraEnabled}
+                        />
+                      </div>
+                    )
                   ) : visibleParticipants.length === 0 ? (
                     <div className="flex h-full w-full flex-col items-center justify-start overflow-y-auto px-4 pb-6 pt-6 text-center sm:px-6 sm:pb-12 sm:pt-12">
                       <div className="relative">
@@ -2409,6 +2607,65 @@ export default function VideoCall() {
                 </div>
               </div>
 
+              {isLivekit ? <LivekitAudioSink track={livekitRemoteAudio} /> : null}
+
+              {isLivekit && showTranscript ? (
+                <div className="absolute bottom-4 right-4 top-4 z-20 flex w-[min(22rem,calc(100%-2rem))] flex-col overflow-hidden rounded-[22px] border border-white/12 bg-[linear-gradient(180deg,rgba(6,12,22,0.92),rgba(4,8,14,0.96))] shadow-[0_24px_80px_rgba(0,0,0,0.45)] backdrop-blur-2xl sm:bottom-6 sm:right-6 sm:top-6 sm:w-96">
+                  <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-[0.3em] text-white/45">Live transcript</p>
+                      <p className="mt-1 text-sm font-semibold text-white/85">Conversation</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowTranscript(false)}
+                      className="flex h-8 w-8 items-center justify-center rounded-full border border-white/12 bg-white/5 text-white/70 transition hover:bg-white/12"
+                      aria-label="Close transcript"
+                    >
+                      <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M6 18L18 6" />
+                      </svg>
+                    </button>
+                  </div>
+                  <div className="flex flex-1 flex-col gap-2.5 overflow-y-auto px-3 py-3">
+                    {livekitTranscript.length === 0 ? (
+                      <div className="flex flex-1 items-center justify-center px-4 text-center text-xs text-white/50">
+                        Transcript will appear here once the conversation starts.
+                      </div>
+                    ) : (
+                      livekitTranscript.map((entry) => {
+                        const isSpeaking = livekitActiveIdentities.includes(entry.participantIdentity)
+                        const align = entry.isLocal ? 'items-end' : 'items-start'
+                        const bubble = entry.isLocal
+                          ? 'bg-[linear-gradient(135deg,rgba(121,245,228,0.22),rgba(72,194,255,0.2))] text-white'
+                          : 'bg-white/[0.06] text-white/90'
+                        const highlight = isSpeaking ? 'ring-1 ring-[#70f0de]/50' : 'ring-0'
+                        return (
+                          <div key={entry.id} className={`flex flex-col gap-0.5 ${align}`}>
+                            <div className="flex items-center gap-2 px-1 text-[10px] uppercase tracking-[0.22em] text-white/45">
+                              <span className="truncate">{entry.participantName}</span>
+                              <span>·</span>
+                              <span>
+                                {new Date(entry.timestamp).toLocaleTimeString([], {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}
+                              </span>
+                              {!entry.final ? <span className="text-[#70f0de]/80">typing…</span> : null}
+                            </div>
+                            <div
+                              className={`max-w-[85%] rounded-2xl border border-white/10 px-3 py-2 text-sm leading-5 ${bubble} ${highlight}`}
+                            >
+                              {entry.text}
+                            </div>
+                          </div>
+                        )
+                      })
+                    )}
+                  </div>
+                </div>
+              ) : null}
+
               <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-center px-3 pt-4 sm:px-4 sm:pt-5">
                 <div className="flex items-center gap-2 rounded-full border border-white/10 bg-black/28 px-3 py-2 text-[11px] font-medium tracking-[0.22em] text-white/78 backdrop-blur-xl sm:px-4 sm:text-xs">
                   <span>{statusText}</span>
@@ -2516,14 +2773,28 @@ export default function VideoCall() {
               </svg>
             </button>
 
-            <button
-              type="button"
-              onClick={triggerEchoSanityCheck}
-              disabled={phase !== 'connected'}
-              className="flex h-14 min-w-[6.5rem] touch-manipulation items-center justify-center rounded-full border border-white/14 bg-white/8 px-4 text-sm font-semibold text-white transition hover:bg-white/14 disabled:opacity-60 sm:h-[3.75rem] sm:min-w-[7rem]"
-            >
-              Echo Test
-            </button>
+            {isLivekit ? (
+              <button
+                type="button"
+                onClick={() => setShowTranscript((current) => !current)}
+                className={`flex h-14 min-w-[6.5rem] touch-manipulation items-center justify-center rounded-full border px-4 text-sm font-semibold transition sm:h-[3.75rem] sm:min-w-[7rem] ${
+                  showTranscript
+                    ? 'border-[#79f5e4]/40 bg-[#79f5e4]/18 text-[#d6fff5] hover:bg-[#79f5e4]/24'
+                    : 'border-white/14 bg-white/8 text-white hover:bg-white/14'
+                }`}
+              >
+                {showTranscript ? 'Hide Transcript' : 'Transcript'}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={triggerEchoSanityCheck}
+                disabled={phase !== 'connected'}
+                className="flex h-14 min-w-[6.5rem] touch-manipulation items-center justify-center rounded-full border border-white/14 bg-white/8 px-4 text-sm font-semibold text-white transition hover:bg-white/14 disabled:opacity-60 sm:h-[3.75rem] sm:min-w-[7rem]"
+              >
+                Echo Test
+              </button>
+            )}
 
             {isMeetingMode ? (
               <button
