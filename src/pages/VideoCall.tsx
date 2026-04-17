@@ -587,23 +587,6 @@ function isLivekitAgentParticipant(participant: Pick<Participant, 'kind' | 'iden
   return isLivekitAgentIdentity(participant.identity)
 }
 
-function computeBlockDisplayText(segments: LivekitTranscriptSegmentState[]): string {
-  const ordered = [...segments].sort((a, b) => a.updatedAt - b.updatedAt)
-  if (ordered.length === 0) return ''
-  if (ordered.length === 1) return ordered[0].text.trim()
-  let cumulative = true
-  for (let i = 1; i < ordered.length; i++) {
-    const prev = ordered[i - 1].text.trim()
-    const cur = ordered[i].text.trim()
-    if (!prev || !cur.startsWith(prev)) {
-      cumulative = false
-      break
-    }
-  }
-  if (cumulative) return ordered[ordered.length - 1].text.trim()
-  return ordered.map((segment) => segment.text.trim()).filter(Boolean).join(' ')
-}
-
 export default function VideoCall() {
   const navigate = useNavigate()
   const { conversationId } = useParams<{ conversationId: string }>()
@@ -648,8 +631,6 @@ export default function VideoCall() {
   const [livekitActiveKinds, setLivekitActiveKinds] = useState<LivekitSpeakerKind[]>([])
   const [livekitTranscriptBlocks, setLivekitTranscriptBlocks] = useState<LivekitTranscriptBlock[]>([])
   const [showTranscript, setShowTranscript] = useState(false)
-  const livekitAgentAudioSidsRef = useRef<Set<string>>(new Set())
-  const livekitLocalAudioSidsRef = useRef<Set<string>>(new Set())
   const livekitRemoteNameRef = useRef<string>('')
   const livekitLocalNameRef = useRef<string>('')
   const sessionIdRef = useRef<string | null>(null)
@@ -1231,8 +1212,6 @@ export default function VideoCall() {
       }
       void room.disconnect().catch(() => undefined)
     }
-    livekitAgentAudioSidsRef.current.clear()
-    livekitLocalAudioSidsRef.current.clear()
     livekitRemoteNameRef.current = ''
     livekitLocalNameRef.current = ''
     setLivekitRemoteVideo(null)
@@ -1723,13 +1702,28 @@ export default function VideoCall() {
             ? livekitRemoteNameRef.current || LIVEKIT_AGENT_DISPLAY_NAME
             : livekitLocalNameRef.current || dailyUserName || 'You'
 
+        const findTrackOwner = (trackSid: string): Participant | null => {
+          for (const pub of room.localParticipant.trackPublications.values()) {
+            if (pub.trackSid === trackSid) return room.localParticipant
+          }
+          for (const participant of room.remoteParticipants.values()) {
+            for (const pub of participant.trackPublications.values()) {
+              if (pub.trackSid === trackSid) return participant
+            }
+          }
+          return null
+        }
+
         const resolveSpeakerKind = (
           trackId?: string | null,
           participant?: Pick<Participant, 'identity' | 'kind' | 'isLocal'> | null,
         ): LivekitSpeakerKind => {
           if (trackId) {
-            if (livekitLocalAudioSidsRef.current.has(trackId)) return 'user'
-            if (livekitAgentAudioSidsRef.current.has(trackId)) return 'agent'
+            const owner = findTrackOwner(trackId)
+            if (owner) {
+              if (owner.isLocal) return 'user'
+              return isLivekitAgentParticipant(owner) ? 'agent' : 'user'
+            }
           }
           if (participant) {
             if (participant.isLocal) return 'user'
@@ -1751,6 +1745,30 @@ export default function VideoCall() {
           const now = params.timestamp || Date.now()
           setLivekitTranscriptBlocks((prev) => {
             const next = [...prev]
+
+            // Look up to 3 most recent blocks for an existing entry with this segmentId
+            for (let i = next.length - 1; i >= Math.max(0, next.length - 3); i--) {
+              const block = next[i]
+              const segIdx = block.segments.findIndex((segment) => segment.id === segmentId)
+              if (segIdx === -1) continue
+              const existingSeg = block.segments[segIdx]
+              if (existingSeg.final && existingSeg.text === cleaned) return prev
+              const updatedSegments = [...block.segments]
+              updatedSegments[segIdx] = {
+                ...existingSeg,
+                text: cleaned,
+                final: isFinal,
+                updatedAt: now,
+              }
+              next[i] = {
+                ...block,
+                displayName: resolveDisplayNameForKind(kind),
+                segments: updatedSegments,
+                lastUpdatedAt: now,
+              }
+              return next
+            }
+
             const last = next[next.length - 1]
             const canMerge =
               last &&
@@ -1758,32 +1776,9 @@ export default function VideoCall() {
               now - last.lastUpdatedAt <= LIVEKIT_TURN_MERGE_WINDOW_MS
 
             if (canMerge && last) {
-              const segIdx = last.segments.findIndex((segment) => segment.id === segmentId)
-              if (segIdx >= 0) {
-                const existingSeg = last.segments[segIdx]
-                if (existingSeg.final && existingSeg.text === cleaned) {
-                  return prev
-                }
-                const updatedSegments = [...last.segments]
-                updatedSegments[segIdx] = {
-                  ...existingSeg,
-                  text: cleaned,
-                  final: isFinal,
-                  updatedAt: now,
-                }
-                next[next.length - 1] = {
-                  ...last,
-                  displayName: resolveDisplayNameForKind(kind),
-                  segments: updatedSegments,
-                  lastUpdatedAt: now,
-                }
-                return next
-              }
               const lastSeg = last.segments[last.segments.length - 1]
               if (
                 lastSeg &&
-                lastSeg.final &&
-                isFinal &&
                 lastSeg.text === cleaned &&
                 now - lastSeg.updatedAt < LIVEKIT_DEDUPE_WINDOW_MS
               ) {
@@ -1802,7 +1797,7 @@ export default function VideoCall() {
             }
 
             next.push({
-              blockId: `${kind}-${segmentId}`,
+              blockId: `${kind}-${segmentId}-${now}`,
               kind,
               displayName: resolveDisplayNameForKind(kind),
               segments: [{ id: segmentId, text: cleaned, final: isFinal, updatedAt: now }],
@@ -1838,7 +1833,6 @@ export default function VideoCall() {
               }
             } else if (track.kind === Track.Kind.Audio) {
               if (isAgent) {
-                if (track.sid) livekitAgentAudioSidsRef.current.add(track.sid)
                 setLivekitRemoteAudio(track as RemoteAudioTrack)
               }
             }
@@ -1847,10 +1841,7 @@ export default function VideoCall() {
 
         room.on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => {
           if (track.kind === Track.Kind.Video) setLivekitRemoteVideo(null)
-          if (track.kind === Track.Kind.Audio) {
-            if (track.sid) livekitAgentAudioSidsRef.current.delete(track.sid)
-            setLivekitRemoteAudio(null)
-          }
+          if (track.kind === Track.Kind.Audio) setLivekitRemoteAudio(null)
         })
 
         room.on(
@@ -1859,18 +1850,12 @@ export default function VideoCall() {
             if (publication.track?.kind === Track.Kind.Video) {
               setLivekitLocalVideo(publication.track as LocalVideoTrack)
             }
-            if (publication.track?.kind === Track.Kind.Audio && publication.trackSid) {
-              livekitLocalAudioSidsRef.current.add(publication.trackSid)
-            }
           },
         )
 
         room.on(RoomEvent.LocalTrackUnpublished, (publication: LocalTrackPublication) => {
           if (publication.track?.kind === Track.Kind.Video) {
             setLivekitLocalVideo(null)
-          }
-          if (publication.track?.kind === Track.Kind.Audio && publication.trackSid) {
-            livekitLocalAudioSidsRef.current.delete(publication.trackSid)
           }
         })
 
@@ -1927,6 +1912,7 @@ export default function VideoCall() {
             const senderParticipant =
               room.getParticipantByIdentity(senderIdentity) ||
               (room.localParticipant.identity === senderIdentity ? room.localParticipant : null)
+            const owner = trackId ? findTrackOwner(trackId) : null
             const kind = resolveSpeakerKind(trackId, senderParticipant)
             console.log('[LiveKit] transcription stream', {
               senderIdentity,
@@ -1934,7 +1920,9 @@ export default function VideoCall() {
               trackId,
               isFinal,
               resolvedKind: kind,
-              length: text.length,
+              ownerIdentity: owner?.identity,
+              ownerIsLocal: owner?.isLocal,
+              textPreview: text.slice(0, 80),
               attrs,
             })
             aggregateSegment({
@@ -1999,10 +1987,6 @@ export default function VideoCall() {
           const cameraPub = room.localParticipant.getTrackPublication(Track.Source.Camera)
           if (cameraPub?.track?.kind === Track.Kind.Video) {
             setLivekitLocalVideo(cameraPub.track as LocalVideoTrack)
-          }
-          const micPub = room.localParticipant.getTrackPublication(Track.Source.Microphone)
-          if (micPub?.trackSid) {
-            livekitLocalAudioSidsRef.current.add(micPub.trackSid)
           }
         } catch (publishError) {
           console.warn('[LiveKit] failed to publish local tracks', publishError)
@@ -2880,7 +2864,7 @@ export default function VideoCall() {
                       </svg>
                     </button>
                   </div>
-                  <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
+                  <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-4 py-4">
                     {livekitTranscriptBlocks.length === 0 ? (
                       <div className="flex flex-1 items-center justify-center px-4 text-center text-xs text-white/50">
                         Transcript will appear here once the conversation starts.
@@ -2888,12 +2872,10 @@ export default function VideoCall() {
                     ) : (
                       livekitTranscriptBlocks.map((block) => {
                         const isSpeaking = livekitActiveKinds.includes(block.kind)
-                        const text = computeBlockDisplayText(block.segments)
-                        const lastSegment = block.segments[block.segments.length - 1]
-                        const isInterim = lastSegment ? !lastSegment.final : false
-                        const color = block.kind === 'agent' ? 'text-[#70f0de]' : 'text-white/90'
+                        const color = block.kind === 'agent' ? 'text-[#70f0de]' : 'text-white/92'
+                        const lastSegmentIdx = block.segments.length - 1
                         return (
-                          <div key={block.blockId} className="flex flex-col gap-1">
+                          <div key={block.blockId} className="flex flex-col gap-1.5">
                             <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.22em] text-white/40">
                               <span className={`truncate ${isSpeaking ? 'text-[#70f0de]' : ''}`}>
                                 {block.displayName}
@@ -2905,12 +2887,22 @@ export default function VideoCall() {
                                   minute: '2-digit',
                                 })}
                               </span>
-                              {isInterim ? <span className="text-[#70f0de]/70">typing…</span> : null}
                             </div>
-                            <p className={`text-[15px] leading-[1.5] ${color}`}>
-                              {text}
-                              {isInterim ? <span className="text-[#70f0de]/60"> ▍</span> : null}
-                            </p>
+                            <div className="flex flex-col gap-2">
+                              {block.segments.map((segment, segIdx) => {
+                                const isLastSegment = segIdx === lastSegmentIdx
+                                const showCursor = isLastSegment && !segment.final
+                                return (
+                                  <p
+                                    key={segment.id}
+                                    className={`text-[15px] leading-[1.55] ${color} ${segment.final ? '' : 'opacity-80'}`}
+                                  >
+                                    {segment.text}
+                                    {showCursor ? <span className="text-[#70f0de]/70"> ▍</span> : null}
+                                  </p>
+                                )
+                              })}
+                            </div>
                           </div>
                         )
                       })
