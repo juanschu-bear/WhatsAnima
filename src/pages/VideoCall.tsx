@@ -513,7 +513,7 @@ function LivekitVideoTile({
           autoPlay
           muted={isLocal}
           playsInline
-          className="h-full w-full object-contain"
+          className={`h-full w-full ${isLocal ? 'object-cover' : 'object-contain'}`}
           style={isLocal ? { transform: 'scaleX(-1)' } : undefined}
         />
       ) : (
@@ -553,6 +553,35 @@ interface LivekitTranscriptEntry {
   text: string
   timestamp: number
   final: boolean
+}
+
+const LIVEKIT_AGENT_DISPLAY_NAME = 'Trace Flores'
+const LIVEKIT_AGENT_IDENTITY_PATTERNS = [/^keyframe-avatar-agent/i, /^agent[-_]/i, /-agent$/i]
+
+function isLivekitAgentIdentity(identity: string | null | undefined): boolean {
+  const value = (identity || '').trim()
+  if (!value) return false
+  return LIVEKIT_AGENT_IDENTITY_PATTERNS.some((pattern) => pattern.test(value))
+}
+
+function isPlaceholderLivekitName(name: string | null | undefined): boolean {
+  const value = (name || '').trim().toLowerCase()
+  if (!value) return true
+  return value === 'juan human' || value === 'human' || value.startsWith('user-') || value.startsWith('participant-')
+}
+
+function resolveLivekitDisplayName(
+  participant: Pick<Participant, 'identity' | 'name' | 'isLocal'>,
+  localFallback?: string,
+  remoteFallback?: string,
+): string {
+  const identity = participant.identity || ''
+  if (isLivekitAgentIdentity(identity)) return LIVEKIT_AGENT_DISPLAY_NAME
+  const rawName = (participant.name || '').trim()
+  if (rawName && !isPlaceholderLivekitName(rawName)) return rawName
+  if (participant.isLocal && localFallback) return localFallback
+  if (!participant.isLocal && remoteFallback) return remoteFallback
+  return rawName || identity || (participant.isLocal ? 'You' : 'Participant')
 }
 
 export default function VideoCall() {
@@ -1649,6 +1678,55 @@ export default function VideoCall() {
         const room = new Room()
         livekitRoomRef.current = room
 
+        const appendTranscriptSegment = (
+          participantIdentity: string,
+          participantName: string,
+          isLocal: boolean,
+          segmentId: string,
+          text: string,
+          isFinal: boolean,
+          firstReceivedTime?: number,
+        ) => {
+          setLivekitTranscript((prev) => {
+            const next = [...prev]
+            let activeIdx = -1
+            for (let i = next.length - 1; i >= 0; i--) {
+              const candidate = next[i]
+              if (candidate.participantIdentity !== participantIdentity) continue
+              if (!candidate.final) activeIdx = i
+              break
+            }
+            if (activeIdx >= 0) {
+              const existing = next[activeIdx]
+              const cleanedText = text.trim()
+              const mergedText =
+                existing.id === segmentId
+                  ? cleanedText || existing.text
+                  : cleanedText
+                    ? `${existing.text} ${cleanedText}`.replace(/\s+/g, ' ').trim()
+                    : existing.text
+              next[activeIdx] = {
+                ...existing,
+                id: segmentId,
+                text: mergedText,
+                final: isFinal,
+                participantName,
+              }
+            } else {
+              next.push({
+                id: segmentId,
+                participantIdentity,
+                participantName,
+                isLocal,
+                text: text.trim(),
+                timestamp: firstReceivedTime || Date.now(),
+                final: isFinal,
+              })
+            }
+            return next.slice(-200)
+          })
+        }
+
         room.on(RoomEvent.TrackSubscribed, (
           track: RemoteTrack,
           _publication: RemoteTrackPublication,
@@ -1662,8 +1740,7 @@ export default function VideoCall() {
           if (track.kind === Track.Kind.Video) {
             setLivekitRemoteVideo(track as RemoteVideoTrack)
             setLivekitRemoteIdentity(participant.identity)
-            const displayName = (participant.name || participant.identity || '').trim()
-            if (displayName) setLivekitRemoteName(displayName)
+            setLivekitRemoteName(resolveLivekitDisplayName(participant, undefined, personaName))
           } else if (track.kind === Track.Kind.Audio) {
             setLivekitRemoteAudio(track as RemoteAudioTrack)
           }
@@ -1695,31 +1772,107 @@ export default function VideoCall() {
           (segments: TranscriptionSegment[], participant?: Participant, _publication?: TrackPublication) => {
             if (!participant || segments.length === 0) return
             const identity = participant.identity
-            const name = (participant.name || participant.identity || '').trim() || 'Participant'
             const isLocal = participant.isLocal
-            setLivekitTranscript((prev) => {
-              const next = [...prev]
-              for (const segment of segments) {
-                const text = segment.text || ''
-                const timestamp = segment.firstReceivedTime || Date.now()
-                const existingIndex = next.findIndex((entry) => entry.id === segment.id)
-                const entry: LivekitTranscriptEntry = {
-                  id: segment.id,
-                  participantIdentity: identity,
-                  participantName: name,
-                  isLocal,
-                  text,
-                  timestamp,
-                  final: segment.final,
-                }
-                if (existingIndex >= 0) {
-                  next[existingIndex] = entry
-                } else {
-                  next.push(entry)
-                }
-              }
-              return next.slice(-200)
+            const name = resolveLivekitDisplayName(participant, dailyUserName, personaName)
+            console.log('[LiveKit] transcription', {
+              identity,
+              isLocal,
+              name,
+              segments: segments.map((segment) => ({
+                id: segment.id,
+                final: segment.final,
+                length: segment.text?.length || 0,
+              })),
             })
+            for (const segment of segments) {
+              appendTranscriptSegment(
+                identity,
+                name,
+                isLocal,
+                segment.id,
+                segment.text || '',
+                segment.final,
+                segment.firstReceivedTime,
+              )
+            }
+          },
+        )
+
+        room.on(
+          RoomEvent.DataReceived,
+          (payload: Uint8Array, participant?: RemoteParticipant, _kind?: unknown, topic?: string) => {
+            if (!payload || payload.byteLength === 0) return
+            let decoded = ''
+            try {
+              decoded = new TextDecoder().decode(payload)
+            } catch {
+              return
+            }
+            console.log('[LiveKit] data received', {
+              topic,
+              participant: participant?.identity,
+              length: decoded.length,
+            })
+
+            let parsed: unknown = null
+            try {
+              parsed = JSON.parse(decoded)
+            } catch {
+              return
+            }
+            if (!parsed || typeof parsed !== 'object') return
+
+            const data = parsed as Record<string, unknown>
+            const textCandidate =
+              typeof data.text === 'string'
+                ? data.text
+                : typeof data.content === 'string'
+                  ? data.content
+                  : typeof data.transcript === 'string'
+                    ? data.transcript
+                    : typeof data.message === 'string'
+                      ? data.message
+                      : ''
+            if (!textCandidate.trim()) return
+
+            const isFinalCandidate =
+              typeof data.final === 'boolean'
+                ? data.final
+                : typeof data.is_final === 'boolean'
+                  ? data.is_final
+                  : typeof data.isFinal === 'boolean'
+                    ? data.isFinal
+                    : true
+            const segmentIdCandidate =
+              typeof data.id === 'string' && data.id
+                ? data.id
+                : typeof data.segment_id === 'string' && data.segment_id
+                  ? data.segment_id
+                  : `${participant?.identity || 'agent'}-${Date.now()}`
+            const role = typeof data.role === 'string' ? data.role.toLowerCase() : ''
+            const identityFromData = typeof data.participant_identity === 'string' ? data.participant_identity : ''
+            const identity =
+              identityFromData ||
+              participant?.identity ||
+              (role === 'assistant' || role === 'agent' ? 'keyframe-avatar-agent' : 'unknown')
+            const resolvedIsLocal = participant ? participant.isLocal : role === 'user'
+            const nameForDisplay = participant
+              ? resolveLivekitDisplayName(participant, dailyUserName, personaName)
+              : isLivekitAgentIdentity(identity)
+                ? LIVEKIT_AGENT_DISPLAY_NAME
+                : role === 'user'
+                  ? dailyUserName
+                  : personaName
+
+            appendTranscriptSegment(
+              identity,
+              nameForDisplay,
+              resolvedIsLocal,
+              segmentIdCandidate,
+              textCandidate,
+              isFinalCandidate,
+              typeof data.timestamp === 'number' ? data.timestamp : undefined,
+            )
           },
         )
 
@@ -1730,8 +1883,9 @@ export default function VideoCall() {
 
         await room.connect(wsUrl, token)
         setLivekitLocalIdentity(room.localParticipant.identity || null)
-        const localDisplayName = (room.localParticipant.name || dailyUserName || '').trim()
-        if (localDisplayName) setLivekitLocalName(localDisplayName)
+        setLivekitLocalName(
+          resolveLivekitDisplayName(room.localParticipant, dailyUserName, personaName),
+        )
         try {
           await room.localParticipant.setMicrophoneEnabled(isMicEnabled)
           await room.localParticipant.setCameraEnabled(isCameraEnabled)
