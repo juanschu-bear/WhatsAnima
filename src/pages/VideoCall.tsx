@@ -1,4 +1,6 @@
 import DailyIframe from '@daily-co/daily-js'
+import { Room, RoomEvent, Track } from 'livekit-client'
+import type { RemoteTrack, RemoteTrackPublication, RemoteParticipant } from 'livekit-client'
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
@@ -492,6 +494,10 @@ export default function VideoCall() {
   const [meetingSelfName, setMeetingSelfName] = useState('')
 
   const callObjectRef = useRef<ReturnType<typeof DailyIframe.createCallObject> | null>(null)
+  const livekitRoomRef = useRef<Room | null>(null)
+  const livekitVideoContainerRef = useRef<HTMLDivElement | null>(null)
+  const livekitAudioElementsRef = useRef<HTMLMediaElement[]>([])
+  const [isLivekit, setIsLivekit] = useState(false)
   const sessionIdRef = useRef<string | null>(null)
   const languageRef = useRef<SupportedLanguage>('en')
   const creatorModeRef = useRef(false)
@@ -1055,6 +1061,23 @@ export default function VideoCall() {
     void startCall()
   }, [conversation, error, loadingConversation, loadingPersonas, phase, shouldSkipLanguageSelection])
 
+  const teardownLivekit = () => {
+    const room = livekitRoomRef.current
+    livekitRoomRef.current = null
+    if (room) {
+      void room.disconnect().catch(() => undefined)
+    }
+    if (livekitVideoContainerRef.current) {
+      while (livekitVideoContainerRef.current.firstChild) {
+        livekitVideoContainerRef.current.firstChild.remove()
+      }
+    }
+    livekitAudioElementsRef.current.forEach((element) => {
+      element.remove()
+    })
+    livekitAudioElementsRef.current = []
+  }
+
   useEffect(() => {
     return () => {
       if (hiddenTimeoutRef.current) {
@@ -1063,6 +1086,7 @@ export default function VideoCall() {
       }
       stopOpmAudioCapture()
       void endBackendSession('component_unmount')
+      teardownLivekit()
       const callObject = callObjectRef.current
       callObjectRef.current = null
       if (!callObject) return
@@ -1347,6 +1371,8 @@ export default function VideoCall() {
     setStatusText('Ending call...')
     setPhase((current) => (current === 'error' ? current : 'starting'))
     stopOpmAudioCapture()
+    teardownLivekit()
+    setIsLivekit(false)
 
     const stopRecordingPromise = recordingActive ? toggleRecording(true) : Promise.resolve()
     const shouldEndMeetingSession = !isMeetingMode || meetingHostControl
@@ -1487,11 +1513,14 @@ export default function VideoCall() {
         console.warn('[VideoCall] forced session mismatch', { forcedSessionId, returned: payload.session_id })
       }
 
+      const rawJoinUrl = String(payload.join_url || '').trim()
+      const isLivekitJoin = rawJoinUrl.toLowerCase().startsWith('livekit://')
+
       sessionIdRef.current = payload.session_id
       callStartAtRef.current = Date.now()
-      tavusConversationIdRef.current = resolveTavusConversationId(payload.join_url)
+      tavusConversationIdRef.current = isLivekitJoin ? null : resolveTavusConversationId(payload.join_url)
       setSessionId(payload.session_id)
-      setJoinUrl(String(payload.join_url || '').trim() || null)
+      setJoinUrl(rawJoinUrl || null)
       setRecordingActive(false)
       setRecordingId(null)
       setRecordingUrl(null)
@@ -1501,6 +1530,73 @@ export default function VideoCall() {
       setPhase('joining')
       if (!isMeetingGuest) {
         await notifySessionStart(payload.session_id, payload.join_url, personaName, replicaId)
+      }
+
+      if (isLivekitJoin) {
+        setIsLivekit(true)
+        const parsed = new URL(rawJoinUrl.replace(/^livekit:\/\//i, 'https://'))
+        const token = parsed.searchParams.get('token')
+        const roomName = parsed.searchParams.get('room')
+        if (!token) {
+          throw new Error('LiveKit join URL missing token')
+        }
+        const wsUrl = `wss://${parsed.hostname}`
+        console.log('[VideoCall] LiveKit connect', { wsUrl, roomName })
+
+        const room = new Room()
+        livekitRoomRef.current = room
+
+        room.on(RoomEvent.TrackSubscribed, (
+          track: RemoteTrack,
+          _publication: RemoteTrackPublication,
+          participant: RemoteParticipant,
+        ) => {
+          console.log('[LiveKit] track subscribed', {
+            kind: track.kind,
+            sid: track.sid,
+            participant: participant.identity,
+          })
+          if (track.kind === Track.Kind.Video) {
+            const element = track.attach()
+            element.setAttribute('autoplay', 'true')
+            element.setAttribute('playsinline', 'true')
+            element.style.width = '100%'
+            element.style.height = '100%'
+            element.style.objectFit = 'cover'
+            livekitVideoContainerRef.current?.appendChild(element)
+          } else if (track.kind === Track.Kind.Audio) {
+            const element = track.attach()
+            livekitAudioElementsRef.current.push(element)
+            document.body.appendChild(element)
+          }
+        })
+
+        room.on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => {
+          track.detach().forEach((element) => {
+            element.remove()
+            livekitAudioElementsRef.current = livekitAudioElementsRef.current.filter(
+              (existing) => existing !== element,
+            )
+          })
+        })
+
+        room.on(RoomEvent.Disconnected, () => {
+          console.log('[LiveKit] disconnected')
+          joinedRef.current = false
+        })
+
+        await room.connect(wsUrl, token)
+        try {
+          await room.localParticipant.setMicrophoneEnabled(isMicEnabled)
+          await room.localParticipant.setCameraEnabled(isCameraEnabled)
+        } catch (publishError) {
+          console.warn('[LiveKit] failed to publish local tracks', publishError)
+        }
+
+        joinedRef.current = true
+        setPhase('connected')
+        setStatusText('Connected')
+        return
       }
 
       const callObject = DailyIframe.createCallObject()
@@ -2009,6 +2105,14 @@ export default function VideoCall() {
         setError('Unable to update microphone state.')
       }
     }
+    const livekitRoom = livekitRoomRef.current
+    if (livekitRoom) {
+      try {
+        await livekitRoom.localParticipant.setMicrophoneEnabled(next)
+      } catch {
+        setError('Unable to update microphone state.')
+      }
+    }
   }
 
   async function toggleCamera() {
@@ -2018,6 +2122,14 @@ export default function VideoCall() {
     if (callObject) {
       try {
         callObject.setLocalVideo(next)
+      } catch {
+        setError('Unable to update camera state.')
+      }
+    }
+    const livekitRoom = livekitRoomRef.current
+    if (livekitRoom) {
+      try {
+        await livekitRoom.localParticipant.setCameraEnabled(next)
       } catch {
         setError('Unable to update camera state.')
       }
@@ -2162,7 +2274,14 @@ export default function VideoCall() {
             <div className="relative flex h-full w-full items-center justify-center">
               <div className="relative h-full w-full">
                 <div className="absolute inset-0">
-                  {visibleParticipants.length === 0 ? (
+                  {isLivekit ? (
+                    <div className="relative h-full w-full p-3 sm:p-4">
+                      <div
+                        ref={livekitVideoContainerRef}
+                        className="relative h-full w-full overflow-hidden rounded-[22px] border border-white/10 bg-black/50 shadow-[0_18px_60px_rgba(0,0,0,0.35)]"
+                      />
+                    </div>
+                  ) : visibleParticipants.length === 0 ? (
                     <div className="flex h-full w-full flex-col items-center justify-start overflow-y-auto px-4 pb-6 pt-6 text-center sm:px-6 sm:pb-12 sm:pt-12">
                       <div className="relative">
                         <img
