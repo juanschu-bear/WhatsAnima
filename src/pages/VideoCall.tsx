@@ -566,7 +566,7 @@ interface LivekitTranscriptBlock {
 
 const LIVEKIT_AGENT_DISPLAY_NAME = 'Trace Flores'
 const LIVEKIT_AGENT_IDENTITY_PATTERNS = [/^keyframe-avatar-agent/i, /^agent[-_]/i, /-agent$/i]
-const LIVEKIT_TURN_MERGE_WINDOW_MS = 1500
+const LIVEKIT_TURN_MERGE_WINDOW_MS = 2000
 const LIVEKIT_TRANSCRIPT_BLOCK_LIMIT = 80
 const LIVEKIT_TRANSCRIPTION_TOPIC = 'lk.transcription'
 const LIVEKIT_CHAT_TOPIC = 'lk.chat'
@@ -1680,10 +1680,14 @@ export default function VideoCall() {
 
       if (isLivekitJoin) {
         setIsLivekit(true)
-        livekitRemoteNameRef.current = personaName
-        livekitLocalNameRef.current = dailyUserName
-        setLivekitRemoteName(personaName)
-        setLivekitLocalName(dailyUserName)
+        const livekitUserDisplayName =
+          (isMeetingMode ? meetingSelfName.trim() : '') ||
+          buildUserName(user, conversation) ||
+          'You'
+        livekitRemoteNameRef.current = LIVEKIT_AGENT_DISPLAY_NAME
+        livekitLocalNameRef.current = livekitUserDisplayName
+        setLivekitRemoteName(LIVEKIT_AGENT_DISPLAY_NAME)
+        setLivekitLocalName(livekitUserDisplayName)
         const parsed = new URL(rawJoinUrl.replace(/^livekit:\/\//i, 'https://'))
         const token = parsed.searchParams.get('token')
         const roomName = parsed.searchParams.get('room')
@@ -1696,10 +1700,15 @@ export default function VideoCall() {
         const room = new Room()
         livekitRoomRef.current = room
 
-        const resolveDisplayNameForKind = (kind: LivekitSpeakerKind): string =>
-          kind === 'agent'
-            ? livekitRemoteNameRef.current || LIVEKIT_AGENT_DISPLAY_NAME
-            : livekitLocalNameRef.current || dailyUserName || 'You'
+        const resolveDisplayNameForKind = (kind: LivekitSpeakerKind): string => {
+          if (kind === 'agent') return LIVEKIT_AGENT_DISPLAY_NAME
+          return (
+            livekitLocalNameRef.current ||
+            buildUserName(user, conversation) ||
+            dailyUserName ||
+            'You'
+          )
+        }
 
         const lastActiveSpeakerRef: { current: { kind: LivekitSpeakerKind; at: number } | null } = { current: null }
 
@@ -1769,48 +1778,42 @@ export default function VideoCall() {
           const { kind, segmentId, isFinal } = params
           const cleaned = (params.text || '').trim()
           if (!cleaned) return
-          if (!isFinal) return
           const now = params.timestamp || Date.now()
+
           setLivekitTranscriptBlocks((prev) => {
             const next = [...prev]
+            const last = next.length > 0 ? next[next.length - 1] : null
 
-            for (let i = next.length - 1; i >= Math.max(0, next.length - 3); i--) {
-              const block = next[i]
-              const segIdx = block.segments.findIndex((segment) => segment.id === segmentId)
-              if (segIdx === -1) continue
-              const existingSeg = block.segments[segIdx]
-              if (existingSeg.text === cleaned) return prev
-              const updatedSegments = [...block.segments]
-              updatedSegments[segIdx] = {
-                ...existingSeg,
-                text: cleaned,
-                final: true,
-                updatedAt: now,
-              }
-              next[i] = {
-                ...block,
-                displayName: resolveDisplayNameForKind(kind),
-                segments: updatedSegments,
-                lastUpdatedAt: now,
-              }
-              return next
-            }
-
-            const last = next[next.length - 1]
-            const canMerge =
-              last &&
+            const canContinueTurn =
+              last !== null &&
               last.kind === kind &&
               now - last.lastUpdatedAt <= LIVEKIT_TURN_MERGE_WINDOW_MS
 
-            if (canMerge && last) {
-              if (last.segments.some((seg) => seg.text === cleaned)) return prev
+            if (canContinueTurn && last) {
+              const segIdx = last.segments.findIndex((seg) => seg.id === segmentId)
+              let updatedSegments: LivekitTranscriptSegmentState[]
+              if (segIdx >= 0) {
+                const existing = last.segments[segIdx]
+                if (existing.text === cleaned && existing.final === isFinal) {
+                  return prev
+                }
+                updatedSegments = [...last.segments]
+                updatedSegments[segIdx] = {
+                  ...existing,
+                  text: cleaned,
+                  final: isFinal,
+                  updatedAt: now,
+                }
+              } else {
+                updatedSegments = [
+                  ...last.segments,
+                  { id: segmentId, text: cleaned, final: isFinal, updatedAt: now },
+                ]
+              }
               next[next.length - 1] = {
                 ...last,
                 displayName: resolveDisplayNameForKind(kind),
-                segments: [
-                  ...last.segments,
-                  { id: segmentId, text: cleaned, final: true, updatedAt: now },
-                ],
+                segments: updatedSegments,
                 lastUpdatedAt: now,
               }
               return next
@@ -1820,7 +1823,7 @@ export default function VideoCall() {
               blockId: `${kind}-${segmentId}-${now}`,
               kind,
               displayName: resolveDisplayNameForKind(kind),
-              segments: [{ id: segmentId, text: cleaned, final: true, updatedAt: now }],
+              segments: [{ id: segmentId, text: cleaned, final: isFinal, updatedAt: now }],
               startedAt: now,
               lastUpdatedAt: now,
             })
@@ -2016,8 +2019,18 @@ export default function VideoCall() {
 
         await room.connect(wsUrl, token)
         livekitLocalIdentityRef.current = room.localParticipant.identity || null
-        livekitLocalNameRef.current = dailyUserName
-        setLivekitLocalName(dailyUserName)
+        const tokenName = (room.localParticipant.name || '').trim()
+        const isPlaceholderLocalName =
+          !tokenName ||
+          tokenName.toLowerCase() === 'user' ||
+          isLivekitAgentIdentity(tokenName)
+        const resolvedLocalName = isPlaceholderLocalName
+          ? (livekitUserDisplayName ||
+              room.localParticipant.identity ||
+              'You')
+          : tokenName
+        livekitLocalNameRef.current = resolvedLocalName
+        setLivekitLocalName(resolvedLocalName)
         try {
           await room.localParticipant.setMicrophoneEnabled(isMicEnabled)
           await room.localParticipant.setCameraEnabled(isCameraEnabled)
@@ -2717,7 +2730,7 @@ export default function VideoCall() {
                           <LivekitVideoTile
                             track={livekitRemoteVideo}
                             isLocal={false}
-                            label={livekitRemoteName || personaName}
+                            label={livekitRemoteName || LIVEKIT_AGENT_DISPLAY_NAME}
                             isActive={livekitActiveKinds.includes('agent')}
                             cameraEnabled
                           />
@@ -2740,7 +2753,7 @@ export default function VideoCall() {
                         <LivekitVideoTile
                           track={livekitRemoteVideo}
                           isLocal={false}
-                          label={livekitRemoteName || personaName}
+                          label={livekitRemoteName || LIVEKIT_AGENT_DISPLAY_NAME}
                           isActive={livekitActiveKinds.includes('agent')}
                           cameraEnabled
                         />
@@ -2910,6 +2923,11 @@ export default function VideoCall() {
                       livekitTranscriptBlocks.map((block) => {
                         const isSpeaking = livekitActiveKinds.includes(block.kind)
                         const color = block.kind === 'agent' ? 'text-[#70f0de]' : 'text-white/92'
+                        const turnText = block.segments
+                          .map((segment) => segment.text)
+                          .filter(Boolean)
+                          .join(' ')
+                        const turnFinal = block.segments.every((segment) => segment.final)
                         return (
                           <div key={block.blockId} className="flex flex-col gap-1.5">
                             <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.22em] text-white/40">
@@ -2924,18 +2942,11 @@ export default function VideoCall() {
                                 })}
                               </span>
                             </div>
-                            <div className="flex flex-col gap-2">
-                              {block.segments.map((segment) => {
-                                return (
-                                  <p
-                                    key={segment.id}
-                                    className={`text-[15px] leading-[1.55] ${color}`}
-                                  >
-                                    {segment.text}
-                                  </p>
-                                )
-                              })}
-                            </div>
+                            <p
+                              className={`text-[15px] leading-[1.55] ${color} ${turnFinal ? '' : 'opacity-80'}`}
+                            >
+                              {turnText}
+                            </p>
                           </div>
                         )
                       })
