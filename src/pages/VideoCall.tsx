@@ -2019,8 +2019,18 @@ export default function VideoCall() {
 
         await room.connect(wsUrl, token)
         livekitLocalIdentityRef.current = room.localParticipant.identity || null
-        livekitLocalNameRef.current = dailyUserName
-        setLivekitLocalName(dailyUserName)
+        const tokenName = (room.localParticipant.name || '').trim()
+        const isPlaceholderLocalName =
+          !tokenName ||
+          tokenName.toLowerCase() === 'user' ||
+          isLivekitAgentIdentity(tokenName)
+        const resolvedLocalName = isPlaceholderLocalName
+          ? (livekitUserDisplayName ||
+              room.localParticipant.identity ||
+              'You')
+          : tokenName
+        livekitLocalNameRef.current = resolvedLocalName
+        setLivekitLocalName(resolvedLocalName)
         try {
           await room.localParticipant.setMicrophoneEnabled(isMicEnabled)
           await room.localParticipant.setCameraEnabled(isCameraEnabled)
@@ -2720,7 +2730,7 @@ export default function VideoCall() {
                           <LivekitVideoTile
                             track={livekitRemoteVideo}
                             isLocal={false}
-                            label={livekitRemoteName || personaName}
+                            label={livekitRemoteName || LIVEKIT_AGENT_DISPLAY_NAME}
                             isActive={livekitActiveKinds.includes('agent')}
                             cameraEnabled
                           />
@@ -2743,7 +2753,7 @@ export default function VideoCall() {
                         <LivekitVideoTile
                           track={livekitRemoteVideo}
                           isLocal={false}
-                          label={livekitRemoteName || personaName}
+                          label={livekitRemoteName || LIVEKIT_AGENT_DISPLAY_NAME}
                           isActive={livekitActiveKinds.includes('agent')}
                           cameraEnabled
                         />
