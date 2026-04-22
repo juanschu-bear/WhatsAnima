@@ -564,8 +564,18 @@ interface LivekitTranscriptBlock {
   lastUpdatedAt: number
 }
 
-const LIVEKIT_AGENT_DISPLAY_NAME = 'Trace Flores'
 const LIVEKIT_AGENT_IDENTITY_PATTERNS = [/^keyframe-avatar-agent/i, /^agent[-_]/i, /-agent$/i]
+
+function readLivekitRoomDisplayName(metadata: string | undefined | null): string {
+  if (!metadata) return ''
+  try {
+    const parsed = JSON.parse(metadata) as { display_name?: unknown }
+    const name = parsed?.display_name
+    return typeof name === 'string' ? name.trim() : ''
+  } catch {
+    return ''
+  }
+}
 const LIVEKIT_TURN_MERGE_WINDOW_MS = 1500
 const LIVEKIT_TRANSCRIPT_BLOCK_LIMIT = 80
 const LIVEKIT_TRANSCRIPTION_TOPIC = 'lk.transcription'
@@ -1680,10 +1690,11 @@ export default function VideoCall() {
 
       if (isLivekitJoin) {
         setIsLivekit(true)
+        const prejoinLocalName = buildUserName(user, conversation)
         livekitRemoteNameRef.current = personaName
-        livekitLocalNameRef.current = dailyUserName
+        livekitLocalNameRef.current = prejoinLocalName
         setLivekitRemoteName(personaName)
-        setLivekitLocalName(dailyUserName)
+        setLivekitLocalName(prejoinLocalName)
         const parsed = new URL(rawJoinUrl.replace(/^livekit:\/\//i, 'https://'))
         const token = parsed.searchParams.get('token')
         const roomName = parsed.searchParams.get('room')
@@ -1698,8 +1709,8 @@ export default function VideoCall() {
 
         const resolveDisplayNameForKind = (kind: LivekitSpeakerKind): string =>
           kind === 'agent'
-            ? livekitRemoteNameRef.current || LIVEKIT_AGENT_DISPLAY_NAME
-            : livekitLocalNameRef.current || dailyUserName || 'You'
+            ? livekitRemoteNameRef.current || personaName || 'Avatar'
+            : livekitLocalNameRef.current || 'You'
 
         const lastActiveSpeakerRef: { current: { kind: LivekitSpeakerKind; at: number } | null } = { current: null }
 
@@ -1845,11 +1856,12 @@ export default function VideoCall() {
               if (isAgent) {
                 setLivekitRemoteVideo(track as RemoteVideoTrack)
                 livekitRemoteIdentityRef.current = participant.identity
-                const resolvedName = isLivekitAgentParticipant(participant)
-                  ? LIVEKIT_AGENT_DISPLAY_NAME
-                  : personaName
-                livekitRemoteNameRef.current = resolvedName
-                setLivekitRemoteName(resolvedName)
+                const resolvedRemoteName =
+                  readLivekitRoomDisplayName(room.metadata) || personaName
+                if (resolvedRemoteName && resolvedRemoteName !== livekitRemoteNameRef.current) {
+                  livekitRemoteNameRef.current = resolvedRemoteName
+                  setLivekitRemoteName(resolvedRemoteName)
+                }
               }
             } else if (track.kind === Track.Kind.Audio) {
               if (isAgent) {
@@ -2009,6 +2021,14 @@ export default function VideoCall() {
           console.warn('[LiveKit] failed to register chat handler', registrationError)
         }
 
+        room.on(RoomEvent.RoomMetadataChanged, (metadata: string) => {
+          const displayName = readLivekitRoomDisplayName(metadata)
+          if (displayName && displayName !== livekitRemoteNameRef.current) {
+            livekitRemoteNameRef.current = displayName
+            setLivekitRemoteName(displayName)
+          }
+        })
+
         room.on(RoomEvent.Disconnected, () => {
           console.log('[LiveKit] disconnected')
           joinedRef.current = false
@@ -2016,8 +2036,19 @@ export default function VideoCall() {
 
         await room.connect(wsUrl, token)
         livekitLocalIdentityRef.current = room.localParticipant.identity || null
-        livekitLocalNameRef.current = dailyUserName
-        setLivekitLocalName(dailyUserName)
+
+        const jwtLocalName = (room.localParticipant.name || '').trim()
+        const resolvedLocalName =
+          jwtLocalName || buildUserName(user, conversation) || 'You'
+        livekitLocalNameRef.current = resolvedLocalName
+        setLivekitLocalName(resolvedLocalName)
+
+        const metadataRemoteName = readLivekitRoomDisplayName(room.metadata)
+        if (metadataRemoteName) {
+          livekitRemoteNameRef.current = metadataRemoteName
+          setLivekitRemoteName(metadataRemoteName)
+        }
+
         try {
           await room.localParticipant.setMicrophoneEnabled(isMicEnabled)
           await room.localParticipant.setCameraEnabled(isCameraEnabled)
