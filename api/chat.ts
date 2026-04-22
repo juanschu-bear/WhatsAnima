@@ -1,7 +1,30 @@
 import { Client } from 'pg'
 import { createClient } from '@supabase/supabase-js'
 import { getKnowledgeBaseContent } from './_lib/knowledgeBase.js'
-import { extractReceipt } from './_lib/receiptExtraction.js'
+import { extractReceipt, type ExtractedReceipt } from './_lib/receiptExtraction.js'
+import { appendReceiptToSheet, uploadReceiptToDrive, type ReceiptSheetRow } from './_lib/googleServices.js'
+
+function buildCfoFollowUpMessage(
+  receipt: ExtractedReceipt,
+  storage: { driveOk: boolean; sheetsOk: boolean },
+): string {
+  if (receipt.extraction_status === 'failed') {
+    return 'Die Quittung konnte nicht automatisch erfasst werden. Bitte trag sie manuell nach.'
+  }
+  const parts: string[] = ['Quittung erfasst:']
+  if (receipt.merchant) parts.push(receipt.merchant + ',')
+  if (receipt.total_amount != null) {
+    parts.push(`${receipt.total_amount.toFixed(2)} ${receipt.currency},`)
+  }
+  parts.push(`Kategorie: ${receipt.category}.`)
+  const storageBits: string[] = []
+  if (storage.driveOk) storageBits.push('Drive')
+  if (storage.sheetsOk) storageBits.push('Sheets')
+  if (storageBits.length === 2) parts.push('Gespeichert in Drive und Sheets.')
+  else if (storageBits.length === 1) parts.push(`Gespeichert in ${storageBits[0]}.`)
+  else parts.push('Konnte weder in Drive noch in Sheets gespeichert werden.')
+  return parts.join(' ')
+}
 
 export const DEFAULT_SYSTEM_PROMPT = 'You are a helpful assistant.'
 const ADRI_KASTEL_OWNER_ID = '19fa8767-952a-4533-899b-96f66ee85516'
@@ -1686,8 +1709,11 @@ export default async function handler(req: any, res: any) {
       return res.status(502).json({ error: 'Empty response from AI' })
     }
 
-    // CFO receipt extraction for Jordan Cash — fire-and-forget so the chat response
-    // is not delayed by the Vision pass. Only triggers for user-sent images.
+    // CFO pipeline for Jordan Cash — fire-and-forget so the chat response
+    // is not delayed. Runs: extract receipt → upload to Drive → append to Sheets
+    // → write cfo_transactions row → post a follow-up message from Jordan.
+    // Every step is best-effort: whatever succeeds is persisted, and the
+    // follow-up text is adapted based on what actually worked.
     if (
       ownerId === JORDAN_CASH_OWNER_ID &&
       isImage &&
@@ -1704,30 +1730,74 @@ export default async function handler(req: any, res: any) {
       const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY
       if (supabaseUrl && supabaseKey) {
         const cfoSupabase = createClient(supabaseUrl, supabaseKey)
-        extractReceipt(cfoImageUrl)
-          .then(async (result) => {
-            const { error } = await cfoSupabase.from('cfo_transactions').insert({
-              owner_id: cfoOwnerId,
-              contact_id: cfoContactId,
-              conversation_id: cfoConversationId,
-              message_id: cfoMessageId,
-              image_url: cfoImageUrl,
-              ...result,
-            })
-            if (error) {
-              console.error('[CFO] Failed to save transaction:', error.message)
-            } else {
-              console.log(
-                '[CFO] Transaction saved:',
-                result.merchant,
-                result.total_amount,
-                result.category,
-              )
-            }
+        ;(async () => {
+          const extraction = await extractReceipt(cfoImageUrl)
+
+          // Run Drive upload and Sheets append in parallel once extraction is done.
+          const [driveResult, sheetsResult] = await Promise.all([
+            uploadReceiptToDrive(cfoImageUrl, extraction),
+            appendReceiptToSheet({
+              transactionDate: extraction.transaction_date,
+              merchant: extraction.merchant,
+              totalAmount: extraction.total_amount,
+              currency: extraction.currency,
+              vatAmount: extraction.vat_amount,
+              category: extraction.category,
+              isBusinessExpense: extraction.is_business_expense,
+              taxRelevant: extraction.tax_relevant,
+              paymentMethod: extraction.payment_method,
+              freeTags: extraction.free_tags,
+              driveUrl: null,
+              whatsanimaUrl: cfoConversationId
+                ? `https://whatsanima.com/chat/${cfoConversationId}`
+                : null,
+            } satisfies ReceiptSheetRow),
+          ])
+
+          if (driveResult.error) console.warn('[CFO] Drive upload failed:', driveResult.error)
+          if (sheetsResult.error) console.warn('[CFO] Sheets append failed:', sheetsResult.error)
+
+          const { error: insertError } = await cfoSupabase.from('cfo_transactions').insert({
+            owner_id: cfoOwnerId,
+            contact_id: cfoContactId,
+            conversation_id: cfoConversationId,
+            message_id: cfoMessageId,
+            image_url: cfoImageUrl,
+            drive_url: driveResult.url,
+            sheets_row_index: sheetsResult.rowIndex,
+            ...extraction,
           })
-          .catch((err) => console.error('[CFO] Receipt extraction failed:', err))
+          if (insertError) {
+            console.error('[CFO] Failed to save transaction:', insertError.message)
+          } else {
+            console.log(
+              '[CFO] Transaction saved:',
+              extraction.merchant,
+              extraction.total_amount,
+              extraction.category,
+              'drive=', Boolean(driveResult.url),
+              'sheets=', sheetsResult.rowIndex,
+            )
+          }
+
+          if (cfoConversationId) {
+            const followUpText = buildCfoFollowUpMessage(extraction, {
+              driveOk: Boolean(driveResult.url),
+              sheetsOk: sheetsResult.rowIndex != null,
+            })
+            const { error: msgError } = await cfoSupabase.from('wa_messages').insert({
+              conversation_id: cfoConversationId,
+              sender: 'avatar',
+              type: 'text',
+              content: followUpText,
+            })
+            if (msgError) {
+              console.error('[CFO] Failed to post follow-up message:', msgError.message)
+            }
+          }
+        })().catch((err) => console.error('[CFO] Pipeline failed:', err))
       } else {
-        console.warn('[CFO] Receipt extraction skipped: Supabase credentials missing')
+        console.warn('[CFO] Receipt pipeline skipped: Supabase credentials missing')
       }
     }
 

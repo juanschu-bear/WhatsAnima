@@ -17,6 +17,7 @@
     "@daily-co/daily-js": "^0.87.0",
     "@supabase/supabase-js": "^2.49.1",
     "framer-motion": "^12.38.0",
+    "googleapis": "^144.0.0",
     "livekit-client": "^2.18.3",
     "pg": "^8.20.0",
     "react": "^19.0.0",
