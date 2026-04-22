@@ -1,10 +1,12 @@
 import { Client } from 'pg'
 import { createClient } from '@supabase/supabase-js'
 import { getKnowledgeBaseContent } from './_lib/knowledgeBase.js'
+import { extractReceipt } from './_lib/receiptExtraction.js'
 
 export const DEFAULT_SYSTEM_PROMPT = 'You are a helpful assistant.'
 const ADRI_KASTEL_OWNER_ID = '19fa8767-952a-4533-899b-96f66ee85516'
 const BRIAN_COX_OWNER_ID = '1d4651eb-5ff1-43e3-a0f3-76528fa32b3e'
+const JORDAN_CASH_OWNER_ID = '77ad10a6-1d73-4201-9e81-e6be996d130a'
 const YOUTUBE_STRONG_MATCH_MIN_SCORE = 10
 const VIDEO_FLOW_MAX_CHARS = 320
 export const LANGUAGE_INSTRUCTION =
@@ -842,9 +844,9 @@ export async function loadOwnerPromptAndMemory(
   conversationId: string | undefined,
   ownerIdHint?: string | null,
   ownerNameHint?: string | null
-): Promise<{ ownerPrompt: string; memory: string; stylePrompt: string; behavioralMemory: string; ownerId: string | null; ownerName: string; llmProvider: string | null; voiceId: string | null }> {
+): Promise<{ ownerPrompt: string; memory: string; stylePrompt: string; behavioralMemory: string; ownerId: string | null; ownerName: string; llmProvider: string | null; voiceId: string | null; contactId: string | null }> {
   const databaseUrl = getDatabaseUrl()
-  if (!databaseUrl) return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '', stylePrompt: '', behavioralMemory: '', ownerId: null, ownerName: 'Avatar', llmProvider: null, voiceId: null }
+  if (!databaseUrl) return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '', stylePrompt: '', behavioralMemory: '', ownerId: null, ownerName: 'Avatar', llmProvider: null, voiceId: null, contactId: null }
 
   const client = new Client({ connectionString: databaseUrl, ssl: { rejectUnauthorized: false }, connectionTimeoutMillis: 5000 })
   try {
@@ -1034,10 +1036,10 @@ export async function loadOwnerPromptAndMemory(
 
     const llmProvider = typeof ownerRow?.llm_provider === 'string' ? ownerRow.llm_provider.trim() : null
     const voiceId = typeof ownerRow?.voice_id === 'string' ? ownerRow.voice_id.trim() : null
-    return { ownerPrompt, memory, stylePrompt, behavioralMemory, ownerId, ownerName, llmProvider, voiceId }
+    return { ownerPrompt, memory, stylePrompt, behavioralMemory, ownerId, ownerName, llmProvider, voiceId, contactId: conversationContactId }
   } catch (dbError) {
     console.error('[chat] Database connection failed in loadOwnerPromptAndMemory:', dbError instanceof Error ? dbError.message : dbError)
-    return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '', stylePrompt: '', behavioralMemory: '', ownerId: null, ownerName: ownerNameHint?.trim() || 'Avatar', llmProvider: null, voiceId: null }
+    return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '', stylePrompt: '', behavioralMemory: '', ownerId: null, ownerName: ownerNameHint?.trim() || 'Avatar', llmProvider: null, voiceId: null, contactId: null }
   } finally {
     await client.end().catch(() => undefined)
   }
@@ -1529,7 +1531,7 @@ export default async function handler(req: any, res: any) {
     : []
 
   try {
-    const { ownerPrompt, memory, stylePrompt, behavioralMemory, ownerId, ownerName, llmProvider, voiceId } = await loadOwnerPromptAndMemory(conversationId, ownerIdHint, ownerNameHint)
+    const { ownerPrompt, memory, stylePrompt, behavioralMemory, ownerId, ownerName, llmProvider, voiceId, contactId } = await loadOwnerPromptAndMemory(conversationId, ownerIdHint, ownerNameHint)
     const normalizedOwnerIdHint = typeof ownerIdHint === 'string' && ownerIdHint.trim().length > 0
       ? ownerIdHint.trim()
       : null
@@ -1682,6 +1684,51 @@ export default async function handler(req: any, res: any) {
     }
     if (!content) {
       return res.status(502).json({ error: 'Empty response from AI' })
+    }
+
+    // CFO receipt extraction for Jordan Cash — fire-and-forget so the chat response
+    // is not delayed by the Vision pass. Only triggers for user-sent images.
+    if (
+      ownerId === JORDAN_CASH_OWNER_ID &&
+      isImage &&
+      typeof image_url === 'string' &&
+      image_url.trim() &&
+      contactId
+    ) {
+      const cfoImageUrl = image_url.trim()
+      const cfoContactId = contactId
+      const cfoOwnerId = ownerId
+      const cfoConversationId = conversationId ?? null
+      const cfoMessageId = userMessageId ?? null
+      const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+      const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY
+      if (supabaseUrl && supabaseKey) {
+        const cfoSupabase = createClient(supabaseUrl, supabaseKey)
+        extractReceipt(cfoImageUrl)
+          .then(async (result) => {
+            const { error } = await cfoSupabase.from('cfo_transactions').insert({
+              owner_id: cfoOwnerId,
+              contact_id: cfoContactId,
+              conversation_id: cfoConversationId,
+              message_id: cfoMessageId,
+              image_url: cfoImageUrl,
+              ...result,
+            })
+            if (error) {
+              console.error('[CFO] Failed to save transaction:', error.message)
+            } else {
+              console.log(
+                '[CFO] Transaction saved:',
+                result.merchant,
+                result.total_amount,
+                result.category,
+              )
+            }
+          })
+          .catch((err) => console.error('[CFO] Receipt extraction failed:', err))
+      } else {
+        console.warn('[CFO] Receipt extraction skipped: Supabase credentials missing')
+      }
     }
 
     // Check for generate_image block and generate image server-side
