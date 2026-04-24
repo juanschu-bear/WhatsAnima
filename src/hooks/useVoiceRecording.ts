@@ -210,13 +210,63 @@ export function useVoiceRecording({
         }).catch((logErr) => console.warn('[perception-log]', logErr.message))
         onTranscript(message.id, finalTranscript)
 
+        const retryAvatarReply = async () => {
+          onMessageUpdate(message.id, {
+            _pending: true,
+            _failed: false,
+            _errorMessage: undefined,
+            _retryFn: undefined,
+          })
+          try {
+            const retried = await sendAvatarReply(finalTranscript, {
+              isVoice: true,
+              voiceDurationSec: durationSeconds,
+              perception: opmResponse,
+              userMessageId: message.id,
+            })
+            if (retried) {
+              onMessageUpdate(message.id, {
+                _pending: false,
+                _failed: false,
+                _errorMessage: undefined,
+                _retryFn: undefined,
+              })
+              maybeAvatarReact(message.id)
+              return
+            }
+          } catch (retryError) {
+            console.error('[voice][avatar-retry]', retryError)
+          }
+          onMessageUpdate(message.id, {
+            _pending: false,
+            _failed: true,
+            _errorMessage: 'Avatar response failed. Tap Resend to retry response generation.',
+            _retryFn: retryAvatarReply,
+          })
+        }
+
         const voiceReplied = await sendAvatarReply(finalTranscript, {
           isVoice: true,
           voiceDurationSec: durationSeconds,
           perception: opmResponse,
           userMessageId: message.id,
         })
-        if (voiceReplied) maybeAvatarReact(message.id)
+        if (voiceReplied) {
+          onMessageUpdate(message.id, {
+            _pending: false,
+            _failed: false,
+            _errorMessage: undefined,
+            _retryFn: undefined,
+          })
+          maybeAvatarReact(message.id)
+        } else {
+          onMessageUpdate(message.id, {
+            _pending: false,
+            _failed: true,
+            _errorMessage: 'Avatar response failed. Tap Resend to retry response generation.',
+            _retryFn: retryAvatarReply,
+          })
+        }
       } catch (recordingError: any) {
         console.error('[sendVoiceMessage]', recordingError)
         // Mark message as failed but keep it in chat with retry

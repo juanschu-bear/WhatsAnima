@@ -308,6 +308,7 @@ function isPlaceholderContent(message: Message) {
 }
 
 const PLAYBACK_SPEEDS = [0.75, 1, 1.5, 2] as const
+let activeVoiceAudio: HTMLAudioElement | null = null
 
 const VoiceMessageBubble = memo(function VoiceMessageBubble({
   isContact,
@@ -337,6 +338,9 @@ const VoiceMessageBubble = memo(function VoiceMessageBubble({
   useEffect(() => {
     return () => {
       audioRef.current?.pause()
+      if (activeVoiceAudio === audioRef.current) {
+        activeVoiceAudio = null
+      }
       audioRef.current = null
     }
   }, [])
@@ -375,8 +379,16 @@ const VoiceMessageBubble = memo(function VoiceMessageBubble({
       setIsPlaying(false)
       setDisplaySeconds(getEffectiveDuration(audio))
       setProgress(0)
+      if (activeVoiceAudio === audio) activeVoiceAudio = null
     }
-    audio.onerror = () => setIsPlaying(false)
+    audio.onpause = () => {
+      setIsPlaying(false)
+      if (activeVoiceAudio === audio) activeVoiceAudio = null
+    }
+    audio.onerror = () => {
+      setIsPlaying(false)
+      if (activeVoiceAudio === audio) activeVoiceAudio = null
+    }
     audioRef.current = audio
     return audio
   }
@@ -386,12 +398,17 @@ const VoiceMessageBubble = memo(function VoiceMessageBubble({
     if (!audio) return
 
     if (audio.paused) {
+      if (activeVoiceAudio && activeVoiceAudio !== audio) {
+        activeVoiceAudio.pause()
+      }
       audio.playbackRate = currentSpeed
       await audio.play().catch(() => undefined)
       setIsPlaying(true)
+      activeVoiceAudio = audio
     } else {
       audio.pause()
       setIsPlaying(false)
+      if (activeVoiceAudio === audio) activeVoiceAudio = null
     }
   }
 
@@ -1785,21 +1802,47 @@ export default function Chat() {
     return () => clearTimeout(timer)
   }, [conversation])
 
-  // Clear badge when user returns to the chat
+  // Resume sync for iOS/app-switch scenarios: refresh on multiple resume signals.
   useEffect(() => {
-    const handleVisibility = async () => {
-      if (document.visibilityState !== 'visible') return
-      clearUnreadBadge()
-      if (!conversationId) return
+    if (!conversationId) return
+    let delayedRefreshTimer: number | null = null
+
+    const refreshMessages = async (reason: string) => {
       try {
         const latestMessages = await listMessages(conversationId)
         setMessages(latestMessages as Message[])
       } catch (error) {
-        console.warn('[Chat] Failed to refresh messages on visibilitychange', error)
+        console.warn(`[Chat] Failed to refresh messages on ${reason}`, error)
       }
     }
+
+    const handleResumeSignal = () => {
+      if (document.visibilityState !== 'visible') return
+      clearUnreadBadge()
+      void refreshMessages('resume-immediate')
+      if (delayedRefreshTimer) window.clearTimeout(delayedRefreshTimer)
+      delayedRefreshTimer = window.setTimeout(() => {
+        void refreshMessages('resume-delayed')
+      }, 1500)
+    }
+
+    const handleVisibility = () => handleResumeSignal()
+    const handleFocus = () => handleResumeSignal()
+    const handlePageShow = () => handleResumeSignal()
+    const handleOnline = () => handleResumeSignal()
+
     document.addEventListener('visibilitychange', handleVisibility)
-    return () => document.removeEventListener('visibilitychange', handleVisibility)
+    window.addEventListener('focus', handleFocus)
+    window.addEventListener('pageshow', handlePageShow)
+    window.addEventListener('online', handleOnline)
+
+    return () => {
+      if (delayedRefreshTimer) window.clearTimeout(delayedRefreshTimer)
+      document.removeEventListener('visibilitychange', handleVisibility)
+      window.removeEventListener('focus', handleFocus)
+      window.removeEventListener('pageshow', handlePageShow)
+      window.removeEventListener('online', handleOnline)
+    }
   }, [conversationId])
 
   useLayoutEffect(() => {
