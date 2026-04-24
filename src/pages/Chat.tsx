@@ -2040,6 +2040,71 @@ export default function Chat() {
 
       setAvatarStatus('thinking')
 
+      if (options?.isVoice) {
+        const backgroundReplyResponse = await fetch('/api/avatar-reply', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          keepalive: true,
+          body: JSON.stringify({
+            conversationId,
+            userMessage: seedText,
+            userMessageId: options?.userMessageId,
+            options: {
+              useVoice,
+              imageUrl: options?.imageUrl,
+              isImage: options?.isImage,
+              isVideo: options?.isVideo,
+              isVoice: options?.isVoice,
+              perception: options?.perception ?? null,
+            },
+          }),
+        })
+
+        const backgroundReplyData = await backgroundReplyResponse.json().catch(() => ({}))
+        if (!backgroundReplyResponse.ok) {
+          throw new Error(backgroundReplyData?.error || `avatar-reply failed (${backgroundReplyResponse.status})`)
+        }
+
+        const insertedMessages = Array.isArray(backgroundReplyData?.messages)
+          ? (backgroundReplyData.messages as Message[])
+          : []
+        if (insertedMessages.length > 0) {
+          setMessages((current) => {
+            const existingIds = new Set(current.map((message) => String(message.id)))
+            const additions = insertedMessages.filter((message) => !existingIds.has(String(message.id)))
+            return additions.length > 0 ? [...current, ...additions] : current
+          })
+
+          for (const message of insertedMessages) {
+            const messageId = String(message.id)
+            markAsInstantlyRead(messageId)
+            if (message.type === 'voice' && message.content) {
+              setTranscriptMap((current) => ({ ...current, [messageId]: String(message.content) }))
+            }
+          }
+
+          const primaryReplyId = String(insertedMessages[0].id)
+          if (Array.isArray(backgroundReplyData?.videoTopics) && backgroundReplyData.videoTopics.length > 0) {
+            setVideoTopicsMap((current) => ({ ...current, [primaryReplyId]: backgroundReplyData.videoTopics as string[] }))
+          }
+          if (Array.isArray(backgroundReplyData?.videoSuggestions) && backgroundReplyData.videoSuggestions.length > 0) {
+            setVideoSuggestionsMap((current) => ({ ...current, [primaryReplyId]: backgroundReplyData.videoSuggestions as VideoSuggestion[] }))
+          }
+
+          playNotificationSound()
+          if (!isAppVisible()) {
+            const avatarName = conversation?.wa_owners?.display_name || 'Avatar'
+            const preview = typeof insertedMessages[0].content === 'string'
+              ? insertedMessages[0].content.slice(0, 100)
+              : 'New message'
+            showLocalNotification(avatarName, preview || 'New message', conversationId)
+            incrementUnreadBadge()
+          }
+          replySucceeded = true
+        }
+        return replySucceeded
+      }
+
       // Detect image-generation intent early so status shows 'designing' during the API call
       const imageKeywords = /\b(generate|create|draw|make|design|paint|sketch|render|erstell|generiere|zeichne|mal mir|crea|genera|dib[uú]ja|hazme|diseña)\b.*\b(image|picture|photo|illustration|art|bild|foto|imagen|dibujo|ilustraci[oó]n)\b|\b(image|picture|photo|illustration|bild|foto|imagen|dibujo)\b.*\b(generate|create|draw|make|erstell|generiere|zeichne|crea|genera|dib[uú]ja|hazme)\b/i
       if (imageKeywords.test(seedText)) {
@@ -2113,6 +2178,11 @@ export default function Chat() {
       }
     } catch (err) {
       console.error('Avatar reply failed:', err)
+      if (options?.isVoice) {
+        // Voice replies are processed server-side now; avoid sending a fallback
+        // from the client when navigation/backgrounding interrupts the request.
+        return false
+      }
       // Send an immersive fallback — never show technical errors
       if (conversationId) {
         try {
