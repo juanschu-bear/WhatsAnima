@@ -1717,6 +1717,55 @@ export default function Chat() {
       .finally(() => setLoading(false))
   }, [conversationId])
 
+  // Realtime sync for newly generated avatar replies (important when voice
+  // replies are generated server-side while the user navigates between apps).
+  useEffect(() => {
+    if (!conversationId) return
+    let cleanup = () => {}
+    let cancelled = false
+
+    void (async () => {
+      const { supabase } = await import('../lib/supabase')
+      if (cancelled) return
+
+      const channel = supabase
+        .channel(`chat-messages-${conversationId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'wa_messages',
+            filter: `conversation_id=eq.${conversationId}`,
+          },
+          (payload) => {
+            const incoming = payload.new as Partial<Message> & { id?: string; sender?: string; type?: string }
+            if (!incoming?.id || incoming.sender !== 'avatar') return
+            const normalized = incoming as Message
+
+            setMessages((current) => {
+              if (current.some((message) => message.id === normalized.id)) return current
+              return [...current, normalized]
+            })
+            markAsInstantlyRead(String(normalized.id))
+            if (normalized.type === 'voice' && normalized.content) {
+              setTranscriptMap((current) => ({ ...current, [String(normalized.id)]: String(normalized.content) }))
+            }
+          }
+        )
+        .subscribe()
+
+      cleanup = () => {
+        void supabase.removeChannel(channel)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+      cleanup()
+    }
+  }, [conversationId, markAsInstantlyRead])
+
   // Auto-prompt for push notifications on first visit
   useEffect(() => {
     if (!conversation) return
@@ -1738,12 +1787,20 @@ export default function Chat() {
 
   // Clear badge when user returns to the chat
   useEffect(() => {
-    const handleVisibility = () => {
-      if (document.visibilityState === 'visible') clearUnreadBadge()
+    const handleVisibility = async () => {
+      if (document.visibilityState !== 'visible') return
+      clearUnreadBadge()
+      if (!conversationId) return
+      try {
+        const latestMessages = await listMessages(conversationId)
+        setMessages(latestMessages as Message[])
+      } catch (error) {
+        console.warn('[Chat] Failed to refresh messages on visibilitychange', error)
+      }
     }
     document.addEventListener('visibilitychange', handleVisibility)
     return () => document.removeEventListener('visibilitychange', handleVisibility)
-  }, [])
+  }, [conversationId])
 
   useLayoutEffect(() => {
     if (!initialScrollDone.current && messages.length > 0) {
