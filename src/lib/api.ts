@@ -75,6 +75,40 @@ export async function listAllOwners() {
   }
 }
 
+export interface OwnerListItem {
+  id: string
+  display_name: string
+  avatar_url: string | null
+}
+
+// Returns only the owners the user has been provisioned for (via bundle/single
+// invite). Filters wa_owners by the owner_ids referenced in the user's
+// wa_contacts rows for the given email.
+export async function listOwnersForUser(email: string): Promise<OwnerListItem[]> {
+  const normalizedEmail = email.trim()
+  if (!normalizedEmail) return []
+
+  const { data: contacts, error: contactsError } = await supabase
+    .from('wa_contacts')
+    .select('owner_id')
+    .eq('email', normalizedEmail)
+  if (contactsError) throw contactsError
+
+  const ownerIds = Array.from(
+    new Set((contacts ?? []).map((row) => row.owner_id).filter(Boolean) as string[]),
+  )
+  if (ownerIds.length === 0) return []
+
+  const { data, error } = await supabase
+    .from('wa_owners')
+    .select('id, display_name, avatar_url')
+    .in('id', ownerIds)
+    .is('deleted_at', null)
+    .order('display_name', { ascending: true })
+  if (error) throw error
+  return (data ?? []) as OwnerListItem[]
+}
+
 export async function findOrCreateConversation(ownerId: string, contactId: string) {
   const { data: existing } = await supabase
     .from('wa_conversations')
