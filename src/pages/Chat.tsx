@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { getConversation, listMessages, listPerceptionLogs, sendMessage, listAllOwners, findContactByEmail, findOrCreateConversation, createContactForOwner, findContactByEmailForOwner, findLatestConversationForOwnerAndEmail } from '../lib/api'
+import { getConversation, listMessages, listPerceptionLogs, sendMessage, listAllOwners, listOwnersForUser, findContactByEmail, findOrCreateConversation, createContactForOwner, findContactByEmailForOwner, findLatestConversationForOwnerAndEmail } from '../lib/api'
 import { resolveAvatarUrl } from '../lib/avatars'
 import { t } from '../lib/i18n'
 import {
@@ -1607,7 +1607,10 @@ export default function Chat() {
     setForwardModalOpen(true)
     setForwardLoading(true)
     try {
-      const owners = await listAllOwners()
+      const { supabase } = await import('../lib/supabase')
+      const { data: { user } } = await supabase.auth.getUser()
+      const userEmail = user?.email
+      const owners = userEmail ? await listOwnersForUser(userEmail) : []
       setForwardOwners(owners as Array<{ id: string; display_name: string; avatar_url?: string | null }>)
     } catch {
       setForwardOwners([])

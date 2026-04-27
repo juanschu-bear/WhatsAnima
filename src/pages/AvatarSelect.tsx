@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import {
-  listAllOwners,
+  listOwnersForUser,
   findContactByEmailForOwner,
   findLatestConversationForOwnerAndEmail,
   findOrCreateConversation,
@@ -37,7 +37,13 @@ export default function AvatarSelect() {
   function loadOwners() {
     setLoading(true)
     setError(null)
-    listAllOwners()
+    const userEmail = user?.email
+    if (!userEmail) {
+      setOwners([])
+      setLoading(false)
+      return
+    }
+    listOwnersForUser(userEmail)
       .then((data) => setOwners(data as OwnerOption[]))
       .catch((err) => {
         console.error('Failed to load avatars:', err)
@@ -48,7 +54,8 @@ export default function AvatarSelect() {
 
   useEffect(() => {
     loadOwners()
-  }, [])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.email])
 
   useEffect(() => {
     // Clear transient loading states whenever this route is entered again.
