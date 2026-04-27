@@ -21,6 +21,20 @@ function isJuanLockedOwner(displayName: unknown, email: unknown) {
   )
 }
 
+const PERSONA_SLUG_BY_DISPLAY_NAME: Record<string, string> = {
+  'trace flores': 'public:atlas_persona-1.5-live',
+  'trace flores (haiku)': 'public:atlas_persona-1.5-live',
+  'jordan cash': 'public:cosmo_persona-1.5-live',
+  'jordan cash (haiku)': 'public:cosmo_persona-1.5-live',
+}
+
+function resolvePersonaSlug(displayName: string, settingsSlug: unknown): string | null {
+  const fromSettings = String(settingsSlug || '').trim()
+  if (fromSettings) return fromSettings
+  const normalized = displayName.trim().toLowerCase()
+  return PERSONA_SLUG_BY_DISPLAY_NAME[normalized] || null
+}
+
 function toArray(value: unknown): string[] {
   if (!Array.isArray(value)) return []
   return value.map((item) => String(item ?? '').trim()).filter(Boolean)
@@ -143,6 +157,10 @@ export default async function handler(req: any, res: any) {
     contact_id: contactId || null,
     contact_name: contactName || null,
   }
+  const incomingPersonaSlug = String(body.persona_slug || '').trim()
+  if (incomingPersonaSlug) {
+    requestBody.persona_slug = incomingPersonaSlug
+  }
   const normalizedLanguageCode = normalizeLanguageCode(body.language)
   const languageInstruction = buildLiveLanguageInstruction(normalizedLanguageCode)
   let finalInstruction = languageInstruction
@@ -244,6 +262,22 @@ export default async function handler(req: any, res: any) {
     }
     if (!requestBody.replica_id && ownerReplicaId) {
       requestBody.replica_id = ownerReplicaId
+    }
+
+    const incomingSlug = String(body.persona_slug || '').trim()
+    const resolvedSlug = incomingSlug || resolvePersonaSlug(ownerDisplayName, ownerSettings?.persona_slug)
+    if (resolvedSlug) {
+      requestBody.persona_slug = resolvedSlug
+      console.log('[video-call] persona_slug_resolved', {
+        ownerId,
+        ownerDisplayName: ownerDisplayName || null,
+        personaSlug: resolvedSlug,
+        source: incomingSlug
+          ? 'request'
+          : ownerSettings?.persona_slug
+            ? 'owner_settings'
+            : 'display_name_mapping',
+      })
     }
 
     if (isJuanLockedOwner(ownerDisplayName, ownerEmail)) {
