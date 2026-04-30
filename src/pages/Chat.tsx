@@ -309,6 +309,11 @@ function isPlaceholderContent(message: Message) {
 
 const PLAYBACK_SPEEDS = [0.75, 1, 1.5, 2] as const
 let activeVoiceAudio: HTMLAudioElement | null = null
+type SyncHealth = 'live' | 'syncing' | 'delayed' | 'offline'
+
+function createTraceId(prefix: string) {
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+}
 
 const VoiceMessageBubble = memo(function VoiceMessageBubble({
   isContact,
@@ -1478,7 +1483,11 @@ export default function Chat() {
   const [captionDraft, setCaptionDraft] = useState<CaptionDraft | null>(null)
   const [captionText, setCaptionText] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [errorTrace, setErrorTrace] = useState<{ code: string; traceId: string } | null>(null)
   const [failedMessage, setFailedMessage] = useState<string | null>(null)
+  const [syncHealth, setSyncHealth] = useState<SyncHealth>(navigator.onLine ? 'syncing' : 'offline')
+  const [lastSyncAt, setLastSyncAt] = useState<number | null>(null)
+  const [awayReplyQueue, setAwayReplyQueue] = useState<Array<{ id: string; preview: string }>>([])
   const [transcriptMap, setTranscriptMap] = useState<Record<string, string>>({})
   const [videoTopicsMap, setVideoTopicsMap] = useState<Record<string, string[]>>({})
   const [videoSuggestionsMap, setVideoSuggestionsMap] = useState<Record<string, VideoSuggestion[]>>({})
@@ -1539,7 +1548,10 @@ export default function Chat() {
     conversationId,
     conversation,
     onSending: setSending,
-    onError: setError,
+    onError: (message) => {
+      setError(message)
+      setErrorTrace(message ? { code: 'VOICE_PIPELINE', traceId: createTraceId('VOICE_PIPELINE') } : null)
+    },
     onMessageSent: (msg) => setMessages((current) => [...current, msg as Message]),
     onMessageUpdate: (tempId, updates) => setMessages((current) =>
       current.map((m) => m.id === tempId ? { ...m, ...updates } : m)
@@ -1581,7 +1593,10 @@ export default function Chat() {
     conversationId,
     conversation,
     onSending: setSending,
-    onError: setError,
+    onError: (message) => {
+      setError(message)
+      setErrorTrace(message ? { code: 'VIDEO_PIPELINE', traceId: createTraceId('VIDEO_PIPELINE') } : null)
+    },
     onMessageSent: (msg) => setMessages((current) => [...current, msg as Message]),
     onMessageUpdate: (tempId, updates) => setMessages((current) =>
       current.map((m) => m.id === tempId ? { ...m, ...updates } : m)
@@ -1602,6 +1617,17 @@ export default function Chat() {
     conversation,
     sendAvatarReply: (...args) => sendAvatarReplyRef.current(...args),
   })
+
+  function setUiError(code: string, message: string, details?: unknown) {
+    const traceId = createTraceId(code)
+    if (details) {
+      console.error(`[Chat][${code}][${traceId}]`, details)
+    } else {
+      console.error(`[Chat][${code}][${traceId}]`)
+    }
+    setError(message)
+    setErrorTrace({ code, traceId })
+  }
 
   async function openForwardModal() {
     setForwardModalOpen(true)
@@ -1729,10 +1755,12 @@ export default function Chat() {
         setTranscriptMap(transcripts)
         loadReadAts(msgs as Array<{ id: string; read_at?: string | null }>)
         loadReactions((msgs as Message[]).map((m) => m.id))
+        setLastSyncAt(Date.now())
+        setSyncHealth(navigator.onLine ? 'live' : 'offline')
       })
       .catch((loadError) => {
-        console.error(loadError)
-        setError('Unable to load this conversation.')
+        setUiError('CHAT_LOAD_FAILED', 'Unable to load this conversation.', loadError)
+        setSyncHealth(navigator.onLine ? 'delayed' : 'offline')
       })
       .finally(() => setLoading(false))
   }, [conversationId])
@@ -1762,6 +1790,20 @@ export default function Chat() {
             const incoming = payload.new as Partial<Message> & { id?: string; sender?: string; type?: string }
             if (!incoming?.id || incoming.sender !== 'avatar') return
             const normalized = incoming as Message
+            setLastSyncAt(Date.now())
+            if (navigator.onLine) setSyncHealth('live')
+
+            if (document.visibilityState !== 'visible') {
+              setAwayReplyQueue((current) => {
+                if (current.some((item) => item.id === String(normalized.id))) return current
+                const preview = typeof normalized.content === 'string'
+                  ? normalized.content.slice(0, 80)
+                  : normalized.type === 'voice'
+                    ? 'Voice response received'
+                    : 'New reply received'
+                return [...current, { id: String(normalized.id), preview }]
+              })
+            }
 
             setMessages((current) => {
               if (current.some((message) => message.id === normalized.id)) return current
@@ -1773,7 +1815,15 @@ export default function Chat() {
             }
           }
         )
-        .subscribe()
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            if (navigator.onLine) setSyncHealth('live')
+            return
+          }
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+            setSyncHealth(navigator.onLine ? 'delayed' : 'offline')
+          }
+        })
 
       cleanup = () => {
         void supabase.removeChannel(channel)
@@ -1812,16 +1862,21 @@ export default function Chat() {
 
     const refreshMessages = async (reason: string) => {
       try {
+        setSyncHealth(navigator.onLine ? 'syncing' : 'offline')
         const latestMessages = await listMessages(conversationId)
         setMessages(latestMessages as Message[])
+        setLastSyncAt(Date.now())
+        setSyncHealth(navigator.onLine ? 'live' : 'offline')
       } catch (error) {
         console.warn(`[Chat] Failed to refresh messages on ${reason}`, error)
+        setSyncHealth(navigator.onLine ? 'delayed' : 'offline')
       }
     }
 
     const handleResumeSignal = () => {
       if (document.visibilityState !== 'visible') return
       clearUnreadBadge()
+      setAwayReplyQueue([])
       void refreshMessages('resume-immediate')
       if (delayedRefreshTimer) window.clearTimeout(delayedRefreshTimer)
       delayedRefreshTimer = window.setTimeout(() => {
@@ -1833,11 +1888,13 @@ export default function Chat() {
     const handleFocus = () => handleResumeSignal()
     const handlePageShow = () => handleResumeSignal()
     const handleOnline = () => handleResumeSignal()
+    const handleOffline = () => setSyncHealth('offline')
 
     document.addEventListener('visibilitychange', handleVisibility)
     window.addEventListener('focus', handleFocus)
     window.addEventListener('pageshow', handlePageShow)
     window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
 
     return () => {
       if (delayedRefreshTimer) window.clearTimeout(delayedRefreshTimer)
@@ -1845,6 +1902,7 @@ export default function Chat() {
       window.removeEventListener('focus', handleFocus)
       window.removeEventListener('pageshow', handlePageShow)
       window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
     }
   }, [conversationId])
 
@@ -2321,6 +2379,7 @@ export default function Chat() {
     if (!retryContent) setText('')
     setSending(true)
     setError(null)
+    setErrorTrace(null)
     setFailedMessage(null)
 
     try {
@@ -2330,8 +2389,7 @@ export default function Chat() {
       const replied = await sendAvatarReply(content, { useVoice: false, userMessageId: String((message as Message).id) })
       if (replied) maybeAvatarReact((message as Message).id)
     } catch (sendError: any) {
-      console.error(sendError)
-      setError(sendError?.message || 'Unable to send your message.')
+      setUiError('SEND_TEXT_FAILED', sendError?.message || 'Unable to send your message.', sendError)
       setFailedMessage(content)
     } finally {
       setSending(false)
@@ -2367,29 +2425,46 @@ export default function Chat() {
 
     const { file } = captionDraft
     const caption = captionText.trim()
+    const wantsAvatarReply = caption.length > 0
     closeCaptionDraft()
     setSending(true)
     setError(null)
+    setErrorTrace(null)
 
     try {
-      setAvatarStatus('looking')
+      if (wantsAvatarReply) setAvatarStatus('looking')
       const mediaUrl = await uploadMediaToStorage(conversation!, file)
       if (!mediaUrl) throw new Error('upload failed')
       const message = await sendMessage(conversationId, 'contact', 'image', caption || '[Image]', mediaUrl)
       setMessages((current) => [...current, message as Message])
       simulateAvatarRead((message as Message).id)
-      const imgReplied = await sendAvatarReply(caption || 'The user shared this image.', {
-        useVoice: true,
-        imageUrl: mediaUrl,
-        isImage: true,
-        userMessageId: String((message as Message).id),
-      })
-      if (imgReplied) maybeAvatarReact((message as Message).id)
+      if (wantsAvatarReply) {
+        const imgReplied = await sendAvatarReply(caption, {
+          useVoice: true,
+          imageUrl: mediaUrl,
+          isImage: true,
+          userMessageId: String((message as Message).id),
+        })
+        if (imgReplied) maybeAvatarReact((message as Message).id)
+      } else {
+        // Attachment-only image: ingest in CFO pipeline without forcing an avatar reply.
+        void fetch('/api/cfo-receipt-ingest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            conversationId,
+            ownerId: conversation?.owner_id ?? null,
+            contactId: conversation?.contact_id ?? null,
+            imageUrl: mediaUrl,
+            userMessageId: String((message as Message).id),
+          }),
+        }).catch((ingestErr) => console.warn('[cfo-receipt-ingest] request failed', ingestErr))
+      }
     } catch (draftError: any) {
-      console.error(draftError)
-      setError(draftError?.message || 'Unable to send this image.')
+      setUiError('SEND_IMAGE_FAILED', draftError?.message || 'Unable to send this image.', draftError)
       setAvatarStatus(null)
     } finally {
+      if (!wantsAvatarReply) setAvatarStatus(null)
       setSending(false)
     }
   }
@@ -2399,7 +2474,7 @@ export default function Chat() {
     event.target.value = ''
     if (!file) return
     if (!file.type.startsWith('image/')) {
-      setError('Please choose an image file.')
+      setUiError('INVALID_IMAGE_TYPE', 'Please choose an image file.')
       return
     }
     openCaptionDraft(file)
@@ -2450,6 +2525,25 @@ export default function Chat() {
   const openYouTubeLabel = uiLanguage === 'de' ? 'YouTube öffnen' : uiLanguage === 'es' ? 'Abrir video en YouTube' : 'Open YouTube video'
   const videoTopicsLabel = uiLanguage === 'de' ? 'Video-Themen' : uiLanguage === 'es' ? 'Temas de video' : 'Video Topics'
   const videosFoundLabel = uiLanguage === 'de' ? 'Videos gefunden' : uiLanguage === 'es' ? 'Videos encontrados' : 'Videos Found'
+  const syncLabel =
+    syncHealth === 'offline'
+      ? 'Offline'
+      : syncHealth === 'delayed'
+        ? 'Delayed'
+        : syncHealth === 'syncing'
+          ? 'Syncing'
+          : 'Live'
+  const syncBadgeClass =
+    syncHealth === 'offline'
+      ? 'border-red-400/35 bg-red-500/12 text-red-200'
+      : syncHealth === 'delayed'
+        ? 'border-amber-400/35 bg-amber-500/12 text-amber-200'
+        : syncHealth === 'syncing'
+          ? 'border-sky-400/35 bg-sky-500/12 text-sky-200'
+          : 'border-emerald-400/35 bg-emerald-500/12 text-emerald-200'
+  const lastSyncLabel = lastSyncAt
+    ? `${Math.max(0, Math.floor((Date.now() - lastSyncAt) / 1000))}s`
+    : 'never'
   const filteredRailOwners = railOwners.filter((ownerItem) =>
     ownerItem.display_name.toLowerCase().includes(avatarSearch.trim().toLowerCase())
   )
@@ -2484,8 +2578,7 @@ export default function Chat() {
       const newConversationId = await findOrCreateConversation(ownerId, contact.id)
       navigate(`/chat/${newConversationId}`, { replace: true })
     } catch (switchError) {
-      console.error('Avatar switch failed:', switchError)
-      setError('Unable to switch avatar chat right now.')
+      setUiError('AVATAR_SWITCH_FAILED', 'Unable to switch avatar chat right now.', switchError)
     } finally {
       setSwitchingOwnerId(null)
     }
@@ -2595,7 +2688,12 @@ export default function Chat() {
               </div>
               <div className="min-w-0 flex-1">
                 <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em] text-white">{owner.display_name}</h1>
-                <p className="text-xs text-[#00d4a1]/80">{avatarStatus ? 'online' : 'online'}</p>
+                <div className="mt-0.5 flex items-center gap-2">
+                  <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${syncBadgeClass}`}>
+                    {syncLabel}
+                  </span>
+                  <span className="text-[10px] text-white/40">sync {lastSyncLabel}</span>
+                </div>
               </div>
             </button>
             {/* Video call */}
@@ -2656,6 +2754,20 @@ export default function Chat() {
         onClick={() => closeEmojiPicker()}
       >
         <div className={`mx-auto flex w-full flex-col gap-2.5 ${isDesktopLayout ? 'max-w-[680px] py-5' : 'max-w-2xl'}`}>
+          {awayReplyQueue.length > 0 && (
+            <div className="sticky top-1 z-20 flex justify-center">
+              <button
+                type="button"
+                onClick={() => {
+                  setAwayReplyQueue([])
+                  messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+                }}
+                className="rounded-full border border-[#78f0de]/35 bg-[rgba(11,38,44,0.92)] px-4 py-1.5 text-xs font-medium text-[#9af8ea] shadow-[0_12px_30px_rgba(0,0,0,0.3)] backdrop-blur-xl"
+              >
+                {awayReplyQueue.length} new {awayReplyQueue.length === 1 ? 'reply' : 'replies'} while you were away
+              </button>
+            </div>
+          )}
           {groupedTimeline.map((item) => {
             if (item.kind === 'date') {
               return (
@@ -3011,6 +3123,20 @@ export default function Chat() {
       {error ? (
         <div className="relative z-10 border-t border-white/8 bg-[#101b28]/88 px-4 py-2 text-center text-sm text-red-300 backdrop-blur-xl">
           <span>{error}</span>
+          {errorTrace ? (
+            <div className="mt-1 flex items-center justify-center gap-2 text-[11px] text-red-200/90">
+              <span>{errorTrace.code}</span>
+              <span className="text-red-100/50">·</span>
+              <span className="font-mono">{errorTrace.traceId}</span>
+              <button
+                type="button"
+                onClick={() => void navigator.clipboard.writeText(`${errorTrace.code}:${errorTrace.traceId}`)}
+                className="rounded-full border border-red-300/30 px-2 py-0.5 text-[10px] font-medium text-red-100 transition hover:bg-red-500/15"
+              >
+                Copy ID
+              </button>
+            </div>
+          ) : null}
           {failedMessage ? (
             <button
               type="button"
