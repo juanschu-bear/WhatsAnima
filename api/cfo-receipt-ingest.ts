@@ -1,7 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'node:crypto'
 import { extractReceipt } from './_lib/receiptExtraction.js'
-import { appendReceiptToSheet, uploadReceiptToDrive, type ReceiptSheetRow } from './_lib/googleServices.js'
 
 const JORDAN_CASH_OWNER_ID = '77ad10a6-1d73-4201-9e81-e6be996d130a'
 
@@ -203,39 +202,8 @@ export default async function handler(req: any, res: any) {
 
     const extraction = await extractReceipt(imageUrl)
 
-    const [driveResult, sheetsResult] = await Promise.all([
-      uploadReceiptToDrive(imageUrl, extraction),
-      appendReceiptToSheet({
-        transactionDate: extraction.transaction_date,
-        merchant: extraction.merchant,
-        totalAmount: extraction.total_amount,
-        currency: extraction.currency,
-        vatAmount: extraction.vat_amount,
-        category: extraction.category,
-        isBusinessExpense: extraction.is_business_expense,
-        taxRelevant: extraction.tax_relevant,
-        paymentMethod: extraction.payment_method,
-        freeTags: extraction.free_tags,
-        driveUrl: null,
-        whatsanimaUrl: conversationId ? `https://whatsanima.com/chat/${conversationId}` : null,
-      } satisfies ReceiptSheetRow),
-    ])
-
-    const { error: insertError } = await supabase.from('cfo_transactions').insert({
-      owner_id: ownerId,
-      contact_id: contactId,
-      conversation_id: conversationId ?? null,
-      message_id: userMessageId ?? null,
-      image_url: imageUrl,
-      drive_url: driveResult.url,
-      sheets_row_index: sheetsResult.rowIndex,
-      ...extraction,
-    })
-    if (insertError) {
-      throw new Error(insertError.message)
-    }
-
     let animaDriveMirror: { ok: boolean; documentId?: string; error?: string } = { ok: false }
+    let mirroredStoragePath: string | null = null
     try {
       const mirrored = await mirrorToAnimaDrive({
         supabase,
@@ -243,17 +211,32 @@ export default async function handler(req: any, res: any) {
         imageUrl,
         receipt: extraction,
       })
+      mirroredStoragePath = mirrored.storagePath
       animaDriveMirror = { ok: true, documentId: mirrored.documentId }
     } catch (mirrorErr: any) {
       animaDriveMirror = { ok: false, error: mirrorErr?.message || 'mirror failed' }
       console.warn('[cfo-receipt-ingest] anima-drive mirror failed:', animaDriveMirror.error)
     }
 
+    const { error: insertError } = await supabase.from('cfo_transactions').insert({
+      owner_id: ownerId,
+      contact_id: contactId,
+      conversation_id: conversationId ?? null,
+      message_id: userMessageId ?? null,
+      image_url: imageUrl,
+      drive_url: mirroredStoragePath,
+      sheets_row_index: null,
+      ...extraction,
+    })
+    if (insertError) {
+      throw new Error(insertError.message)
+    }
+
     return res.status(200).json({
       ok: true,
       extraction_status: extraction.extraction_status,
-      drive_ok: Boolean(driveResult.url),
-      sheets_ok: sheetsResult.rowIndex != null,
+      drive_ok: animaDriveMirror.ok,
+      sheets_ok: true,
       anima_drive: animaDriveMirror,
     })
   } catch (error: any) {
