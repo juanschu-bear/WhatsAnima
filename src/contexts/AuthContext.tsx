@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { supabase } from '../lib/supabase'
 import type { Session, User } from '@supabase/supabase-js'
+import { consumeSsoFromUrl } from '../lib/sso'
 
 interface AuthContextType {
   session: Session | null
@@ -16,6 +17,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    consumeSsoFromUrl().catch(() => undefined)
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
     }).catch((err) => {
