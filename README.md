@@ -73,8 +73,8 @@ cp .env.example .env
 Fill in your credentials in `.env`:
 
 ```
-VITE_SUPABASE_URL=https://wofklmwbokdjoqlstjmy.supabase.co
-VITE_SUPABASE_ANON_KEY=your_anon_key_here
+SUPABASE_URL=https://wofklmwbokdjoqlstjmy.supabase.co
+SUPABASE_ANON_KEY=your_anon_key_here
 ```
 
 ### 4. Run locally
@@ -89,8 +89,10 @@ npm run dev
 
 | Variable | Description |
 |---|---|
-| `VITE_SUPABASE_URL` | WhatsAnima Supabase project URL |
-| `VITE_SUPABASE_ANON_KEY` | Supabase anon/public key |
+| `SUPABASE_URL` | WhatsAnima Supabase project URL (canonical) |
+| `SUPABASE_ANON_KEY` | Supabase anon/public key (canonical) |
+
+Compatibility aliases are supported: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`.
 
 ---
 

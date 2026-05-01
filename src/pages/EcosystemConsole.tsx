@@ -48,7 +48,7 @@ export default function EcosystemConsole() {
             >
               <div className="text-lg font-semibold">{app.name}</div>
               <div className="mt-2 text-sm text-white/70">{app.desc}</div>
-              <div className="mt-4 text-emerald-300 text-sm">Open -></div>
+              <div className="mt-4 text-emerald-300 text-sm">{"Open ->"}</div>
             </a>
           ))}
         </div>
@@ -56,4 +56,3 @@ export default function EcosystemConsole() {
     </div>
   )
 }
-

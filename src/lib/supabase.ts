@@ -1,12 +1,19 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
+const runtimeEnv = (globalThis as any).__ANIMA_ENV__ ?? {}
+const supabaseUrl =
+  (import.meta.env.VITE_SUPABASE_URL as string | undefined) ||
+  (import.meta.env.VITE_PUBLIC_SUPABASE_URL as string | undefined) ||
+  runtimeEnv.SUPABASE_URL
+const supabaseAnonKey =
+  (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ||
+  (import.meta.env.VITE_PUBLIC_SUPABASE_ANON_KEY as string | undefined) ||
+  runtimeEnv.SUPABASE_ANON_KEY
 
 function createSupabaseClient(): SupabaseClient {
   if (!supabaseUrl || !supabaseAnonKey) {
     console.error(
-      'Missing Supabase environment variables (VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY). ' +
+      'Missing Supabase environment variables (SUPABASE_URL, SUPABASE_ANON_KEY or VITE aliases). ' +
       'Database features will not work.'
     )
     return createClient('https://placeholder.supabase.co', 'placeholder')
