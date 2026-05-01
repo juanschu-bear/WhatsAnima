@@ -2438,6 +2438,22 @@ export default function Chat() {
       const message = await sendMessage(conversationId, 'contact', 'image', caption || '[Image]', mediaUrl)
       setMessages((current) => [...current, message as Message])
       simulateAvatarRead((message as Message).id)
+      // Always run CFO receipt ingest for Jordan pipeline, regardless of caption.
+      // Avatar reply remains gated by caption presence below.
+      void fetch('/api/cfo-receipt-ingest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversationId,
+          ownerId: conversation?.owner_id ?? null,
+          contactId: conversation?.contact_id ?? null,
+          imageUrl: mediaUrl,
+          userMessageId: String((message as Message).id),
+          caption: caption || null,
+          wantsAvatarReply,
+        }),
+      }).catch((ingestErr) => console.warn('[cfo-receipt-ingest] request failed', ingestErr))
+
       if (wantsAvatarReply) {
         const imgReplied = await sendAvatarReply(caption, {
           useVoice: true,
@@ -2446,19 +2462,6 @@ export default function Chat() {
           userMessageId: String((message as Message).id),
         })
         if (imgReplied) maybeAvatarReact((message as Message).id)
-      } else {
-        // Attachment-only image: ingest in CFO pipeline without forcing an avatar reply.
-        void fetch('/api/cfo-receipt-ingest', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            conversationId,
-            ownerId: conversation?.owner_id ?? null,
-            contactId: conversation?.contact_id ?? null,
-            imageUrl: mediaUrl,
-            userMessageId: String((message as Message).id),
-          }),
-        }).catch((ingestErr) => console.warn('[cfo-receipt-ingest] request failed', ingestErr))
       }
     } catch (draftError: any) {
       setUiError('SEND_IMAGE_FAILED', draftError?.message || 'Unable to send this image.', draftError)
