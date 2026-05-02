@@ -20,6 +20,10 @@ function allowedOwnerIds(): Set<string> {
   return new Set([DEFAULT_JORDAN_OWNER_ID, ...fromCsv, ...(fromSingle ? [fromSingle] : [])])
 }
 
+function ownerLooksLikeJordan(ownerName: string | null | undefined): boolean {
+  return String(ownerName || '').toLowerCase().includes('jordan')
+}
+
 function parseAmountAndCurrency(input: string): { amount: number | null; currency: string } {
   const text = String(input || '')
   const match = text.match(/(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{1,2})|\d+(?:[.,]\d{1,2})?)\s*(€|eur|usd|\$|try|₺|lira)/i)
@@ -165,10 +169,6 @@ export default async function handler(req: any, res: any) {
     return res.status(400).json({ error: 'conversationId, ownerId, contactId and text are required' })
   }
 
-  if (!allowedOwnerIds().has(ownerId)) {
-    return res.status(200).json({ ok: true, skipped: 'owner-not-allowed' })
-  }
-
   const shortText = String(text).trim().slice(0, 500)
   if (!shortText) return res.status(400).json({ error: 'text cannot be empty' })
 
@@ -188,9 +188,13 @@ export default async function handler(req: any, res: any) {
 
     const { data: ownerRow } = await supabase
       .from('wa_owners')
-      .select('id, user_id')
+      .select('id, user_id, display_name')
       .eq('id', ownerId)
       .maybeSingle()
+
+    if (!allowedOwnerIds().has(ownerId) && !ownerLooksLikeJordan(ownerRow?.display_name)) {
+      return res.status(200).json({ ok: true, skipped: 'owner-not-allowed' })
+    }
 
     let mirroredStoragePath: string | null = null
     if (ownerRow?.user_id) {

@@ -316,7 +316,7 @@ function createTraceId(prefix: string) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 }
 
-function isCfoOwner(ownerId?: string | null) {
+function isCfoOwner(ownerId?: string | null, ownerName?: string | null) {
   if (!ownerId) return false
   const csv = String((import.meta as any).env?.VITE_CFO_OWNER_IDS || '')
     .split(',')
@@ -324,7 +324,8 @@ function isCfoOwner(ownerId?: string | null) {
     .filter(Boolean)
   const single = String((import.meta as any).env?.VITE_CFO_OWNER_ID || '').trim()
   const allowed = new Set([DEFAULT_JORDAN_OWNER_ID, ...csv, ...(single ? [single] : [])])
-  return allowed.has(ownerId)
+  if (allowed.has(ownerId)) return true
+  return String(ownerName || '').toLowerCase().includes('jordan')
 }
 
 function hasFinancialMarkers(text: string) {
@@ -360,8 +361,8 @@ function hasEmotionCue(text: string) {
   return cues.some((cue) => lower.includes(cue))
 }
 
-function shouldUseCfoLogOnly(ownerId: string | null | undefined, text: string) {
-  if (!isCfoOwner(ownerId)) return false
+function shouldUseCfoLogOnly(ownerId: string | null | undefined, ownerName: string | null | undefined, text: string) {
+  if (!isCfoOwner(ownerId, ownerName)) return false
   if (!hasFinancialMarkers(text)) return false
   if (hasQuestionOrRequest(text)) return false
   if (hasEmotionCue(text)) return false
@@ -2560,7 +2561,11 @@ export default function Chat() {
         }
       }
 
-      const logOnly = shouldUseCfoLogOnly(conversation?.owner_id, content)
+      const logOnly = shouldUseCfoLogOnly(
+        conversation?.owner_id,
+        conversation?.wa_owners?.display_name ?? null,
+        content,
+      )
       if (logOnly) {
         try {
           const ingestRes = await fetch('/api/cfo-financial-turn', {
