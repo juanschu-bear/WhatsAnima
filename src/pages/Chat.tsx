@@ -375,6 +375,37 @@ function buildCfoAck(text: string): string {
   return 'Noted. I registered this in your CFO Intelligence feed.'
 }
 
+function isAffirmative(text: string) {
+  const value = text.trim().toLowerCase()
+  return ['ja', 'yes', 'y', 'sí', 'si', 'claro', 'sure', 'ok'].includes(value)
+}
+
+function isNegative(text: string) {
+  const value = text.trim().toLowerCase()
+  return ['nein', 'no', 'n', 'nop', 'nope'].includes(value)
+}
+
+function buildReceiptChoicePrompt(text: string): string {
+  const lang = inferLanguageFromText(text)
+  if (lang === 'de') return 'Hast du eine Quittung oder Rechnung dazu? Antworte mit: JA oder NEIN.'
+  if (lang === 'es') return '¿Tienes recibo o factura de eso? Responde con: SÍ o NO.'
+  return 'Do you have a receipt or invoice for this? Reply with: YES or NO.'
+}
+
+function buildManualDetailsPrompt(text: string): string {
+  const lang = inferLanguageFromText(text)
+  if (lang === 'de') return 'Alles klar. Dann gib mir bitte in einer Nachricht: Betrag, Währung, Verwendungszweck, Datum.'
+  if (lang === 'es') return 'Perfecto. Envíame en un solo mensaje: monto, moneda, concepto y fecha.'
+  return 'Perfect. Send in one message: amount, currency, purpose, and date.'
+}
+
+function buildManualCreatedAck(text: string): string {
+  const lang = inferLanguageFromText(text)
+  if (lang === 'de') return 'Erledigt. Ich habe einen selbst erstellten Beleg angelegt und in CFO Intelligence synchronisiert.'
+  if (lang === 'es') return 'Listo. Ya creé un comprobante manual y lo sincronizé en CFO Intelligence.'
+  return 'Done. I created a manual voucher and synced it to CFO Intelligence.'
+}
+
 const VoiceMessageBubble = memo(function VoiceMessageBubble({
   isContact,
   message,
@@ -1552,6 +1583,10 @@ export default function Chat() {
   const [videoTopicsMap, setVideoTopicsMap] = useState<Record<string, string[]>>({})
   const [videoSuggestionsMap, setVideoSuggestionsMap] = useState<Record<string, VideoSuggestion[]>>({})
   const [mediaMenuOpen, setMediaMenuOpen] = useState(false)
+  const [cfoIntakeState, setCfoIntakeState] = useState<null | {
+    step: 'awaiting_receipt_choice' | 'awaiting_manual_details'
+    seedText: string
+  }>(null)
   const [isDesktopLayout, setIsDesktopLayout] = useState(false)
   const [railOwners, setRailOwners] = useState<Array<{ id: string; display_name: string; avatar_url?: string | null; last_message_text: string | null; last_message_at: string | null }>>([])
   const [switchingOwnerId, setSwitchingOwnerId] = useState<string | null>(null)
@@ -2456,6 +2491,75 @@ export default function Chat() {
       setMessages((current) => [...current, message as Message])
       simulateAvatarRead((message as Message).id)
       const messageId = String((message as Message).id)
+
+      if (cfoIntakeState?.step === 'awaiting_receipt_choice') {
+        if (isAffirmative(content)) {
+          const follow = await sendMessage(
+            conversationId,
+            'avatar',
+            'system',
+            inferLanguageFromText(content) === 'de'
+              ? 'Top. Schick mir bitte die Quittung als Foto, dann erfasse ich sie automatisch.'
+              : inferLanguageFromText(content) === 'es'
+                ? 'Perfecto. Envíame la foto del recibo y lo registro automáticamente.'
+                : 'Great. Send me a photo of the receipt and I will register it automatically.',
+          )
+          setMessages((current) => [...current, follow as Message])
+          markAsInstantlyRead(String((follow as Message).id))
+          setCfoIntakeState(null)
+          return
+        }
+        if (isNegative(content)) {
+          const follow = await sendMessage(conversationId, 'avatar', 'system', buildManualDetailsPrompt(cfoIntakeState.seedText))
+          setMessages((current) => [...current, follow as Message])
+          markAsInstantlyRead(String((follow as Message).id))
+          setCfoIntakeState((current) =>
+            current
+              ? { ...current, step: 'awaiting_manual_details' }
+              : null
+          )
+          return
+        }
+        const follow = await sendMessage(
+          conversationId,
+          'avatar',
+          'system',
+          inferLanguageFromText(content) === 'de'
+            ? 'Bitte antworte nur mit JA oder NEIN.'
+            : inferLanguageFromText(content) === 'es'
+              ? 'Por favor responde solo con SÍ o NO.'
+              : 'Please reply with YES or NO only.',
+        )
+        setMessages((current) => [...current, follow as Message])
+        markAsInstantlyRead(String((follow as Message).id))
+        return
+      }
+
+      if (cfoIntakeState?.step === 'awaiting_manual_details') {
+        try {
+          const ingestRes = await fetch('/api/cfo-financial-turn', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              conversationId,
+              ownerId: conversation?.owner_id ?? null,
+              contactId: conversation?.contact_id ?? null,
+              userMessageId: messageId,
+              text: `${cfoIntakeState.seedText}\nManual details: ${content}`,
+            }),
+          })
+          if (ingestRes.ok) {
+            const follow = await sendMessage(conversationId, 'avatar', 'system', buildManualCreatedAck(content))
+            setMessages((current) => [...current, follow as Message])
+            markAsInstantlyRead(String((follow as Message).id))
+            setCfoIntakeState(null)
+            return
+          }
+        } catch (manualErr) {
+          console.warn('[cfo-financial-turn] manual details ingest failed:', manualErr)
+        }
+      }
+
       const logOnly = shouldUseCfoLogOnly(conversation?.owner_id, content)
       if (logOnly) {
         try {
@@ -2471,9 +2575,17 @@ export default function Chat() {
             }),
           })
           if (ingestRes.ok) {
-            const ack = await sendMessage(conversationId, 'avatar', 'system', buildCfoAck(content))
-            setMessages((current) => [...current, ack as Message])
+            const [ack, choice] = await Promise.all([
+              sendMessage(conversationId, 'avatar', 'system', buildCfoAck(content)),
+              sendMessage(conversationId, 'avatar', 'system', buildReceiptChoicePrompt(content)),
+            ])
+            setMessages((current) => [...current, ack as Message, choice as Message])
             markAsInstantlyRead(String((ack as Message).id))
+            markAsInstantlyRead(String((choice as Message).id))
+            setCfoIntakeState({
+              step: 'awaiting_receipt_choice',
+              seedText: content,
+            })
             return
           }
         } catch (ingestErr) {
