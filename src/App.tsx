@@ -36,11 +36,7 @@ export default function App() {
           <Route path="/opm-monitor" element={<OPMPerceptionPanelPreviewScreen />} />
           <Route
             path="/console"
-            element={
-              <ProtectedRoute>
-                <EcosystemConsole />
-              </ProtectedRoute>
-            }
+            element={<EcosystemConsole />}
           />
           <Route
             path="/avatars"
