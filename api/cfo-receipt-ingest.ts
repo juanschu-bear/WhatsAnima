@@ -4,6 +4,16 @@ import { extractReceipt } from './_lib/receiptExtraction.js'
 
 const JORDAN_CASH_OWNER_ID = '77ad10a6-1d73-4201-9e81-e6be996d130a'
 
+function allowedOwnerIds(): string[] {
+  const fromCsv = String(process.env.CFO_OWNER_IDS || '')
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean)
+  const fromSingle = String(process.env.CFO_OWNER_ID || '').trim()
+  const merged = [...fromCsv, ...(fromSingle ? [fromSingle] : []), JORDAN_CASH_OWNER_ID]
+  return [...new Set(merged)]
+}
+
 function getSupabaseAdmin() {
   const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY
@@ -177,8 +187,14 @@ export default async function handler(req: any, res: any) {
     return res.status(400).json({ error: 'ownerId, contactId and imageUrl are required' })
   }
 
-  if (ownerId !== JORDAN_CASH_OWNER_ID) {
-    return res.status(200).json({ ok: true, skipped: 'non-jordan-owner' })
+  const allowedOwners = allowedOwnerIds()
+  if (!allowedOwners.includes(ownerId)) {
+    return res.status(200).json({
+      ok: true,
+      skipped: 'owner-not-allowed',
+      ownerId,
+      allowedOwners,
+    })
   }
 
   const { client: supabase, missing } = getSupabaseAdmin()
@@ -199,6 +215,13 @@ export default async function handler(req: any, res: any) {
         return res.status(200).json({ ok: true, deduplicated: true })
       }
     }
+
+    console.info('[cfo-receipt-ingest] start', {
+      ownerId,
+      contactId,
+      conversationId: conversationId ?? null,
+      userMessageId: userMessageId ?? null,
+    })
 
     const extraction = await extractReceipt(imageUrl)
 
@@ -231,6 +254,15 @@ export default async function handler(req: any, res: any) {
     if (insertError) {
       throw new Error(insertError.message)
     }
+
+    console.info('[cfo-receipt-ingest] stored transaction', {
+      ownerId,
+      contactId,
+      conversationId: conversationId ?? null,
+      drive_ok: animaDriveMirror.ok,
+      mirroredStoragePath,
+      extraction_status: extraction.extraction_status,
+    })
 
     return res.status(200).json({
       ok: true,

@@ -1771,6 +1771,7 @@ export default function Chat() {
     if (!conversationId) return
     let cleanup = () => {}
     let cancelled = false
+    let closingIntentional = false
 
     void (async () => {
       const { supabase } = await import('../lib/supabase')
@@ -1816,16 +1817,24 @@ export default function Chat() {
           }
         )
         .subscribe((status) => {
+          if (cancelled) return
           if (status === 'SUBSCRIBED') {
             if (navigator.onLine) setSyncHealth('live')
             return
           }
-          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
             setSyncHealth(navigator.onLine ? 'delayed' : 'offline')
+            return
+          }
+          if (status === 'CLOSED') {
+            if (!closingIntentional) {
+              setSyncHealth(navigator.onLine ? 'delayed' : 'offline')
+            }
           }
         })
 
       cleanup = () => {
+        closingIntentional = true
         void supabase.removeChannel(channel)
       }
     })()
@@ -2440,19 +2449,49 @@ export default function Chat() {
       simulateAvatarRead((message as Message).id)
       // Always run CFO receipt ingest for Jordan pipeline, regardless of caption.
       // Avatar reply remains gated by caption presence below.
-      void fetch('/api/cfo-receipt-ingest', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          conversationId,
-          ownerId: conversation?.owner_id ?? null,
-          contactId: conversation?.contact_id ?? null,
-          imageUrl: mediaUrl,
-          userMessageId: String((message as Message).id),
-          caption: caption || null,
-          wantsAvatarReply,
-        }),
-      }).catch((ingestErr) => console.warn('[cfo-receipt-ingest] request failed', ingestErr))
+      const ingestPayload = {
+        conversationId,
+        ownerId: conversation?.owner_id ?? null,
+        contactId: conversation?.contact_id ?? null,
+        imageUrl: mediaUrl,
+        userMessageId: String((message as Message).id),
+        caption: caption || null,
+        wantsAvatarReply,
+      }
+      void (async () => {
+        let lastError: unknown = null
+        for (let attempt = 1; attempt <= 2; attempt += 1) {
+          try {
+            const response = await fetch('/api/cfo-receipt-ingest', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(ingestPayload),
+            })
+            const body = await response.json().catch(() => ({}))
+            if (!response.ok) {
+              throw new Error(
+                body?.error
+                  ? `HTTP ${response.status}: ${String(body.error)}`
+                  : `HTTP ${response.status}: ingest failed`
+              )
+            }
+            if (body?.skipped) {
+              console.warn('[cfo-receipt-ingest] skipped', body)
+            } else {
+              console.info('[cfo-receipt-ingest] success', {
+                drive_ok: body?.drive_ok,
+                sheets_ok: body?.sheets_ok,
+                extraction_status: body?.extraction_status,
+              })
+            }
+            return
+          } catch (ingestErr) {
+            lastError = ingestErr
+            if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 900))
+          }
+        }
+        console.warn('[cfo-receipt-ingest] request failed after retry', lastError)
+      })()
 
       if (wantsAvatarReply) {
         const imgReplied = await sendAvatarReply(caption, {
