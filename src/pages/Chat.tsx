@@ -310,9 +310,69 @@ function isPlaceholderContent(message: Message) {
 const PLAYBACK_SPEEDS = [0.75, 1, 1.5, 2] as const
 let activeVoiceAudio: HTMLAudioElement | null = null
 type SyncHealth = 'live' | 'syncing' | 'delayed' | 'offline'
+const DEFAULT_JORDAN_OWNER_ID = '77ad10a6-1d73-4201-9e81-e6be996d130a'
 
 function createTraceId(prefix: string) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function isCfoOwner(ownerId?: string | null) {
+  if (!ownerId) return false
+  const csv = String((import.meta as any).env?.VITE_CFO_OWNER_IDS || '')
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean)
+  const single = String((import.meta as any).env?.VITE_CFO_OWNER_ID || '').trim()
+  const allowed = new Set([DEFAULT_JORDAN_OWNER_ID, ...csv, ...(single ? [single] : [])])
+  return allowed.has(ownerId)
+}
+
+function hasFinancialMarkers(text: string) {
+  const lower = text.toLowerCase()
+  const keywords = [
+    'receipt', 'invoice', 'bill', 'expense', 'spend', 'spent', 'cost', 'budget', 'cashflow', 'profit', 'loss', 'tax', 'vat', 'payment', 'transaction',
+    'quittung', 'rechnung', 'ausgabe', 'kosten', 'budget', 'gewinn', 'verlust', 'steuer', 'mwst', 'zahlung', 'umsatz',
+    'recibo', 'factura', 'gasto', 'coste', 'costo', 'presupuesto', 'flujo', 'impuesto', 'iva', 'pago', 'transacción',
+    'lira', 'eur', 'usd', 'try', '$', '€', '₺',
+  ]
+  if (keywords.some((token) => lower.includes(token))) return true
+  return /(?:\d+[.,]?\d*)\s?(?:eur|usd|try|€|\$|₺)/i.test(text)
+}
+
+function hasQuestionOrRequest(text: string) {
+  const lower = text.toLowerCase()
+  if (text.includes('?') || lower.includes('¿')) return true
+  const patterns = [
+    'what do you think', 'should i', 'can you', 'please', 'analyze', 'advise', 'recommend', 'help me',
+    'was meinst du', 'soll ich', 'kannst du', 'analysier', 'empfiehl', 'hilf mir',
+    'qué opinas', 'que opinas', 'debería', 'deberia', 'puedes', 'analiza', 'recomienda', 'ayúdame', 'ayudame',
+  ]
+  return patterns.some((p) => lower.includes(p))
+}
+
+function hasEmotionCue(text: string) {
+  const lower = text.toLowerCase()
+  const cues = [
+    'stressed', 'anxious', 'worried', 'scared', 'panic', 'overwhelmed',
+    'gestresst', 'sorge', 'ängstlich', 'nervös', 'überfordert',
+    'estresado', 'ansioso', 'preocupado', 'miedo', 'pánico', 'agobiado',
+  ]
+  return cues.some((cue) => lower.includes(cue))
+}
+
+function shouldUseCfoLogOnly(ownerId: string | null | undefined, text: string) {
+  if (!isCfoOwner(ownerId)) return false
+  if (!hasFinancialMarkers(text)) return false
+  if (hasQuestionOrRequest(text)) return false
+  if (hasEmotionCue(text)) return false
+  return true
+}
+
+function buildCfoAck(text: string): string {
+  const lang = inferLanguageFromText(text)
+  if (lang === 'de') return 'Vermerkt. Ich habe das im CFO-Intelligence-Feed registriert.'
+  if (lang === 'es') return 'Perfecto, ya quedó registrado en el feed de CFO Intelligence.'
+  return 'Noted. I registered this in your CFO Intelligence feed.'
 }
 
 const VoiceMessageBubble = memo(function VoiceMessageBubble({
@@ -2395,7 +2455,32 @@ export default function Chat() {
       const message = await sendMessage(conversationId, 'contact', 'text', content)
       setMessages((current) => [...current, message as Message])
       simulateAvatarRead((message as Message).id)
-      const replied = await sendAvatarReply(content, { useVoice: false, userMessageId: String((message as Message).id) })
+      const messageId = String((message as Message).id)
+      const logOnly = shouldUseCfoLogOnly(conversation?.owner_id, content)
+      if (logOnly) {
+        try {
+          const ingestRes = await fetch('/api/cfo-financial-turn', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              conversationId,
+              ownerId: conversation?.owner_id ?? null,
+              contactId: conversation?.contact_id ?? null,
+              userMessageId: messageId,
+              text: content,
+            }),
+          })
+          if (ingestRes.ok) {
+            const ack = await sendMessage(conversationId, 'avatar', 'system', buildCfoAck(content))
+            setMessages((current) => [...current, ack as Message])
+            markAsInstantlyRead(String((ack as Message).id))
+            return
+          }
+        } catch (ingestErr) {
+          console.warn('[cfo-financial-turn] log-only ingest failed, falling back to normal reply:', ingestErr)
+        }
+      }
+      const replied = await sendAvatarReply(content, { useVoice: false, userMessageId: messageId })
       if (replied) maybeAvatarReact((message as Message).id)
     } catch (sendError: any) {
       setUiError('SEND_TEXT_FAILED', sendError?.message || 'Unable to send your message.', sendError)
