@@ -17,14 +17,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    consumeSsoFromUrl().catch(() => undefined)
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session)
-    }).catch((err) => {
-      console.error('Auth session error:', err)
-    }).finally(() => {
-      setLoading(false)
-    })
+    ;(async () => {
+      try {
+        await consumeSsoFromUrl()
+        const { data: { session } } = await supabase.auth.getSession()
+        setSession(session)
+      } catch (err) {
+        console.error('Auth session error:', err)
+      } finally {
+        setLoading(false)
+      }
+    })()
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, session) => {

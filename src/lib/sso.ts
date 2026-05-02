@@ -27,15 +27,25 @@ export function buildSsoLaunchUrl(baseUrl: string, session: Session | null): str
     exp: Date.now() + 2 * 60 * 1000,
   }
   const token = b64UrlEncode(JSON.stringify(payload))
-  return `${target}/#sso=${encodeURIComponent(token)}`
+  // Include token in both query and hash to survive strict redirects/proxies.
+  return `${target}/?sso=${encodeURIComponent(token)}#sso=${encodeURIComponent(token)}`
+}
+
+function extractSsoToken(): string | null {
+  const hash = window.location.hash || ''
+  const hashMatch = hash.match(/(?:^#|[?&])sso=([^&]+)/)
+  if (hashMatch?.[1]) return hashMatch[1]
+  const search = window.location.search || ''
+  const queryMatch = search.match(/(?:^\?|&)sso=([^&]+)/)
+  if (queryMatch?.[1]) return queryMatch[1]
+  return null
 }
 
 export async function consumeSsoFromUrl(): Promise<void> {
   try {
-    const hash = window.location.hash || ''
-    const m = hash.match(/(?:^#|[?&])sso=([^&]+)/)
-    if (!m?.[1]) return
-    const decoded = JSON.parse(b64UrlDecode(decodeURIComponent(m[1]))) as SsoPayload
+    const token = extractSsoToken()
+    if (!token) return
+    const decoded = JSON.parse(b64UrlDecode(decodeURIComponent(token))) as SsoPayload
     if (!decoded?.access_token || !decoded?.refresh_token) return
     if (!decoded?.exp || Date.now() > decoded.exp) return
     await supabase.auth.setSession({
@@ -45,9 +55,13 @@ export async function consumeSsoFromUrl(): Promise<void> {
   } catch (e) {
     console.warn('[sso] failed to consume handoff token', e)
   } finally {
-    if (window.location.hash.includes('sso=')) {
-      history.replaceState({}, document.title, window.location.pathname + window.location.search)
+    const url = new URL(window.location.href)
+    const hadSsoInHash = url.hash.includes('sso=')
+    const hadSsoInQuery = url.searchParams.has('sso')
+    if (hadSsoInQuery) url.searchParams.delete('sso')
+    if (hadSsoInHash) url.hash = ''
+    if (hadSsoInHash || hadSsoInQuery) {
+      history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`)
     }
   }
 }
-
