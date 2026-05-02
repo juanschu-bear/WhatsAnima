@@ -5,6 +5,7 @@ import { getKnowledgeBaseContent } from './_lib/knowledgeBase.js'
 export const DEFAULT_SYSTEM_PROMPT = 'You are a helpful assistant.'
 const ADRI_KASTEL_OWNER_ID = '19fa8767-952a-4533-899b-96f66ee85516'
 const BRIAN_COX_OWNER_ID = '1d4651eb-5ff1-43e3-a0f3-76528fa32b3e'
+const DEFAULT_JORDAN_OWNER_ID = '77ad10a6-1d73-4201-9e81-e6be996d130a'
 const YOUTUBE_STRONG_MATCH_MIN_SCORE = 10
 const VIDEO_FLOW_MAX_CHARS = 320
 export const LANGUAGE_INSTRUCTION =
@@ -838,13 +839,110 @@ function deriveTopicChips(videos: YouTubeVideoIndexItem[], max = 8): string[] {
     .map(([topic]) => topic.charAt(0).toUpperCase() + topic.slice(1))
 }
 
+function getAllowedCfoOwnerIds(): Set<string> {
+  const fromCsv = String(process.env.CFO_OWNER_IDS || '')
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean)
+  const fromSingle = String(process.env.CFO_OWNER_ID || '').trim()
+  return new Set([DEFAULT_JORDAN_OWNER_ID, ...fromCsv, ...(fromSingle ? [fromSingle] : [])])
+}
+
+async function buildCfoContext(
+  client: Client,
+  ownerId: string | null,
+  contactId: string | null,
+  ownerUserId: string | null
+): Promise<string> {
+  if (!ownerId || !getAllowedCfoOwnerIds().has(ownerId)) return ''
+  const params: any[] = [ownerId]
+  let contactFilter = ''
+  if (contactId) {
+    params.push(contactId)
+    contactFilter = ` and contact_id = $2 `
+  }
+  const result = await client.query(
+    `select transaction_date, merchant, total_amount, currency, category, notes, created_at
+     from public.cfo_transactions
+     where owner_id = $1 ${contactFilter}
+     order by created_at desc
+     limit 20`,
+    params
+  ).catch(() => ({ rows: [] as any[] }))
+
+  const rows = result.rows || []
+  if (rows.length === 0) return ''
+
+  const now = Date.now()
+  const cutoff30 = now - 30 * 24 * 60 * 60 * 1000
+  let spend30 = 0
+  const byCategory = new Map<string, number>()
+  const recentLines: string[] = []
+  for (const row of rows) {
+    const amount = Number(row.total_amount || 0)
+    const createdMs = row.created_at ? Date.parse(String(row.created_at)) : NaN
+    if (Number.isFinite(createdMs) && createdMs >= cutoff30 && amount > 0) {
+      spend30 += amount
+    }
+    const category = String(row.category || 'other')
+    byCategory.set(category, (byCategory.get(category) || 0) + Math.max(0, amount))
+    if (recentLines.length < 8) {
+      const dateStr = String(row.transaction_date || '').slice(0, 10) || String(row.created_at || '').slice(0, 10)
+      const merchant = String(row.merchant || 'entry')
+      const amtText = Number.isFinite(amount) && amount > 0 ? `${amount.toFixed(2)} ${row.currency || 'EUR'}` : 'n/a'
+      const categoryText = category.replace(/_/g, ' ')
+      const noteText = row.notes ? ` | note: ${String(row.notes).slice(0, 90)}` : ''
+      recentLines.push(`- ${dateStr}: ${merchant} (${categoryText}) ${amtText}${noteText}`)
+    }
+  }
+
+  const topCats = Array.from(byCategory.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([cat, amount]) => `${cat.replace(/_/g, ' ')}=${amount.toFixed(2)}`)
+
+  const lines = [
+    '[CFO CONTEXT — synchronized from WhatsAnima + Anima Drive + Anima Sheets]',
+    `Owner ${ownerId}${contactId ? `, contact ${contactId}` : ''}`,
+    `Spend (last 30d): ${spend30.toFixed(2)} EUR-equivalent`,
+    `Top categories: ${topCats.join('; ') || 'n/a'}`,
+    'Recent financial events:',
+    ...recentLines,
+  ]
+
+  if (ownerUserId) {
+    const docsResult = await client.query(
+      `select e.document_type, e.vendor, e.total_amount, e.currency, e.doc_date, d.display_name
+       from public.ad_extractions e
+       join public.ad_documents d on d.id = e.document_id
+       where d.user_id = $1
+       order by e.created_at desc
+       limit 5`,
+      [ownerUserId]
+    ).catch(() => ({ rows: [] as any[] }))
+    if ((docsResult.rows || []).length > 0) {
+      lines.push('Recent Anima Drive extracted documents:')
+      for (const row of docsResult.rows) {
+        const dateStr = String(row.doc_date || '').slice(0, 10) || '-'
+        const vendor = String(row.vendor || row.display_name || 'document')
+        const amount = Number(row.total_amount || 0)
+        const amountText = Number.isFinite(amount) && amount > 0 ? `${amount.toFixed(2)} ${row.currency || 'EUR'}` : 'n/a'
+        lines.push(`- ${dateStr}: ${vendor} [${String(row.document_type || 'unknown')}] ${amountText}`)
+      }
+    }
+  }
+
+  lines.push('Use this CFO context in financial replies. Be specific with amounts, categories, and trends when relevant.')
+  return '\n\n' + lines.join('\n')
+}
+
 export async function loadOwnerPromptAndMemory(
   conversationId: string | undefined,
   ownerIdHint?: string | null,
   ownerNameHint?: string | null
-): Promise<{ ownerPrompt: string; memory: string; stylePrompt: string; behavioralMemory: string; ownerId: string | null; ownerName: string; llmProvider: string | null; voiceId: string | null; contactId: string | null }> {
+): Promise<{ ownerPrompt: string; memory: string; stylePrompt: string; behavioralMemory: string; cfoContext: string; ownerId: string | null; ownerName: string; llmProvider: string | null; voiceId: string | null; contactId: string | null }> {
   const databaseUrl = getDatabaseUrl()
-  if (!databaseUrl) return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '', stylePrompt: '', behavioralMemory: '', ownerId: null, ownerName: 'Avatar', llmProvider: null, voiceId: null, contactId: null }
+  if (!databaseUrl) return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '', stylePrompt: '', behavioralMemory: '', cfoContext: '', ownerId: null, ownerName: 'Avatar', llmProvider: null, voiceId: null, contactId: null }
 
   const client = new Client({ connectionString: databaseUrl, ssl: { rejectUnauthorized: false }, connectionTimeoutMillis: 5000 })
   try {
@@ -864,7 +962,7 @@ export async function loadOwnerPromptAndMemory(
     if (conversationId) {
       const [ownerResultByConversation, memoryResultByConversation, conversationContactResult] = await Promise.all([
         client.query(
-          `select o.id, o.display_name, o.system_prompt, o.is_self_avatar, o.communication_style, o.llm_provider, o.voice_id
+          `select o.id, o.user_id, o.display_name, o.system_prompt, o.is_self_avatar, o.communication_style, o.llm_provider, o.voice_id
            from public.wa_conversations c
            join public.wa_owners o on o.id = c.owner_id
            where c.id = $1 and o.deleted_at is null
@@ -903,7 +1001,7 @@ export async function loadOwnerPromptAndMemory(
 
     if (!ownerRow && normalizedOwnerIdHint) {
       const ownerResultById = await client.query(
-        `select id, display_name, system_prompt, is_self_avatar, communication_style, llm_provider, voice_id
+        `select id, user_id, display_name, system_prompt, is_self_avatar, communication_style, llm_provider, voice_id
          from public.wa_owners
          where id = $1 and deleted_at is null
          limit 1`,
@@ -914,7 +1012,7 @@ export async function loadOwnerPromptAndMemory(
 
     if (!ownerRow && normalizedOwnerNameHint) {
       const ownerResultByName = await client.query(
-        `select id, display_name, system_prompt, is_self_avatar, communication_style, llm_provider, voice_id
+        `select id, user_id, display_name, system_prompt, is_self_avatar, communication_style, llm_provider, voice_id
          from public.wa_owners
          where lower(display_name) = lower($1) and deleted_at is null
          order by updated_at desc nulls last
@@ -926,7 +1024,7 @@ export async function loadOwnerPromptAndMemory(
 
     if (!ownerRow && normalizedOwnerNameHint) {
       const ownerResultByNameLike = await client.query(
-        `select id, display_name, system_prompt, is_self_avatar, communication_style, llm_provider, voice_id
+        `select id, user_id, display_name, system_prompt, is_self_avatar, communication_style, llm_provider, voice_id
          from public.wa_owners
          where lower(display_name) like lower($1) and deleted_at is null
          order by updated_at desc nulls last
@@ -944,7 +1042,7 @@ export async function loadOwnerPromptAndMemory(
     if (!ownerRow && hintedProfile) {
       const canonicalOwnerId = hintedProfile === 'adri' ? ADRI_KASTEL_OWNER_ID : BRIAN_COX_OWNER_ID
       const ownerResultByCanonicalId = await client.query(
-        `select id, display_name, system_prompt, is_self_avatar, communication_style, llm_provider, voice_id
+        `select id, user_id, display_name, system_prompt, is_self_avatar, communication_style, llm_provider, voice_id
          from public.wa_owners
          where id = $1 and deleted_at is null
          limit 1`,
@@ -1032,12 +1130,15 @@ export async function loadOwnerPromptAndMemory(
       behavioralMemory = '\n\n' + bLines.join('\n')
     }
 
+    const ownerUserId = ownerRow?.user_id ? String(ownerRow.user_id) : null
+    const cfoContext = await buildCfoContext(client, ownerId, conversationContactId, ownerUserId)
+
     const llmProvider = typeof ownerRow?.llm_provider === 'string' ? ownerRow.llm_provider.trim() : null
     const voiceId = typeof ownerRow?.voice_id === 'string' ? ownerRow.voice_id.trim() : null
-    return { ownerPrompt, memory, stylePrompt, behavioralMemory, ownerId, ownerName, llmProvider, voiceId, contactId: conversationContactId }
+    return { ownerPrompt, memory, stylePrompt, behavioralMemory, cfoContext, ownerId, ownerName, llmProvider, voiceId, contactId: conversationContactId }
   } catch (dbError) {
     console.error('[chat] Database connection failed in loadOwnerPromptAndMemory:', dbError instanceof Error ? dbError.message : dbError)
-    return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '', stylePrompt: '', behavioralMemory: '', ownerId: null, ownerName: ownerNameHint?.trim() || 'Avatar', llmProvider: null, voiceId: null, contactId: null }
+    return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '', stylePrompt: '', behavioralMemory: '', cfoContext: '', ownerId: null, ownerName: ownerNameHint?.trim() || 'Avatar', llmProvider: null, voiceId: null, contactId: null }
   } finally {
     await client.end().catch(() => undefined)
   }
@@ -1272,6 +1373,7 @@ export function buildSystemPrompt(
   memory: string,
   stylePrompt: string,
   behavioralMemory: string,
+  cfoContext: string,
   perception: any,
   ownerId?: string | null,
   profileName?: string,
@@ -1371,7 +1473,7 @@ Vary your energy dynamically within a single response:
 - When someone has a win, let your energy rise genuinely
 - When you're about to say something direct or challenging, pause slightly first - let the silence create weight`
 
-  return `${knowledgePrefix}${IDENTITY_OVERRIDE}\n\n${LANGUAGE_INSTRUCTION}\n\n${ownerPrompt}${UNIVERSAL_EMOTIONAL_INTELLIGENCE}${UNIVERSAL_COMMUNICATION_STYLE}${UNIVERSAL_VOICE_STYLE}${CHAT_VOICE_EXPRESSIVENESS}\n\n${RESPONSE_FORMAT_MATCHING}\n\n${FORMATTING_INSTRUCTION}\n\n${FLASHCARD_INSTRUCTION}\n\n${IMAGE_GENERATION_INSTRUCTION}\n\n${MESSAGE_TYPE_AWARENESS}${stylePrompt}${memory}${behavioralMemory}${youtubeWebSearchInstruction}${buildPerceptionPrompt(perception)}${IDENTITY_REMINDER}`
+  return `${knowledgePrefix}${IDENTITY_OVERRIDE}\n\n${LANGUAGE_INSTRUCTION}\n\n${ownerPrompt}${UNIVERSAL_EMOTIONAL_INTELLIGENCE}${UNIVERSAL_COMMUNICATION_STYLE}${UNIVERSAL_VOICE_STYLE}${CHAT_VOICE_EXPRESSIVENESS}\n\n${RESPONSE_FORMAT_MATCHING}\n\n${FORMATTING_INSTRUCTION}\n\n${FLASHCARD_INSTRUCTION}\n\n${IMAGE_GENERATION_INSTRUCTION}\n\n${MESSAGE_TYPE_AWARENESS}${stylePrompt}${memory}${behavioralMemory}${cfoContext}${youtubeWebSearchInstruction}${buildPerceptionPrompt(perception)}${IDENTITY_REMINDER}`
 }
 
 /** Prepare the messages array for the Claude API, including language switch detection. */
@@ -1529,7 +1631,7 @@ export default async function handler(req: any, res: any) {
     : []
 
   try {
-    const { ownerPrompt, memory, stylePrompt, behavioralMemory, ownerId, ownerName, llmProvider, voiceId, contactId } = await loadOwnerPromptAndMemory(conversationId, ownerIdHint, ownerNameHint)
+    const { ownerPrompt, memory, stylePrompt, behavioralMemory, cfoContext, ownerId, ownerName, llmProvider, voiceId, contactId } = await loadOwnerPromptAndMemory(conversationId, ownerIdHint, ownerNameHint)
     const normalizedOwnerIdHint = typeof ownerIdHint === 'string' && ownerIdHint.trim().length > 0
       ? ownerIdHint.trim()
       : null
@@ -1567,6 +1669,7 @@ export default async function handler(req: any, res: any) {
       memory,
       stylePrompt,
       behavioralMemory,
+      cfoContext,
       perception,
       effectiveOwnerId,
       effectiveOwnerName,

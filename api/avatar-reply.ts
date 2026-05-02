@@ -9,6 +9,8 @@ type ChatHistoryMessage = {
 
 type MessageType = 'text' | 'voice' | 'video' | 'image' | 'flashcard' | 'quiz' | 'lesson' | 'fillin' | 'call_summary' | 'system'
 
+const DEFAULT_JORDAN_OWNER_ID = '77ad10a6-1d73-4201-9e81-e6be996d130a'
+
 function getSupabaseAdmin() {
   const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
   const key =
@@ -38,6 +40,118 @@ function sanitizeContent(raw: unknown): string {
   const text = typeof raw === 'string' ? raw.trim() : ''
   if (!text) return ''
   return text.replace(/```generate_image\s*\n?[\s\S]*?\n?```/g, '').trim()
+}
+
+function getAllowedCfoOwnerIds(): Set<string> {
+  const fromCsv = String(process.env.CFO_OWNER_IDS || '')
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean)
+  const fromSingle = String(process.env.CFO_OWNER_ID || '').trim()
+  return new Set([DEFAULT_JORDAN_OWNER_ID, ...fromCsv, ...(fromSingle ? [fromSingle] : [])])
+}
+
+function looksFinancialMessage(input: string): boolean {
+  const text = String(input || '').toLowerCase()
+  if (!text.trim()) return false
+  const keywords = [
+    'receipt', 'invoice', 'bill', 'expense', 'spend', 'spent', 'cost', 'budget', 'cashflow', 'profit', 'loss', 'tax', 'vat', 'debt', 'payment', 'transaction',
+    'quittung', 'rechnung', 'ausgabe', 'kosten', 'budget', 'gewinn', 'verlust', 'steuer', 'mwst', 'zahlung', 'umsatz',
+    'recibo', 'factura', 'gasto', 'coste', 'costo', 'presupuesto', 'flujo', 'impuesto', 'iva', 'deuda', 'pago', 'transacción',
+    'lira', 'eur', 'usd', 'try', '$', '€', '₺',
+  ]
+  if (keywords.some((token) => text.includes(token))) return true
+  return /(?:\d+[.,]?\d*)\s?(?:eur|usd|try|€|\$|₺)/i.test(text)
+}
+
+function parseAmountAndCurrency(input: string): { amount: number | null; currency: string } {
+  const text = String(input || '')
+  const match = text.match(/(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{1,2})|\d+(?:[.,]\d{1,2})?)\s*(€|eur|usd|\$|try|₺|lira)/i)
+  if (!match) return { amount: null, currency: 'EUR' }
+  const numeric = match[1].replace(/\.(?=\d{3}\b)/g, '').replace(',', '.')
+  const amount = Number(numeric)
+  const curRaw = match[2].toLowerCase()
+  const currency =
+    curRaw === '€' || curRaw === 'eur' ? 'EUR' :
+    curRaw === '$' || curRaw === 'usd' ? 'USD' :
+    curRaw === '₺' || curRaw === 'try' || curRaw === 'lira' ? 'TRY' :
+    'EUR'
+  return { amount: Number.isFinite(amount) ? Math.abs(amount) : null, currency }
+}
+
+async function mirrorFinancialConversationToCfo(params: {
+  supabase: ReturnType<typeof createClient>
+  ownerId: string
+  contactId: string | null
+  conversationId: string
+  userMessageId: string | null
+  userMessage: string
+  ownerUserId: string | null
+}) {
+  const { supabase, ownerId, contactId, conversationId, userMessageId, userMessage, ownerUserId } = params
+  if (!contactId) return
+  if (!looksFinancialMessage(userMessage)) return
+
+  if (userMessageId) {
+    const { data: existing } = await supabase
+      .from('cfo_transactions')
+      .select('id')
+      .eq('owner_id', ownerId)
+      .eq('message_id', userMessageId)
+      .limit(1)
+      .maybeSingle()
+    if (existing?.id) return
+  }
+
+  const parsed = parseAmountAndCurrency(userMessage)
+  const shortNote = userMessage.slice(0, 500)
+  await supabase.from('cfo_transactions').insert({
+    owner_id: ownerId,
+    contact_id: contactId,
+    conversation_id: conversationId,
+    message_id: userMessageId,
+    image_url: `wa://financial-message/${userMessageId || crypto.randomUUID()}`,
+    merchant: 'Jordan Financial Conversation',
+    transaction_date: new Date().toISOString().slice(0, 10),
+    total_amount: parsed.amount,
+    currency: parsed.currency,
+    vat_amount: null,
+    category: 'conversation_finance',
+    category_confidence: 0.74,
+    free_tags: ['conversation', 'financial', 'jordan'],
+    line_items: [],
+    is_business_expense: false,
+    tax_relevant: false,
+    payment_method: null,
+    notes: shortNote,
+    raw_vision_response: {
+      source: 'whatsanima.avatar-reply',
+      kind: 'financial_conversation_event',
+      user_message: shortNote,
+      parsed_amount: parsed.amount,
+      parsed_currency: parsed.currency,
+    },
+    extraction_status: 'ok',
+    extraction_error: null,
+  })
+
+  if (ownerUserId) {
+    await supabase.from('ad_cfo_events').insert({
+      user_id: ownerUserId,
+      event_type: 'whatsanima_financial_turn',
+      source: 'whatsanima.avatar-reply',
+      conversation_id: null,
+      payload: {
+        owner_id: ownerId,
+        contact_id: contactId,
+        wa_conversation_id: conversationId,
+        wa_message_id: userMessageId,
+        text: shortNote,
+        amount: parsed.amount,
+        currency: parsed.currency,
+      },
+    }).catch(() => undefined)
+  }
 }
 
 export default async function handler(req: any, res: any) {
@@ -77,7 +191,7 @@ export default async function handler(req: any, res: any) {
   try {
     const { data: conversationRow, error: conversationError } = await supabase
       .from('wa_conversations')
-      .select('id, owner_id')
+      .select('id, owner_id, contact_id')
       .eq('id', conversationId)
       .maybeSingle()
 
@@ -91,9 +205,12 @@ export default async function handler(req: any, res: any) {
     const ownerId = String(conversationRow.owner_id)
     const { data: ownerRow } = await supabase
       .from('wa_owners')
-      .select('id, display_name, voice_id')
+      .select('id, display_name, voice_id, user_id')
       .eq('id', ownerId)
       .maybeSingle()
+
+    const allowedCfoOwners = getAllowedCfoOwnerIds()
+    const isJordanCfoOwner = allowedCfoOwners.has(ownerId)
 
     // Idempotency: if we already produced an avatar reply after this user message,
     // return it instead of generating again.
@@ -175,6 +292,20 @@ export default async function handler(req: any, res: any) {
     const useVoice = options?.useVoice ?? true
     const insertedMessages: any[] = []
     let transcript: string | null = null
+
+    if (isJordanCfoOwner && !options?.isImage) {
+      await mirrorFinancialConversationToCfo({
+        supabase,
+        ownerId,
+        contactId: conversationRow?.contact_id ? String(conversationRow.contact_id) : null,
+        conversationId,
+        userMessageId: userMessageId || null,
+        userMessage,
+        ownerUserId: ownerRow?.user_id ? String(ownerRow.user_id) : null,
+      }).catch((err) => {
+        console.warn('[avatar-reply][cfo-sync] failed:', err instanceof Error ? err.message : err)
+      })
+    }
 
     const insertMessage = async (payload: {
       type: MessageType
