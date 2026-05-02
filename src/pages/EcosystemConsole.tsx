@@ -54,7 +54,7 @@ export default function EcosystemConsole() {
             >
               <div className="text-xl font-semibold">{app.name}</div>
               <div className="mt-2 text-sm text-white/70 min-h-10">{app.desc}</div>
-              <div className="mt-6 text-emerald-300 text-sm font-medium">Open with SSO -></div>
+              <div className="mt-6 text-emerald-300 text-sm font-medium">Open with SSO {'->'}</div>
             </a>
           ))}
         </div>
