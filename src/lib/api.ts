@@ -925,7 +925,16 @@ export async function sendMessage(
   type: MessageType,
   content: string,
   mediaUrl?: string,
-  durationSec?: number
+  durationSec?: number,
+  extra?: {
+    localId?: string | null
+    transcriptInterim?: string | null
+    transcriptFinal?: string | null
+    transcriptStatus?: string | null
+    audioStatus?: string | null
+    audioRetryCount?: number | null
+    audioLastError?: string | null
+  }
 ) {
   const response = await fetch('/api/send-message', {
     method: 'POST',
@@ -937,12 +946,36 @@ export async function sendMessage(
       content,
       mediaUrl: mediaUrl ?? null,
       durationSec: durationSec ?? null,
+      localId: extra?.localId ?? null,
+      transcriptInterim: extra?.transcriptInterim ?? null,
+      transcriptFinal: extra?.transcriptFinal ?? null,
+      transcriptStatus: extra?.transcriptStatus ?? null,
+      audioStatus: extra?.audioStatus ?? null,
+      audioRetryCount: extra?.audioRetryCount ?? null,
+      audioLastError: extra?.audioLastError ?? null,
     }),
   })
 
   const data = await response.json()
   if (!response.ok) {
     throw new Error(data?.error || `sendMessage failed (${response.status})`)
+  }
+  return data
+}
+
+export async function patchMessage(
+  messageId: string,
+  updates: Record<string, unknown>
+) {
+  const response = await fetch('/api/send-message', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messageId, updates }),
+  })
+
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    throw new Error(data?.error || `patchMessage failed (${response.status})`)
   }
   return data
 }

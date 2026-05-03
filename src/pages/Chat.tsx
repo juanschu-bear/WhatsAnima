@@ -24,6 +24,7 @@ import { useVoiceRecording } from '../hooks/useVoiceRecording'
 import { useVideoRecording } from '../hooks/useVideoRecording'
 import { VideoRecorder } from '../components/VideoRecorder'
 import { getAvatarFirstName } from '../lib/voiceDelay'
+import { useVoiceMessage } from '../lib/voice'
 import {
   playNotificationSound,
   isAppVisible,
@@ -51,12 +52,20 @@ interface Message {
   preview_url?: string | null
   duration_sec: number | null
   created_at: string
+  local_id?: string | null
+  transcript_interim?: string | null
+  transcript_final?: string | null
+  transcript_status?: string | null
+  audio_status?: string | null
+  audio_retry_count?: number | null
+  audio_last_error?: string | null
   read_at?: string | null
   _pending?: boolean
   _failed?: boolean
   _errorMessage?: string
-  _localBlobUrl?: string
+  _localBlobUrl?: string | null
   _retryFn?: () => void
+  _savedOffline?: boolean
 }
 
 interface VideoSuggestion {
@@ -442,8 +451,13 @@ const VoiceMessageBubble = memo(function VoiceMessageBubble({
     }
   }, [])
 
-  const hasPlayableAudio = Boolean(message.media_url)
+  const audioSource = message.media_url || message._localBlobUrl || null
+  const hasPlayableAudio = Boolean(audioSource)
   const hasTranscript = Boolean(transcript && transcript.trim())
+  const isSyncing = message.audio_status === 'pending' || message.audio_status === 'uploading' || Boolean(message._pending)
+  const isOfflineDraft = Boolean(message._savedOffline) || (!navigator.onLine && message.audio_status === 'pending')
+  const transcriptUnavailable = message.transcript_status === 'unavailable'
+  const transcriptFailed = message.transcript_status === 'failed'
   const currentSpeed = PLAYBACK_SPEEDS[speedIndex]
 
   function getEffectiveDuration(audio: HTMLAudioElement): number {
@@ -454,9 +468,9 @@ const VoiceMessageBubble = memo(function VoiceMessageBubble({
 
   function ensureAudio() {
     if (audioRef.current) return audioRef.current
-    if (!message.media_url) return null
+    if (!audioSource) return null
 
-    const audio = new Audio(message.media_url)
+    const audio = new Audio(audioSource)
     audio.preload = 'metadata'
     audio.playbackRate = currentSpeed
     audio.onloadedmetadata = () => {
@@ -596,7 +610,7 @@ const VoiceMessageBubble = memo(function VoiceMessageBubble({
       <div className="voice-actions">
         {hasPlayableAudio && (
           <a
-            href={message.media_url!}
+            href={audioSource!}
             download={`voice-${message.id.slice(0, 8)}.webm`}
             className="voice-action-btn"
           >
@@ -612,7 +626,16 @@ const VoiceMessageBubble = memo(function VoiceMessageBubble({
             onClick={() => setIsTranscriptOpen((current) => !current)}
             className="voice-action-btn"
           >
-            {isTranscriptOpen ? 'Hide transcript' : 'Transcribe'}
+            {isTranscriptOpen ? 'Hide transcript' : 'Transcript'}
+          </button>
+        ) : null}
+        {(transcriptUnavailable || transcriptFailed) && message._retryFn ? (
+          <button
+            type="button"
+            onClick={message._retryFn}
+            className="voice-action-btn"
+          >
+            Re-transcribe
           </button>
         ) : null}
       </div>
@@ -623,9 +646,19 @@ const VoiceMessageBubble = memo(function VoiceMessageBubble({
           ))}
         </div>
       ) : null}
-      {message._failed && (
+      {(message._failed || message.audio_status === 'failed' || transcriptFailed || transcriptUnavailable || isOfflineDraft || isSyncing) && (
         <div className="mt-2 flex items-center gap-2">
-          <span className="text-[11px] text-red-400">{message._errorMessage || 'Send failed'}</span>
+          <span className={`text-[11px] ${message._failed || message.audio_status === 'failed' || transcriptFailed ? 'text-red-400' : isOfflineDraft ? 'text-amber-300' : 'text-white/55'}`}>
+            {isOfflineDraft
+              ? 'Recording saved locally. Will retry when connection improves.'
+              : transcriptUnavailable
+                ? 'Recording saved. Transcription unavailable right now — message sent without transcript.'
+                : transcriptFailed
+                  ? 'Transcription failed.'
+                  : isSyncing
+                    ? 'Syncing voice message...'
+                    : message._errorMessage || message.audio_last_error || 'Send failed'}
+          </span>
           {message._retryFn && (
             <button
               type="button"
@@ -635,13 +668,13 @@ const VoiceMessageBubble = memo(function VoiceMessageBubble({
               <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
-              Resend
+              Retry
             </button>
           )}
         </div>
       )}
       <span className={`voice-meta ${isContact ? 'voice-meta-outgoing' : 'voice-meta-incoming'}`}>
-        {message._pending && (
+        {isSyncing && (
           <svg className="mr-1 h-3 w-3 animate-spin text-white/40" viewBox="0 0 24 24" fill="none">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
@@ -1632,6 +1665,8 @@ export default function Chat() {
     userMessageId?: string
   }) => Promise<boolean>>(async () => false)
 
+  const voiceV2Enabled = String(import.meta.env.VITE_VOICE_V2 || '').toLowerCase() === 'true'
+
   const {
     recordingMode, captureKind,
     recordingSeconds, recordTimerRef,
@@ -1639,7 +1674,6 @@ export default function Chat() {
     voiceOverlayOpen, voiceDraftUrl, voiceDraftReady,
     voiceDraftSeconds, voiceDraftTranscript,
     openVoiceOverlay, closeVoiceOverlay, stopVoiceIntoDraft, sendVoiceDraft,
-    finishVoiceRecording,
   } = useVoiceRecording({
     conversationId,
     conversation,
@@ -1657,6 +1691,53 @@ export default function Chat() {
     simulateAvatarRead,
     maybeAvatarReact,
   })
+
+  const {
+    state: voiceV2State,
+    duration_ms: voiceV2DurationMs,
+    interim_transcript: voiceV2InterimTranscript,
+    final_transcript: voiceV2FinalTranscript,
+    pending_drafts: voiceV2PendingDrafts,
+    start_recording: startVoiceV2Recording,
+    stop_recording: stopVoiceV2Recording,
+    cancel_recording: cancelVoiceV2Recording,
+    retry_draft: retryVoiceV2Draft,
+  } = useVoiceMessage({
+    conversation_id: conversationId || '',
+    conversation,
+    onError: (message) => {
+      setError(message)
+      setErrorTrace(message ? { code: 'VOICE_V2', traceId: createTraceId('VOICE_V2') } : null)
+    },
+    onMessageSent: (msg) => setMessages((current) => {
+      if (current.some((item) => item.id === msg.id)) return current
+      return [...current, msg as Message]
+    }),
+    onMessageUpdate: (messageId, updates) => setMessages((current) =>
+      current.map((m) => m.id === messageId ? { ...m, ...updates } : m)
+    ),
+    onTranscript: (id, text) => setTranscriptMap((current) => ({ ...current, [id]: text })),
+  })
+
+  const activeVoiceRecording = voiceV2Enabled
+    ? {
+        overlayOpen: voiceV2State === 'recording' || voiceV2State === 'stopping',
+        mode: voiceV2State === 'recording' ? 'recording' : voiceV2State === 'stopping' ? 'stopping' : 'idle',
+        seconds: Math.floor(voiceV2DurationMs / 1000),
+        draftReady: false,
+        draftSeconds: Math.floor(voiceV2DurationMs / 1000),
+        draftTranscript: (voiceV2FinalTranscript || voiceV2InterimTranscript || '').trim(),
+        pendingDrafts: voiceV2PendingDrafts,
+      }
+    : {
+        overlayOpen: voiceOverlayOpen,
+        mode: recordingMode,
+        seconds: recordingSeconds,
+        draftReady: voiceDraftReady,
+        draftSeconds: voiceDraftSeconds,
+        draftTranscript: voiceDraftTranscript,
+        pendingDrafts: [],
+      }
 
   const {
     videoOverlayOpen,
@@ -1702,6 +1783,31 @@ export default function Chat() {
     simulateAvatarRead,
     maybeAvatarReact,
   })
+
+  async function handleVoiceRecordButton() {
+    if (voiceV2Enabled) {
+      if (!conversationId || !conversation) return
+      await startVoiceV2Recording()
+      return
+    }
+    await openVoiceOverlay()
+  }
+
+  async function handleVoiceStopButton() {
+    if (voiceV2Enabled) {
+      await stopVoiceV2Recording()
+      return
+    }
+    await stopVoiceIntoDraft()
+  }
+
+  async function handleVoiceCancelButton() {
+    if (voiceV2Enabled) {
+      await cancelVoiceV2Recording()
+      return
+    }
+    closeVoiceOverlay()
+  }
 
   useSessionMemory({
     conversationId,
@@ -2454,12 +2560,12 @@ export default function Chat() {
         try {
           const name = getAvatarFirstName(conversation?.wa_owners?.display_name)
           const excuses = [
-            `${name} is in a meeting right now. Back in a sec!`,
-            `${name} just stepped out for a coffee. One moment!`,
-            `${name} is on the phone. Back in a sec!`,
-            `${name} is taking a quick break. Hang tight!`,
-            `${name} got distracted for a second. Back shortly!`,
-            `${name} is dealing with something real quick. Back in a moment!`,
+            `${name} will reply in a moment.`,
+            `${name} is finishing something and will be right back.`,
+            `${name} is briefly unavailable. Please try again in a moment.`,
+            `${name} needs another moment to reply.`,
+            `${name} is still processing your message.`,
+            `${name} will continue shortly.`,
           ]
           const excuse = excuses[Math.floor(Math.random() * excuses.length)]
           const fallback = await sendMessage(conversationId, 'avatar', 'text', excuse)
@@ -3012,6 +3118,24 @@ export default function Chat() {
               </button>
             </div>
           )}
+          {voiceV2Enabled && activeVoiceRecording.pendingDrafts.length > 0 && (
+            <div className="sticky top-1 z-20 flex justify-center">
+              <div className="flex items-center gap-3 rounded-full border border-[#f4d27a]/25 bg-[rgba(53,42,14,0.92)] px-4 py-2 text-xs font-medium text-[#ffe7a8] shadow-[0_12px_30px_rgba(0,0,0,0.28)] backdrop-blur-xl">
+                <span>{activeVoiceRecording.pendingDrafts.length} voice {activeVoiceRecording.pendingDrafts.length === 1 ? 'message is' : 'messages are'} syncing...</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    activeVoiceRecording.pendingDrafts.forEach((draft) => {
+                      void retryVoiceV2Draft(draft.local_id)
+                    })
+                  }}
+                  className="rounded-full border border-[#ffe7a8]/30 px-3 py-1 text-[11px] font-semibold text-[#fff1c8] transition hover:bg-white/8"
+                >
+                  Retry all
+                </button>
+              </div>
+            </div>
+          )}
           {groupedTimeline.map((item) => {
             if (item.kind === 'date') {
               return (
@@ -3083,7 +3207,12 @@ export default function Chat() {
                     <VoiceMessageBubble
                       isContact={isContact}
                       message={message}
-                      transcript={transcriptMap[message.id] || (!isPlaceholderContent(message) ? message.content || '' : '')}
+                      transcript={
+                        transcriptMap[message.id]
+                        || message.transcript_final
+                        || message.transcript_interim
+                        || (!isPlaceholderContent(message) ? message.content || '' : '')
+                      }
                       isRead={isRead}
                     />
                   ) : message.type === 'flashcard' ? (
@@ -3393,12 +3522,12 @@ export default function Chat() {
         </div>
       ) : null}
 
-      {recordingMode !== 'idle' && captureKind === 'voice' ? (
+      {activeVoiceRecording.mode !== 'idle' && (!voiceV2Enabled ? captureKind === 'voice' : true) ? (
         <div className="relative z-20 border-t border-white/8 bg-[#101b28]/88 px-4 py-3 backdrop-blur-2xl">
           <div className="mx-auto flex max-w-2xl items-center gap-3 rounded-[28px] border border-white/8 bg-[linear-gradient(180deg,rgba(17,29,44,0.9),rgba(10,20,33,0.95))] px-4 py-3 text-white shadow-[0_20px_60px_rgba(0,0,0,0.28)]">
             <button
               type="button"
-              onClick={() => finishVoiceRecording('cancel')}
+              onClick={() => { void handleVoiceCancelButton() }}
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#ff7a7a] to-[#e23e63] text-white shadow-[0_0_24px_rgba(255,91,118,0.36)]"
             >
               <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
@@ -3417,7 +3546,7 @@ export default function Chat() {
                 />
               ))}
             </div>
-            <span className="text-sm font-medium text-white/80">{formatClock(recordingSeconds)}</span>
+            <span className="text-sm font-medium text-white/80">{formatClock(activeVoiceRecording.seconds)}</span>
           </div>
         </div>
       ) : null}
@@ -3428,7 +3557,7 @@ export default function Chat() {
             <button
               type="button"
               onClick={() => setMediaMenuOpen((current) => !current)}
-              disabled={sending || recordingMode !== 'idle' || videoRecordingMode !== 'idle'}
+              disabled={sending || activeVoiceRecording.mode !== 'idle' || videoRecordingMode !== 'idle'}
               className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-[#1a2332] text-white/60 transition hover:border-white/15 hover:text-white disabled:opacity-40"
               title="Media options"
             >
@@ -3469,7 +3598,7 @@ export default function Chat() {
                 }
               }}
               placeholder="Type a message"
-              disabled={sending || recordingMode !== 'idle' || videoRecordingMode !== 'idle'}
+              disabled={sending || activeVoiceRecording.mode !== 'idle' || videoRecordingMode !== 'idle'}
               className="w-full rounded-full border border-white/[0.08] bg-[#1a2332] px-4 py-3 text-base text-white placeholder-white/30 outline-none transition focus:border-[#00a884]/40 focus:ring-1 focus:ring-[#00a884]/20 disabled:opacity-40"
               style={{ fontSize: '16px' }}
             />
@@ -3478,7 +3607,7 @@ export default function Chat() {
           <button
             type="button"
             onClick={() => void openVideoOverlay()}
-            disabled={sending || text.trim().length > 0 || mediaMenuOpen || recordingMode !== 'idle' || videoRecordingMode !== 'idle'}
+            disabled={sending || text.trim().length > 0 || mediaMenuOpen || activeVoiceRecording.mode !== 'idle' || videoRecordingMode !== 'idle'}
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#1f8fff] text-white shadow-[0_2px_12px_rgba(31,143,255,0.25)] transition hover:bg-[#2f98ff] disabled:opacity-40"
             title="Record video message"
           >
@@ -3489,8 +3618,8 @@ export default function Chat() {
 
             <button
               type="button"
-              onClick={() => void openVoiceOverlay()}
-              disabled={sending || text.trim().length > 0 || mediaMenuOpen || videoRecordingMode !== 'idle'}
+              onClick={() => { void handleVoiceRecordButton() }}
+              disabled={sending || text.trim().length > 0 || mediaMenuOpen || activeVoiceRecording.mode !== 'idle' || videoRecordingMode !== 'idle'}
               className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#00a884] text-white shadow-[0_2px_12px_rgba(0,168,132,0.25)] transition hover:bg-[#00bf96] disabled:opacity-40"
               title="Record voice note"
             >
@@ -3502,7 +3631,7 @@ export default function Chat() {
           <button
             type="button"
             onClick={() => void handleSendText()}
-            disabled={!text.trim() || sending || recordingMode !== 'idle' || videoRecordingMode !== 'idle'}
+            disabled={!text.trim() || sending || activeVoiceRecording.mode !== 'idle' || videoRecordingMode !== 'idle'}
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#00a884] text-white shadow-[0_2px_12px_rgba(0,168,132,0.25)] transition hover:bg-[#00bf96] disabled:opacity-40"
             title="Send message"
           >
@@ -3516,67 +3645,69 @@ export default function Chat() {
       </footer>
       </div>
 
-      {voiceOverlayOpen ? (
+      {activeVoiceRecording.overlayOpen || (!voiceV2Enabled && voiceOverlayOpen) ? (
         <div className="absolute inset-0 z-30 flex items-end bg-[#02060dd9] p-4 sm:items-center sm:justify-center">
           <div className="w-full max-w-md rounded-[32px] border border-white/10 bg-[linear-gradient(180deg,rgba(17,29,44,0.96),rgba(10,20,33,0.98))] p-5 shadow-[0_28px_100px_rgba(0,0,0,0.45)] backdrop-blur-2xl">
             <div className="flex items-center justify-between">
               <h2 className="text-base font-semibold text-white">Voice message</h2>
-              <button type="button" onClick={closeVoiceOverlay} className="text-sm text-white/60">Cancel</button>
+              <button type="button" onClick={() => { void handleVoiceCancelButton() }} className="text-sm text-white/60">Cancel</button>
             </div>
             <div className="mt-5 rounded-[28px] border border-white/10 bg-[linear-gradient(180deg,rgba(26,42,61,0.92),rgba(18,31,47,0.96))] px-4 py-5">
               <div className="flex items-center gap-3">
-                <div className={`h-3 w-3 rounded-full ${recordingMode !== 'idle' ? 'animate-pulse bg-[#ff6b7f]' : 'bg-[#11c2a0]'}`} />
+                <div className={`h-3 w-3 rounded-full ${activeVoiceRecording.mode !== 'idle' ? 'animate-pulse bg-[#ff6b7f]' : 'bg-[#11c2a0]'}`} />
                 <span className="text-sm text-white/80">
-                  {recordingMode !== 'idle' ? 'Recording...' : voiceDraftReady ? 'Ready to send' : 'Preparing...'}
+                  {activeVoiceRecording.mode !== 'idle' ? 'Recording...' : activeVoiceRecording.draftReady ? 'Ready to send' : 'Preparing...'}
                 </span>
-                <span className="ml-auto text-sm font-medium text-white/70">{formatClock(voiceDraftReady ? voiceDraftSeconds : recordingSeconds)}</span>
+                <span className="ml-auto text-sm font-medium text-white/70">{formatClock(activeVoiceRecording.draftReady ? activeVoiceRecording.draftSeconds : activeVoiceRecording.seconds)}</span>
               </div>
               <div className="mt-4 flex items-end gap-1">
                 {WAVEFORM_BARS.map((bar) => (
                   <span
                     key={`voice-overlay-${bar}`}
-                    className={`block w-2 rounded-full ${voiceDraftReady ? 'bg-[#89fbe3]/60' : 'animate-pulse bg-[#ff6b7f]'}`}
+                    className={`block w-2 rounded-full ${activeVoiceRecording.draftReady ? 'bg-[#89fbe3]/60' : 'animate-pulse bg-[#ff6b7f]'}`}
                     style={{ height: `${[10, 20, 30, 16, 34, 24, 12, 28, 18, 26, 36, 16, 28, 14, 22][bar]}px`, animationDelay: `${bar * 70}ms` }}
                   />
                 ))}
               </div>
-              {voiceDraftTranscript ? (
+              {activeVoiceRecording.draftTranscript ? (
                 <div className="mt-4 rounded-2xl bg-black/15 px-3 py-2 text-sm text-white/84">
-                  {voiceDraftTranscript}
+                  {activeVoiceRecording.draftTranscript}
                 </div>
-              ) : voiceDraftReady ? (
+              ) : activeVoiceRecording.draftReady ? (
                 <div className="mt-4 rounded-2xl bg-black/15 px-3 py-2 text-sm text-white/50 italic">
-                  Transcription after send (multilingual)
+                  Transcript is streaming while you speak.
                 </div>
               ) : null}
-              {voiceDraftUrl ? <audio className="mt-4 w-full" controls src={voiceDraftUrl} /> : null}
+              {!voiceV2Enabled && voiceDraftUrl ? <audio className="mt-4 w-full" controls src={voiceDraftUrl} /> : null}
             </div>
             <div className="mt-5 flex items-center justify-between gap-3">
-              {recordingMode !== 'idle' ? (
+              {activeVoiceRecording.mode !== 'idle' ? (
                 <button
                   type="button"
-                  onClick={() => void stopVoiceIntoDraft()}
+                  onClick={() => { void handleVoiceStopButton() }}
                   className="flex-1 rounded-full bg-gradient-to-r from-[#ff6b7f] to-[#e63d62] px-4 py-3 text-sm font-semibold text-white"
                 >
-                  Stop recording
+                  {voiceV2Enabled ? 'Stop and send' : 'Stop recording'}
                 </button>
               ) : (
                 <>
                   <button
                     type="button"
-                    onClick={closeVoiceOverlay}
+                    onClick={() => { void handleVoiceCancelButton() }}
                     className="flex-1 rounded-full border border-white/10 px-4 py-3 text-sm font-semibold text-white/80"
                   >
                     Cancel
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => void sendVoiceDraft()}
-                    disabled={!voiceDraftReady || sending}
-                    className="flex-1 rounded-full bg-gradient-to-r from-[#11c2a0] to-[#38a9ff] px-4 py-3 text-sm font-semibold text-white disabled:opacity-40"
-                  >
-                    Send
-                  </button>
+                  {!voiceV2Enabled ? (
+                    <button
+                      type="button"
+                      onClick={() => void sendVoiceDraft()}
+                      disabled={!voiceDraftReady || sending}
+                      className="flex-1 rounded-full bg-gradient-to-r from-[#11c2a0] to-[#38a9ff] px-4 py-3 text-sm font-semibold text-white disabled:opacity-40"
+                    >
+                      Send
+                    </button>
+                  ) : null}
                 </>
               )}
             </div>
