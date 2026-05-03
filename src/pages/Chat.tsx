@@ -1666,6 +1666,8 @@ export default function Chat() {
   }) => Promise<boolean>>(async () => false)
 
   const voiceV2Enabled = String(import.meta.env.VITE_VOICE_V2 || '').toLowerCase() === 'true'
+  const [voiceV2FallbackDisabled, setVoiceV2FallbackDisabled] = useState(false)
+  const voiceV2Active = voiceV2Enabled && !voiceV2FallbackDisabled
 
   const {
     recordingMode, captureKind,
@@ -1719,7 +1721,7 @@ export default function Chat() {
     onTranscript: (id, text) => setTranscriptMap((current) => ({ ...current, [id]: text })),
   })
 
-  const activeVoiceRecording = voiceV2Enabled
+  const activeVoiceRecording = voiceV2Active
     ? {
         overlayOpen: voiceV2State === 'recording' || voiceV2State === 'stopping',
         mode: voiceV2State === 'recording' ? 'recording' : voiceV2State === 'stopping' ? 'stopping' : 'idle',
@@ -1785,16 +1787,24 @@ export default function Chat() {
   })
 
   async function handleVoiceRecordButton() {
-    if (voiceV2Enabled) {
+    if (voiceV2Active) {
       if (!conversationId || !conversation) return
-      await startVoiceV2Recording()
+      try {
+        await startVoiceV2Recording()
+      } catch (error) {
+        console.error('[Chat][VOICE_V2_START_FAILED]', error)
+        setVoiceV2FallbackDisabled(true)
+        setError('Voice v2 is unavailable right now. Falling back to standard recording.')
+        setErrorTrace({ code: 'VOICE_V2_FALLBACK', traceId: createTraceId('VOICE_V2_FALLBACK') })
+        await openVoiceOverlay()
+      }
       return
     }
     await openVoiceOverlay()
   }
 
   async function handleVoiceStopButton() {
-    if (voiceV2Enabled) {
+    if (voiceV2Active) {
       await stopVoiceV2Recording()
       return
     }
@@ -1802,7 +1812,7 @@ export default function Chat() {
   }
 
   async function handleVoiceCancelButton() {
-    if (voiceV2Enabled) {
+    if (voiceV2Active) {
       await cancelVoiceV2Recording()
       return
     }
