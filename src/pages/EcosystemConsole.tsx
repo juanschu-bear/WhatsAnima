@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { useAuth } from '../contexts/AuthContext'
+import { getCanonicalOrigin } from '../lib/canonicalOrigin'
 import { buildSsoLaunchUrl } from '../lib/sso'
 
 function appUrl(envName: string, fallback: string): string {
@@ -11,7 +12,7 @@ export default function EcosystemConsole() {
   const { session, user } = useAuth()
   const driveUrl = appUrl('VITE_ANIMA_DRIVE_URL', 'https://anima-drive-v1.vercel.app')
   const sheetsUrl = appUrl('VITE_ANIMA_SHEETS_URL', 'https://anima-sheets.vercel.app')
-  const waUrl = appUrl('VITE_WHATSANIMA_URL', window.location.origin)
+  const waUrl = appUrl('VITE_WHATSANIMA_URL', getCanonicalOrigin())
 
   const links = useMemo(() => ([
     {

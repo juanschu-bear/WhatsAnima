@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { listAllOwners, createContactForOwner, findOrCreateConversation } from '../lib/api'
 import { type Locale, getStoredLocale, setStoredLocale, t } from '../lib/i18n'
 import { resolveAvatarUrl } from '../lib/avatars'
+import { getCanonicalAppUrl } from '../lib/canonicalOrigin'
 
 type Step = 'language' | 'role' | 'owner-email' | 'user-choice' | 'user-email' | 'new-user' | 'new-user-details'
 
@@ -42,7 +43,7 @@ export default function Login() {
     }
     setError(null)
     await supabase.auth.resetPasswordForEmail(email.trim(), {
-      redirectTo: `${window.location.origin}/auth/callback?next=/login`,
+      redirectTo: getCanonicalAppUrl('/auth/callback?next=/login'),
     })
     setResetSent(true)
   }
@@ -137,7 +138,7 @@ export default function Login() {
 
     // Magic link flow — redirect through /auth/callback with PKCE
     const nextPath = role === 'owner' ? '/' : '/avatars'
-    const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`
+    const redirectTo = getCanonicalAppUrl(`/auth/callback?next=${encodeURIComponent(nextPath)}`)
 
     const { error: otpError } = await supabase.auth.signInWithOtp({
       email: email.trim(),
@@ -220,7 +221,7 @@ export default function Login() {
       }
 
       // Magic link fallback — redirect through /auth/callback
-      const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(`/chat/${conversationId}`)}`
+      const redirectTo = getCanonicalAppUrl(`/auth/callback?next=${encodeURIComponent(`/chat/${conversationId}`)}`)
       const { error: otpError } = await supabase.auth.signInWithOtp({
         email: email.trim(),
         options: {
