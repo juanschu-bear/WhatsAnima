@@ -49,7 +49,6 @@ export function useVoiceMessage(opts: {
   const [interim_transcript, setInterimTranscript] = useState('')
   const [final_transcript, setFinalTranscript] = useState<string | null>(null)
   const [pending_drafts, setPendingDrafts] = useState<VoiceDraft[]>([])
-  const [sessionUserId, setSessionUserId] = useState<string | null>(null)
   const localUrlsRef = useRef<Map<string, string>>(new Map())
   const recorderRef = useRef<ReturnType<typeof createVoiceRecorder> | null>(null)
   const knownMessagesRef = useRef<Set<string>>(new Set())
@@ -174,11 +173,12 @@ export function useVoiceMessage(opts: {
     }
   }
 
-  useEffect(() => {
-    void supabase.auth.getUser().then(({ data }) => {
-      setSessionUserId(data.user?.id ?? null)
-    })
-  }, [])
+  async function resolveSessionUserId() {
+    const { data: sessionData } = await supabase.auth.getSession()
+    if (sessionData.session?.user?.id) return sessionData.session.user.id
+    const { data: userData } = await supabase.auth.getUser()
+    return userData.user?.id ?? null
+  }
 
   useEffect(() => {
     uploadQueue.start()
@@ -244,7 +244,8 @@ export function useVoiceMessage(opts: {
     final_transcript,
     pending_drafts,
     start_recording: async () => {
-      if (!sessionUserId) {
+      const resolvedSessionUserId = await resolveSessionUserId()
+      if (!resolvedSessionUserId) {
         opts.onError?.('You need to be signed in to record voice notes.')
         return
       }
@@ -255,7 +256,7 @@ export function useVoiceMessage(opts: {
       opts.onError?.(null)
       await voiceRecorder.start({
         conversation_id: opts.conversation_id,
-        user_id: sessionUserId,
+        user_id: resolvedSessionUserId,
         owner_id: opts.conversation?.owner_id ?? null,
         contact_id: opts.conversation?.contact_id ?? null,
         owner_name: opts.conversation?.wa_owners?.display_name ?? null,

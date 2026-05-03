@@ -1668,6 +1668,7 @@ export default function Chat() {
   const voiceV2Enabled = String(import.meta.env.VITE_VOICE_V2 || '').toLowerCase() === 'true'
   const [voiceV2FallbackDisabled, setVoiceV2FallbackDisabled] = useState(false)
   const voiceV2Active = voiceV2Enabled && !voiceV2FallbackDisabled
+  const conversationReady = Boolean(conversationId && conversation)
 
   const {
     recordingMode, captureKind,
@@ -1787,8 +1788,11 @@ export default function Chat() {
   })
 
   async function handleVoiceRecordButton() {
+    if (!conversationReady) {
+      setUiError('VOICE_NOT_READY', 'Chat is still loading. Please try the voice button again in a moment.')
+      return
+    }
     if (voiceV2Active) {
-      if (!conversationId || !conversation) return
       try {
         await startVoiceV2Recording()
       } catch (error) {
@@ -3617,7 +3621,7 @@ export default function Chat() {
           <button
             type="button"
             onClick={() => void openVideoOverlay()}
-            disabled={sending || text.trim().length > 0 || mediaMenuOpen || activeVoiceRecording.mode !== 'idle' || videoRecordingMode !== 'idle'}
+            disabled={!conversationReady || sending || text.trim().length > 0 || mediaMenuOpen || activeVoiceRecording.mode !== 'idle' || videoRecordingMode !== 'idle'}
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#1f8fff] text-white shadow-[0_2px_12px_rgba(31,143,255,0.25)] transition hover:bg-[#2f98ff] disabled:opacity-40"
             title="Record video message"
           >
@@ -3629,7 +3633,7 @@ export default function Chat() {
             <button
               type="button"
               onClick={() => { void handleVoiceRecordButton() }}
-              disabled={sending || text.trim().length > 0 || mediaMenuOpen || activeVoiceRecording.mode !== 'idle' || videoRecordingMode !== 'idle'}
+              disabled={!conversationReady || sending || text.trim().length > 0 || mediaMenuOpen || activeVoiceRecording.mode !== 'idle' || videoRecordingMode !== 'idle'}
               className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#00a884] text-white shadow-[0_2px_12px_rgba(0,168,132,0.25)] transition hover:bg-[#00bf96] disabled:opacity-40"
               title="Record voice note"
             >
