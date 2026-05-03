@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { getCanonicalAppUrl } from '../lib/canonicalOrigin'
 import {
   createContactAndConversation,
   createContactAndConversationsFromBundle,
@@ -263,7 +264,7 @@ export default function Invite() {
       email: email.trim(),
       password: password.trim(),
       options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(`/invite/${token}`)}`,
+        emailRedirectTo: getCanonicalAppUrl(`/auth/callback?next=${encodeURIComponent(`/invite/${token}`)}`),
         data: {
           first_name: firstName.trim(),
           last_name: lastName.trim(),
@@ -309,7 +310,7 @@ export default function Invite() {
     setError(null)
     setSubmitting(true)
 
-    const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(`/invite/${token}`)}`
+    const redirectTo = getCanonicalAppUrl(`/auth/callback?next=${encodeURIComponent(`/invite/${token}`)}`)
 
     const pending: PendingInvite = {
       token: token!,
@@ -475,7 +476,7 @@ export default function Invite() {
             <button type="button" onClick={async () => {
               if (!email.trim()) { setError('Enter your email to reset password.'); return }
               setError(null)
-              await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(`/invite/${token}`)}` })
+              await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: getCanonicalAppUrl(`/auth/callback?next=${encodeURIComponent(`/invite/${token}`)}`) })
               setResetSent(true)
             }} className="w-full text-center text-sm text-white/50 transition hover:text-white/80">
               Forgot password?

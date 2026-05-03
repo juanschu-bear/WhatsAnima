@@ -23,6 +23,7 @@ import {
 } from '../lib/api'
 import { resolveAvatarUrl } from '../lib/avatars'
 import { type Locale, getStoredLocale, setStoredLocale, t } from '../lib/i18n'
+import { getCanonicalAppUrl } from '../lib/canonicalOrigin'
 
 interface InvitationLink {
   id: string
@@ -600,7 +601,7 @@ export default function Dashboard() {
   }
 
   const copyLink = (token: string, id: string, label?: string | null) => {
-    const url = `${window.location.origin}/invite/${token}`
+    const url = getCanonicalAppUrl(`/invite/${token}`)
     const text = label ? `${label}\n${url}` : url
     navigator.clipboard.writeText(text)
     setCopiedId(id)

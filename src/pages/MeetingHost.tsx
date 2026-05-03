@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { createOwnerIfNeeded, listAllOwners } from '../lib/api'
 import { resolveAvatarUrl } from '../lib/avatars'
+import { getCanonicalAppUrl } from '../lib/canonicalOrigin'
 
 const LIVE_CALL_API_BASE =
   (import.meta.env.VITE_LIVE_CALL_API_BASE as string | undefined) || 'https://anima.onioko.com'
@@ -134,7 +135,7 @@ export default function MeetingHost() {
   }, [session?.token])
 
   const avatarImage = useMemo(() => resolveAvatarUrl(ownerName), [ownerName])
-  const inviteLink = session?.live_join_url || session?.join_url || (session?.token ? `${window.location.origin}/meeting/${session.token}` : '')
+  const inviteLink = session?.live_join_url || session?.join_url || (session?.token ? getCanonicalAppUrl(`/meeting/${session.token}`) : '')
   const participantCount = session?.participants?.length || 0
 
   async function createMeeting() {
