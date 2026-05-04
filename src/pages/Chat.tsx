@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { getConversation, listMessages, listPerceptionLogs, sendMessage, listAllOwners, listOwnersForUser, findContactByEmail, findOrCreateConversation, createContactForOwner, findContactByEmailForOwner, findLatestConversationForOwnerAndEmail } from '../lib/api'
+import { getConversation, listMessages, listPerceptionLogs, sendMessage, listAllOwners, listOwnersForUser, findContactByEmail, findOrCreateConversation, createContactForOwner, findContactByEmailForOwner, findLatestConversationForOwnerAndEmail, postAvatarReply } from '../lib/api'
 import { resolveAvatarUrl } from '../lib/avatars'
 import { t } from '../lib/i18n'
 import {
@@ -2429,29 +2429,19 @@ export default function Chat() {
       setAvatarStatus('thinking')
 
       if (options?.isVoice) {
-        const backgroundReplyResponse = await fetch('/api/avatar-reply', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          keepalive: true,
-          body: JSON.stringify({
-            conversationId,
-            userMessage: seedText,
-            userMessageId: options?.userMessageId,
-            options: {
-              useVoice,
-              imageUrl: options?.imageUrl,
-              isImage: options?.isImage,
-              isVideo: options?.isVideo,
-              isVoice: options?.isVoice,
-              perception: options?.perception ?? null,
-            },
-          }),
+        const { data: backgroundReplyData } = await postAvatarReply({
+          conversationId,
+          userMessage: seedText,
+          userMessageId: options?.userMessageId,
+          options: {
+            useVoice,
+            imageUrl: options?.imageUrl,
+            isImage: options?.isImage,
+            isVideo: options?.isVideo,
+            isVoice: options?.isVoice,
+            perception: options?.perception ?? null,
+          },
         })
-
-        const backgroundReplyData = await backgroundReplyResponse.json().catch(() => ({}))
-        if (!backgroundReplyResponse.ok) {
-          throw new Error(backgroundReplyData?.error || `avatar-reply failed (${backgroundReplyResponse.status})`)
-        }
 
         const insertedMessages = Array.isArray(backgroundReplyData?.messages)
           ? (backgroundReplyData.messages as Message[])

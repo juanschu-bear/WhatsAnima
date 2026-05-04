@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { getCanonicalAppUrl } from './canonicalOrigin'
 
 export type MessageType = 'text' | 'voice' | 'video' | 'image' | 'flashcard' | 'quiz' | 'lesson' | 'fillin' | 'call_summary' | 'system'
 
@@ -978,4 +979,40 @@ export async function patchMessage(
     throw new Error(data?.error || `patchMessage failed (${response.status})`)
   }
   return data
+}
+
+export async function postAvatarReply(
+  payload: Record<string, unknown>,
+  options?: { keepalive?: boolean }
+) {
+  const body = JSON.stringify(payload)
+  const primaryUrl = '/api/avatar-reply'
+  const fallbackUrl = getCanonicalAppUrl('/api/avatar-reply')
+  const urls = fallbackUrl === primaryUrl ? [primaryUrl] : [primaryUrl, fallbackUrl]
+
+  let lastError: unknown = null
+
+  for (let index = 0; index < urls.length; index += 1) {
+    const url = urls[index]
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+        keepalive: Boolean(options?.keepalive && index === 0),
+        cache: 'no-store',
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(data?.error || `avatar-reply failed (${response.status})`)
+      }
+      return { response, data }
+    } catch (error) {
+      lastError = error
+      if (index === urls.length - 1) throw error
+      console.warn('[postAvatarReply] primary request failed, retrying canonical URL:', error)
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error('avatar-reply failed')
 }
