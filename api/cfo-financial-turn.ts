@@ -75,7 +75,7 @@ async function mirrorToAnimaDriveManualEntry(params: {
     .upload(storagePath, Buffer.from(fileBody, 'utf-8'), { contentType: 'text/plain; charset=utf-8', upsert: true })
   if (upload.error) throw new Error(`manual entry upload failed: ${upload.error.message}`)
 
-  const docInsert = await supabase.from('ad_documents').insert({
+  const docInsert = await (supabase as any).from('ad_documents').insert({
     id: documentId,
     user_id: ownerUserId,
     filename,
@@ -93,7 +93,7 @@ async function mirrorToAnimaDriveManualEntry(params: {
   })
   if (docInsert.error) throw new Error(`manual entry ad_documents insert failed: ${docInsert.error.message}`)
 
-  const extractionInsert = await supabase.from('ad_extractions').insert({
+  const extractionInsert = await (supabase as any).from('ad_extractions').insert({
     document_id: documentId,
     document_type: 'financial',
     summary: 'Manual financial entry logged from WhatsAnima chat.',
@@ -122,7 +122,7 @@ async function mirrorToAnimaDriveManualEntry(params: {
   })
   if (extractionInsert.error) throw new Error(`manual entry ad_extractions insert failed: ${extractionInsert.error.message}`)
 
-  await supabase.from('ad_activities').insert([
+  const activitiesInsert = await (supabase as any).from('ad_activities').insert([
     {
       user_id: ownerUserId,
       document_id: documentId,
@@ -137,7 +137,10 @@ async function mirrorToAnimaDriveManualEntry(params: {
       message: `Extracted financial document: ${displayName}`,
       metadata: { source: 'whatsanima', kind: 'manual_finance_entry' },
     },
-  ]).catch(() => undefined)
+  ])
+  if (activitiesInsert?.error) {
+    console.warn('[cfo-financial-turn] ad_activities insert failed:', activitiesInsert.error.message)
+  }
 
   return { documentId, storagePath }
 }
