@@ -161,6 +161,28 @@ export default async function handler(req: any, res: any) {
   if (incomingPersonaSlug) {
     requestBody.persona_slug = incomingPersonaSlug
   }
+  let initialBackendPayload: Record<string, unknown> | null = null
+  let initialBackendStatus: number | null = null
+  try {
+    const initialResponse = await fetch(`${backendBaseUrl}/api/sessions/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestBody),
+    })
+    initialBackendStatus = initialResponse.status
+    const initialText = await initialResponse.text()
+    initialBackendPayload = initialText ? JSON.parse(initialText) : {}
+
+    if (
+      initialResponse.ok &&
+      typeof initialBackendPayload?.join_url === 'string' &&
+      initialBackendPayload.join_url.startsWith('livekit://')
+    ) {
+      return res.status(200).json(initialBackendPayload)
+    }
+  } catch (error) {
+    console.warn('[video-call] initial backend probe failed', error)
+  }
   const normalizedLanguageCode = normalizeLanguageCode(body.language)
   const languageInstruction = buildLiveLanguageInstruction(normalizedLanguageCode)
   let finalInstruction = languageInstruction
@@ -394,17 +416,22 @@ export default async function handler(req: any, res: any) {
       })
     }
 
-    const response = await fetch(`${backendBaseUrl}/api/sessions/start`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestBody),
-    })
+    let responseStatus = initialBackendStatus
+    let payload = initialBackendPayload
 
-    const text = await response.text()
-    const payload = text ? JSON.parse(text) : {}
+    if (!payload) {
+      const response = await fetch(`${backendBaseUrl}/api/sessions/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+      })
+      responseStatus = response.status
+      const text = await response.text()
+      payload = text ? JSON.parse(text) : {}
+    }
 
-    if (!response.ok) {
-      return res.status(response.status).json(payload)
+    if ((responseStatus ?? 500) >= 400) {
+      return res.status(responseStatus ?? 500).json(payload)
     }
 
     if (supabase && meetingToken && meetingSessionIdToPersist && payload?.session_id && payload?.join_url) {
