@@ -145,11 +145,14 @@ export default async function handler(req: any, res: any) {
   const meetingGuestJoinOnly = Boolean(body.meeting_guest_join_only)
   const conversationIdForRequest = conversationId || (meetingToken ? `meeting-${meetingToken}` : '')
 
+  const requestedPersonaName = String(body.persona_name || body.persona || '').trim()
+  const incomingPersonaSlug = String(body.persona_slug || '').trim()
+  let resolvedPersonaSlug = incomingPersonaSlug || resolvePersonaSlug(requestedPersonaName, null)
+  let isKeyframeRequest = Boolean(resolvedPersonaSlug)
+
   const requestBody: Record<string, unknown> = {
     persona_name: body.persona_name,
     persona: body.persona,
-    persona_id: body.persona_id,
-    replica_id: body.replica_id,
     language: body.language,
     user_name: body.user_name,
     conversation_id: conversationIdForRequest,
@@ -157,9 +160,11 @@ export default async function handler(req: any, res: any) {
     contact_id: contactId || null,
     contact_name: contactName || null,
   }
-  const incomingPersonaSlug = String(body.persona_slug || '').trim()
-  if (incomingPersonaSlug) {
-    requestBody.persona_slug = incomingPersonaSlug
+  if (resolvedPersonaSlug) {
+    requestBody.persona_slug = resolvedPersonaSlug
+  } else {
+    requestBody.persona_id = body.persona_id
+    requestBody.replica_id = body.replica_id
   }
   let initialBackendPayload: Record<string, unknown> | null = null
   let initialBackendStatus: number | null = null
@@ -279,17 +284,20 @@ export default async function handler(req: any, res: any) {
       : ''
     const ownerReplicaId = String(owner?.tavus_replica_id || '').trim()
 
-    if (!requestBody.persona_id && ownerPersonaId) {
+    if (!isKeyframeRequest && !requestBody.persona_id && ownerPersonaId) {
       requestBody.persona_id = ownerPersonaId
     }
-    if (!requestBody.replica_id && ownerReplicaId) {
+    if (!isKeyframeRequest && !requestBody.replica_id && ownerReplicaId) {
       requestBody.replica_id = ownerReplicaId
     }
 
-    const incomingSlug = String(body.persona_slug || '').trim()
-    const resolvedSlug = incomingSlug || resolvePersonaSlug(ownerDisplayName, ownerSettings?.persona_slug)
+    const resolvedSlug = incomingPersonaSlug || resolvePersonaSlug(ownerDisplayName, ownerSettings?.persona_slug)
     if (resolvedSlug) {
+      resolvedPersonaSlug = resolvedSlug
+      isKeyframeRequest = true
       requestBody.persona_slug = resolvedSlug
+      delete requestBody.persona_id
+      delete requestBody.replica_id
       console.log('[video-call] persona_slug_resolved', {
         ownerId,
         ownerDisplayName: ownerDisplayName || null,
