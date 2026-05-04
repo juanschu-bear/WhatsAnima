@@ -32,6 +32,26 @@ export interface ConversationListItem {
   } | null
 }
 
+export interface OutboundCallRecord {
+  id: string
+  conversation_id: string
+  owner_id: string | null
+  contact_id: string | null
+  contact_email: string
+  requested_by_message_id: string | null
+  trigger_text: string
+  mode: 'video'
+  status: string
+  caller_display_name: string | null
+  requested_at: string
+  scheduled_for: string
+  triggered_at: string | null
+  accepted_at: string | null
+  declined_at: string | null
+  expires_at: string | null
+  last_error: string | null
+}
+
 export interface OwnerDashboardStats {
   totalContacts: number
   totalConversations: number
@@ -1015,4 +1035,50 @@ export async function postAvatarReply(
   }
 
   throw lastError instanceof Error ? lastError : new Error('avatar-reply failed')
+}
+
+export async function requestOutboundCall(payload: {
+  conversationId: string
+  ownerId?: string | null
+  contactId?: string | null
+  contactEmail: string
+  requestedByMessageId?: string | null
+  triggerText: string
+  callerDisplayName?: string | null
+  delayMinutes?: number
+}) {
+  const response = await fetch('/api/outbound-call-request', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    throw new Error(data?.error || `outbound-call-request failed (${response.status})`)
+  }
+  return data as { call: OutboundCallRecord }
+}
+
+export async function pollOutboundCall(email: string) {
+  const response = await fetch(`/api/outbound-call-poll?email=${encodeURIComponent(email)}`, {
+    cache: 'no-store',
+  })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    throw new Error(data?.error || `outbound-call-poll failed (${response.status})`)
+  }
+  return data as { call: OutboundCallRecord | null }
+}
+
+export async function respondToOutboundCall(callId: string, action: 'accept' | 'decline') {
+  const response = await fetch('/api/outbound-call-respond', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ callId, action }),
+  })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    throw new Error(data?.error || `outbound-call-respond failed (${response.status})`)
+  }
+  return data as { call: OutboundCallRecord; joinUrl: string }
 }
