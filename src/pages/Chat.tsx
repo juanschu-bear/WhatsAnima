@@ -3691,7 +3691,7 @@ export default function Chat() {
                 </div>
               ) : activeVoiceRecording.draftReady ? (
                 <div className="mt-4 rounded-2xl bg-black/15 px-3 py-2 text-sm text-white/50 italic">
-                  Transcript is streaming while you speak.
+                  Review your recording before sending.
                 </div>
               ) : null}
               {!voiceV2Enabled && voiceDraftUrl ? <audio className="mt-4 w-full" controls src={voiceDraftUrl} /> : null}
