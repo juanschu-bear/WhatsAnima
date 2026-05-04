@@ -1620,7 +1620,7 @@ export default async function handler(req: any, res: any) {
     }
   }
 
-  const priorMessages = Array.isArray(history)
+  let priorMessages = Array.isArray(history)
     ? history.filter(
         (entry): entry is ChatMessage =>
           Boolean(entry) &&
@@ -1629,6 +1629,16 @@ export default async function handler(req: any, res: any) {
           entry.content.trim().length > 0
       )
     : []
+
+  // Defensive dedupe: some client/server paths can already include the current
+  // user turn in history while also passing it separately as `message`.
+  // If that happens, the assistant perceives the same input twice.
+  if (priorMessages.length > 0) {
+    const last = priorMessages[priorMessages.length - 1]
+    if (last?.role === 'user' && last.content.trim() === message.trim()) {
+      priorMessages = priorMessages.slice(0, -1)
+    }
+  }
 
   try {
     const { ownerPrompt, memory, stylePrompt, behavioralMemory, cfoContext, ownerId, ownerName, llmProvider, voiceId, contactId } = await loadOwnerPromptAndMemory(conversationId, ownerIdHint, ownerNameHint)

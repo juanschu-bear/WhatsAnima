@@ -239,13 +239,14 @@ export default async function handler(req: any, res: any) {
 
     const { data: historyRows } = await supabase
       .from('wa_messages')
-      .select('sender, type, content, created_at')
+      .select('id, sender, type, content, created_at')
       .eq('conversation_id', conversationId)
       .neq('type', 'call_summary')
       .order('created_at', { ascending: false })
-      .limit(10)
+      .limit(12)
 
     const history: ChatHistoryMessage[] = (historyRows || [])
+      .filter((message: any) => !userMessageId || String(message.id) !== String(userMessageId))
       .slice()
       .reverse()
       .map((message: any) => ({
@@ -254,6 +255,7 @@ export default async function handler(req: any, res: any) {
         msgType: String(message.type || 'text'),
       }))
       .filter((message) => message.content.length > 0)
+      .slice(-10)
 
     const origin = getOrigin(req)
     if (!origin) {
