@@ -38,6 +38,7 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
+    const expirationDate = new Date(Date.now() + 30 * 60 * 1000).toISOString()
     const response = await fetch(`https://api.deepgram.com/v1/projects/${projectId}/keys`, {
       method: 'POST',
       headers: {
@@ -46,8 +47,7 @@ export default async function handler(req: any, res: any) {
       },
       body: JSON.stringify({
         comment: `WhatsAnima voice v2 ${user.id}`,
-        tags: ['whatsanima', 'voice-v2', user.id],
-        time_to_live_in_seconds: 1800,
+        expiration_date: expirationDate,
       }),
     })
 
@@ -58,7 +58,7 @@ export default async function handler(req: any, res: any) {
 
     return res.status(200).json({
       key: payload.key,
-      expires_at: Date.now() + 1800 * 1000,
+      expires_at: new Date(expirationDate).getTime(),
     })
   } catch (error: any) {
     return res.status(500).json({ error: error?.message || 'Failed to issue Deepgram token' })
