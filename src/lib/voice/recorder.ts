@@ -79,7 +79,6 @@ export function createVoiceRecorder(deps: {
       final_transcript = null
       chunks = []
       startedAt = Date.now()
-      setState('recording')
 
       try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: true })
@@ -116,6 +115,7 @@ export function createVoiceRecorder(deps: {
         }
 
         mediaRecorder.start(250)
+        setState('recording')
       } catch (error) {
         setState('error')
         deps.onError?.(error instanceof Error ? error : new Error('Microphone access required'))
