@@ -10,7 +10,7 @@ type DeepgramEncoding = 'opus' | 'webm-opus' | 'mp4a'
 
 function buildUrl(opts: {
   language?: string
-  encoding: DeepgramEncoding
+  encoding?: DeepgramEncoding
   sampleRate?: number
 }) {
   const params = new URLSearchParams({
@@ -33,7 +33,7 @@ function extractTranscript(payload: any): string {
 export async function openDeepgramStream(opts: {
   apiKey: string
   language?: string
-  encoding: DeepgramEncoding
+  encoding?: DeepgramEncoding
   sampleRate?: number
 }): Promise<DeepgramStream> {
   return await new Promise<DeepgramStream>((resolve, reject) => {

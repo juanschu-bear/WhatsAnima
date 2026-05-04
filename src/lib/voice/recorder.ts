@@ -11,10 +11,11 @@ export interface VoiceRecorderHandle {
   cancel(): Promise<void>
 }
 
-function mimeToEncoding(mimeType: string): 'opus' | 'webm-opus' | 'mp4a' {
-  if (mimeType.includes('mp4')) return 'mp4a'
-  if (mimeType.includes('webm')) return 'webm-opus'
-  return 'opus'
+function shouldSendEncoding(mimeType: string) {
+  const lower = mimeType.toLowerCase()
+  if (lower.includes('webm') || lower.includes('ogg') || lower.includes('mp4')) return undefined
+  if (lower.includes('opus')) return 'opus'
+  return undefined
 }
 
 function dispatchDraftEvent(local_id: string) {
@@ -90,7 +91,7 @@ export function createVoiceRecorder(deps: {
           deepgram = await openDeepgramStream({
             apiKey: deps.deepgramApiKey,
             language: deps.language,
-            encoding: mimeToEncoding(mediaRecorder.mimeType || 'audio/webm'),
+            encoding: shouldSendEncoding(mediaRecorder.mimeType || 'audio/webm'),
           })
           deepgram.onInterim = (text) => {
             interim_transcript = text
