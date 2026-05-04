@@ -93,14 +93,14 @@ async function mirrorFinancialConversationToCfo(params: {
   if (!looksFinancialMessage(userMessage)) return
 
   if (userMessageId) {
-    const { data: existing } = await supabase
+    const { data: existing } = await (supabase as any)
       .from('cfo_transactions')
       .select('id')
       .eq('owner_id', ownerId)
       .eq('message_id', userMessageId)
       .limit(1)
       .maybeSingle()
-    if (existing && 'id' in existing && existing.id) return
+    if ((existing as any)?.id) return
   }
 
   const parsed = parseAmountAndCurrency(userMessage)
