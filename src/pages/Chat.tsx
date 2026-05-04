@@ -1665,7 +1665,9 @@ export default function Chat() {
     userMessageId?: string
   }) => Promise<boolean>>(async () => false)
 
-  const voiceV2Enabled = String(import.meta.env.VITE_VOICE_V2 || '').toLowerCase() === 'true'
+  // Temporary rollback: keep Voice v2 code in repo, but force production chat back
+  // to the stable preview/confirm/send flow until v2 is proven reliable.
+  const voiceV2Enabled = false
   const [voiceV2FallbackDisabled, setVoiceV2FallbackDisabled] = useState(false)
   const voiceV2Active = voiceV2Enabled && !voiceV2FallbackDisabled
   const conversationReady = Boolean(conversationId && conversation)
