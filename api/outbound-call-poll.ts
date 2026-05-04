@@ -1,4 +1,4 @@
-import { getSupabaseAdmin } from './_lib/liveSessionAudit'
+import { getSupabaseAdmin } from './_lib/liveSessionAudit.js'
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'GET') {

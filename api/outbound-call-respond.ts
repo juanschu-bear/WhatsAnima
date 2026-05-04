@@ -1,4 +1,4 @@
-import { getSupabaseAdmin, normalizeBody } from './_lib/liveSessionAudit'
+import { getSupabaseAdmin, normalizeBody } from './_lib/liveSessionAudit.js'
 
 function buildOrigin(req: any) {
   const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim()
