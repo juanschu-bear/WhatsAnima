@@ -32,33 +32,31 @@ export default async function handler(req: any, res: any) {
   if (!user) return res.status(401).json({ error: 'Unauthorized' })
 
   const masterKey = process.env.DEEPGRAM_MASTER_KEY || process.env.DEEPGRAM_API_KEY
-  const projectId = process.env.DEEPGRAM_PROJECT_ID
-  if (!masterKey || !projectId) {
-    return res.status(503).json({ error: 'Missing DEEPGRAM_MASTER_KEY or DEEPGRAM_PROJECT_ID' })
+  if (!masterKey) {
+    return res.status(503).json({ error: 'Missing DEEPGRAM_MASTER_KEY' })
   }
 
   try {
-    const expirationDate = new Date(Date.now() + 30 * 60 * 1000).toISOString()
-    const response = await fetch(`https://api.deepgram.com/v1/projects/${projectId}/keys`, {
+    const ttlSeconds = 300
+    const response = await fetch('https://api.deepgram.com/v1/auth/grant', {
       method: 'POST',
       headers: {
         Authorization: `Token ${masterKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        comment: `WhatsAnima voice v2 ${user.id}`,
-        expiration_date: expirationDate,
+        ttl_seconds: ttlSeconds,
       }),
     })
 
     const payload = await response.json().catch(() => ({}))
-    if (!response.ok || !payload?.key) {
+    if (!response.ok || !payload?.access_token) {
       return res.status(502).json({ error: payload?.err_msg || payload?.message || `Deepgram key creation failed (${response.status})` })
     }
 
     return res.status(200).json({
-      key: payload.key,
-      expires_at: new Date(expirationDate).getTime(),
+      key: payload.access_token,
+      expires_at: Date.now() + Number(payload?.expires_in || ttlSeconds) * 1000,
     })
   } catch (error: any) {
     return res.status(500).json({ error: error?.message || 'Failed to issue Deepgram token' })
