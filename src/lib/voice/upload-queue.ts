@@ -1,4 +1,4 @@
-import { createPerceptionLog, sendMessage } from '../api'
+import { createPerceptionLog, postAvatarReply, sendMessage } from '../api'
 import { callOpmApi } from '../mediaUtils'
 import { draftStore, type VoiceDraft } from './draft-store'
 
@@ -109,16 +109,13 @@ async function uploadDraftAudio(draft: VoiceDraft) {
 async function triggerNonBlockingPostUpload(draft: VoiceDraft) {
   if (!draft.message_id || !draft.transcript_final) return
   if (!draft.owner_id || !draft.contact_id) {
-    await fetch('/api/avatar-reply', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    await postAvatarReply({
+      conversationId: draft.conversation_id,
+      userMessage: draft.transcript_final,
+      userMessageId: draft.message_id,
+      options: { isVoice: true, useVoice: true, perception: null },
+    }, {
       keepalive: true,
-      body: JSON.stringify({
-        conversationId: draft.conversation_id,
-        userMessage: draft.transcript_final,
-        userMessageId: draft.message_id,
-        options: { isVoice: true, useVoice: true, perception: null },
-      }),
     }).catch(() => undefined)
     return
   }
@@ -152,16 +149,13 @@ async function triggerNonBlockingPostUpload(draft: VoiceDraft) {
     }).catch(() => undefined)
   }
 
-  await fetch('/api/avatar-reply', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+  await postAvatarReply({
+    conversationId: draft.conversation_id,
+    userMessage: draft.transcript_final,
+    userMessageId: draft.message_id,
+    options: { isVoice: true, useVoice: true, perception: opmResponse },
+  }, {
     keepalive: true,
-    body: JSON.stringify({
-      conversationId: draft.conversation_id,
-      userMessage: draft.transcript_final,
-      userMessageId: draft.message_id,
-      options: { isVoice: true, useVoice: true, perception: opmResponse },
-    }),
   }).catch(() => undefined)
 }
 

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { patchMessage, sendMessage } from '../api'
 import { supabase } from '../supabase'
+import { postAvatarReply } from '../api'
 import { createVoiceRecorder } from './recorder'
 import { draftStore, type VoiceDraft } from './draft-store'
 import { uploadQueue } from './upload-queue'
@@ -157,16 +158,13 @@ export function useVoiceMessage(opts: {
 
     if (draft.status === 'uploaded' && draft.transcript_final && !repliedMessagesRef.current.has(messageId)) {
       repliedMessagesRef.current.add(messageId)
-      void fetch('/api/avatar-reply', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      void postAvatarReply({
+        conversationId: draft.conversation_id,
+        userMessage: draft.transcript_final,
+        userMessageId: messageId,
+        options: { isVoice: true, useVoice: true, perception: null },
+      }, {
         keepalive: true,
-        body: JSON.stringify({
-          conversationId: draft.conversation_id,
-          userMessage: draft.transcript_final,
-          userMessageId: messageId,
-          options: { isVoice: true, useVoice: true, perception: null },
-        }),
       }).catch(() => {
         repliedMessagesRef.current.delete(messageId)
       })
