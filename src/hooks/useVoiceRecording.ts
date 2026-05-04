@@ -1,10 +1,11 @@
 import { useRef, useState } from 'react'
-import { createPerceptionLog, sendMessage, checkUsage } from '../lib/api'
+import { createPerceptionLog, sendMessage, checkUsage, requestOutboundCall } from '../lib/api'
 import {
   getFileExtension,
   uploadAudioToStorage,
   callOpmApi, transcribeServerSide,
 } from '../lib/mediaUtils'
+import { buildOutboundCallAck, parseOutboundCallIntent } from '../lib/callIntent'
 
 type RecordingMode = 'idle' | 'recording' | 'stopping'
 type CaptureKind = 'none' | 'voice' | 'video'
@@ -29,7 +30,7 @@ interface ConversationRef {
   id: string
   owner_id: string
   contact_id: string
-  wa_contacts?: { display_name?: string | null } | null
+  wa_contacts?: { display_name?: string | null; email?: string | null } | null
   wa_owners?: { display_name?: string | null } | null
 }
 
@@ -212,6 +213,33 @@ export function useVoiceRecording({
           personaName: conversation.wa_owners?.display_name ?? null,
         }).catch((logErr) => console.warn('[perception-log]', logErr.message))
         onTranscript(message.id, finalTranscript)
+
+        const outboundCallIntent = parseOutboundCallIntent(finalTranscript)
+        if (outboundCallIntent && conversation?.wa_contacts?.email) {
+          try {
+            await requestOutboundCall({
+              conversationId,
+              ownerId: conversation?.owner_id ?? null,
+              contactId: conversation?.contact_id ?? null,
+              contactEmail: String(conversation.wa_contacts.email || '').trim(),
+              requestedByMessageId: message.id,
+              triggerText: finalTranscript,
+              callerDisplayName: conversation?.wa_owners?.display_name ?? 'Avatar',
+              delayMinutes: outboundCallIntent.delayMinutes,
+            })
+            const ack = await sendMessage(
+              conversationId,
+              'avatar',
+              'system',
+              buildOutboundCallAck(finalTranscript, outboundCallIntent.delayMinutes),
+            )
+            onMessageSent(ack as Message)
+            maybeAvatarReact(message.id)
+            return
+          } catch (callRequestError) {
+            console.error('[outbound-call-request][voice]', callRequestError)
+          }
+        }
 
         const retryAvatarReply = async () => {
           try {

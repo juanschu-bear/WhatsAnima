@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { getConversation, listMessages, listPerceptionLogs, sendMessage, listAllOwners, listOwnersForUser, findContactByEmail, findOrCreateConversation, createContactForOwner, findContactByEmailForOwner, findLatestConversationForOwnerAndEmail, postAvatarReply } from '../lib/api'
+import { getConversation, listMessages, listPerceptionLogs, sendMessage, listAllOwners, listOwnersForUser, findContactByEmail, findOrCreateConversation, createContactForOwner, findContactByEmailForOwner, findLatestConversationForOwnerAndEmail, postAvatarReply, requestOutboundCall } from '../lib/api'
 import { resolveAvatarUrl } from '../lib/avatars'
 import { t } from '../lib/i18n'
 import {
@@ -23,6 +23,7 @@ import { useMessageSelection } from '../hooks/useMessageSelection'
 import { useVoiceRecording } from '../hooks/useVoiceRecording'
 import { useVideoRecording } from '../hooks/useVideoRecording'
 import { VideoRecorder } from '../components/VideoRecorder'
+import { buildOutboundCallAck, parseOutboundCallIntent } from '../lib/callIntent'
 import { getAvatarFirstName } from '../lib/voiceDelay'
 import { useVoiceMessage } from '../lib/voice'
 import {
@@ -88,7 +89,7 @@ interface ConversationData {
     bio?: string | null
     expertise?: string | null
   }
-  wa_contacts: { display_name: string }
+  wa_contacts: { id?: string; display_name: string; email?: string | null }
 }
 
 interface CaptionDraft {
@@ -2604,6 +2605,33 @@ export default function Chat() {
       setMessages((current) => [...current, message as Message])
       simulateAvatarRead((message as Message).id)
       const messageId = String((message as Message).id)
+
+      const outboundCallIntent = parseOutboundCallIntent(content)
+      if (outboundCallIntent && conversation?.wa_contacts?.email) {
+        try {
+          await requestOutboundCall({
+            conversationId,
+            ownerId: conversation?.owner_id ?? null,
+            contactId: conversation?.contact_id ?? null,
+            contactEmail: String(conversation.wa_contacts.email || '').trim(),
+            requestedByMessageId: messageId,
+            triggerText: content,
+            callerDisplayName: conversation?.wa_owners?.display_name ?? 'Avatar',
+            delayMinutes: outboundCallIntent.delayMinutes,
+          })
+          const ack = await sendMessage(
+            conversationId,
+            'avatar',
+            'system',
+            buildOutboundCallAck(content, outboundCallIntent.delayMinutes),
+          )
+          setMessages((current) => [...current, ack as Message])
+          markAsInstantlyRead(String((ack as Message).id))
+          return
+        } catch (callRequestError) {
+          console.error('[outbound-call-request][text]', callRequestError)
+        }
+      }
 
       if (cfoIntakeState?.step === 'awaiting_receipt_choice') {
         if (isAffirmative(content)) {
