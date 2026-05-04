@@ -37,7 +37,8 @@ export async function openDeepgramStream(opts: {
   sampleRate?: number
 }): Promise<DeepgramStream> {
   return await new Promise<DeepgramStream>((resolve, reject) => {
-    const socket = new WebSocket(buildUrl(opts), ['token', opts.apiKey])
+    const authScheme = opts.apiKey.includes('.') ? 'bearer' : 'token'
+    const socket = new WebSocket(buildUrl(opts), [authScheme, opts.apiKey])
     let settled = false
     let closeResolver: (() => void) | null = null
     let closeRejecter: ((reason?: unknown) => void) | null = null
