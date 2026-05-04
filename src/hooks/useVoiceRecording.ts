@@ -180,7 +180,10 @@ export function useVoiceRecording({
           durationSeconds
         )) as Message
 
-        // Replace optimistic message with real one, keep local blob URL as fallback
+        // Replace optimistic message with real one, keep local blob URL as fallback.
+        // The voice bubble should stop looking "in progress" once the user's
+        // message itself is stored successfully; avatar reply generation is a
+        // separate concern and should not keep the send spinner alive.
         onMessageUpdate(tempId, {
           id: message.id,
           content: finalTranscript,
@@ -211,12 +214,6 @@ export function useVoiceRecording({
         onTranscript(message.id, finalTranscript)
 
         const retryAvatarReply = async () => {
-          onMessageUpdate(message.id, {
-            _pending: true,
-            _failed: false,
-            _errorMessage: undefined,
-            _retryFn: undefined,
-          })
           try {
             const retried = await sendAvatarReply(finalTranscript, {
               isVoice: true,
@@ -225,24 +222,13 @@ export function useVoiceRecording({
               userMessageId: message.id,
             })
             if (retried) {
-              onMessageUpdate(message.id, {
-                _pending: false,
-                _failed: false,
-                _errorMessage: undefined,
-                _retryFn: undefined,
-              })
               maybeAvatarReact(message.id)
               return
             }
           } catch (retryError) {
             console.error('[voice][avatar-retry]', retryError)
           }
-          onMessageUpdate(message.id, {
-            _pending: false,
-            _failed: true,
-            _errorMessage: 'Avatar response failed. Tap Resend to retry response generation.',
-            _retryFn: retryAvatarReply,
-          })
+          onError('Avatar response failed. Please try again in a moment.')
         }
 
         const voiceReplied = await sendAvatarReply(finalTranscript, {
@@ -252,20 +238,10 @@ export function useVoiceRecording({
           userMessageId: message.id,
         })
         if (voiceReplied) {
-          onMessageUpdate(message.id, {
-            _pending: false,
-            _failed: false,
-            _errorMessage: undefined,
-            _retryFn: undefined,
-          })
           maybeAvatarReact(message.id)
         } else {
-          onMessageUpdate(message.id, {
-            _pending: false,
-            _failed: true,
-            _errorMessage: 'Avatar response failed. Tap Resend to retry response generation.',
-            _retryFn: retryAvatarReply,
-          })
+          onError('Avatar response failed. Please try again in a moment.')
+          void retryAvatarReply()
         }
       } catch (recordingError: any) {
         console.error('[sendVoiceMessage]', recordingError)

@@ -2897,7 +2897,7 @@ export default function Chat() {
       : syncHealth === 'delayed'
         ? 'Delayed'
         : syncHealth === 'syncing'
-          ? 'Syncing'
+          ? 'Updating'
           : 'Live'
   const syncBadgeClass =
     syncHealth === 'offline'
@@ -2908,8 +2908,8 @@ export default function Chat() {
           ? 'border-sky-400/35 bg-sky-500/12 text-sky-200'
           : 'border-emerald-400/35 bg-emerald-500/12 text-emerald-200'
   const lastSyncLabel = lastSyncAt
-    ? `${Math.max(0, Math.floor((Date.now() - lastSyncAt) / 1000))}s`
-    : 'never'
+    ? `${Math.max(0, Math.floor((Date.now() - lastSyncAt) / 1000))}s ago`
+    : 'waiting for first update'
   const filteredRailOwners = railOwners.filter((ownerItem) =>
     ownerItem.display_name.toLowerCase().includes(avatarSearch.trim().toLowerCase())
   )
@@ -3058,7 +3058,7 @@ export default function Chat() {
                   <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${syncBadgeClass}`}>
                     {syncLabel}
                   </span>
-                  <span className="text-[10px] text-white/40">sync {lastSyncLabel}</span>
+                  <span className="text-[10px] text-white/40">{lastSyncLabel}</span>
                 </div>
               </div>
             </button>
