@@ -100,12 +100,12 @@ async function mirrorFinancialConversationToCfo(params: {
       .eq('message_id', userMessageId)
       .limit(1)
       .maybeSingle()
-    if (existing?.id) return
+    if (existing && 'id' in existing && existing.id) return
   }
 
   const parsed = parseAmountAndCurrency(userMessage)
   const shortNote = userMessage.slice(0, 500)
-  await supabase.from('cfo_transactions').insert({
+  await (supabase as any).from('cfo_transactions').insert({
     owner_id: ownerId,
     contact_id: contactId,
     conversation_id: conversationId,
@@ -136,7 +136,7 @@ async function mirrorFinancialConversationToCfo(params: {
   })
 
   if (ownerUserId) {
-    await supabase.from('ad_cfo_events').insert({
+    const cfoEventInsert = await (supabase as any).from('ad_cfo_events').insert({
       user_id: ownerUserId,
       event_type: 'whatsanima_financial_turn',
       source: 'whatsanima.avatar-reply',
@@ -150,7 +150,10 @@ async function mirrorFinancialConversationToCfo(params: {
         amount: parsed.amount,
         currency: parsed.currency,
       },
-    }).catch(() => undefined)
+    })
+    if (cfoEventInsert?.error) {
+      console.warn('[avatar-reply] ad_cfo_events insert failed:', cfoEventInsert.error.message)
+    }
   }
 }
 
