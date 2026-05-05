@@ -268,68 +268,72 @@ export default async function handler(req: any, res: any) {
   }
 
   if (supabase && ownerId) {
-    const { data: owner } = await supabase
-      .from('wa_owners')
-      .select('display_name, email, system_prompt, settings, tavus_replica_id')
-      .eq('id', ownerId)
-      .maybeSingle()
+    try {
+      const { data: owner } = await supabase
+        .from('wa_owners')
+        .select('display_name, email, system_prompt, settings, tavus_replica_id')
+        .eq('id', ownerId)
+        .maybeSingle()
 
-    const ownerDisplayName = String(owner?.display_name || '').trim()
-    const ownerEmail = String(owner?.email || '').trim()
-    const ownerSettings = (owner?.settings && typeof owner.settings === 'object')
-      ? owner.settings as Record<string, unknown>
-      : null
-    const ownerPersonaId = typeof ownerSettings?.tavus_persona_id === 'string'
-      ? ownerSettings.tavus_persona_id.trim()
-      : ''
-    const ownerReplicaId = String(owner?.tavus_replica_id || '').trim()
+      const ownerDisplayName = String(owner?.display_name || '').trim()
+      const ownerEmail = String(owner?.email || '').trim()
+      const ownerSettings = (owner?.settings && typeof owner.settings === 'object')
+        ? owner.settings as Record<string, unknown>
+        : null
+      const ownerPersonaId = typeof ownerSettings?.tavus_persona_id === 'string'
+        ? ownerSettings.tavus_persona_id.trim()
+        : ''
+      const ownerReplicaId = String(owner?.tavus_replica_id || '').trim()
 
-    if (!isKeyframeRequest && !requestBody.persona_id && ownerPersonaId) {
-      requestBody.persona_id = ownerPersonaId
-    }
-    if (!isKeyframeRequest && !requestBody.replica_id && ownerReplicaId) {
-      requestBody.replica_id = ownerReplicaId
-    }
-
-    const resolvedSlug = incomingPersonaSlug || resolvePersonaSlug(ownerDisplayName, ownerSettings?.persona_slug)
-    if (resolvedSlug) {
-      resolvedPersonaSlug = resolvedSlug
-      isKeyframeRequest = true
-      requestBody.persona_slug = resolvedSlug
-      delete requestBody.persona_id
-      delete requestBody.replica_id
-      console.log('[video-call] persona_slug_resolved', {
-        ownerId,
-        ownerDisplayName: ownerDisplayName || null,
-        personaSlug: resolvedSlug,
-        source: incomingSlug
-          ? 'request'
-          : ownerSettings?.persona_slug
-            ? 'owner_settings'
-            : 'display_name_mapping',
-      })
-    }
-
-    if (isJuanLockedOwner(ownerDisplayName, ownerEmail)) {
-      requestBody.persona_id = JUAN_LOCKED_PERSONA_ID
-      requestBody.replica_id = JUAN_LOCKED_REPLICA_ID
-      if (ownerDisplayName) {
-        requestBody.persona_name = ownerDisplayName
-        requestBody.persona = ownerDisplayName
+      if (!isKeyframeRequest && !requestBody.persona_id && ownerPersonaId) {
+        requestBody.persona_id = ownerPersonaId
       }
-      requestBody.persona_override = true
-      requestBody.juan_persona_locked = true
-      console.log('[video-call] juan_persona_lock_applied', {
-        ownerId,
-        ownerDisplayName: ownerDisplayName || null,
-        personaId: JUAN_LOCKED_PERSONA_ID,
-        replicaId: JUAN_LOCKED_REPLICA_ID,
-      })
-    }
+      if (!isKeyframeRequest && !requestBody.replica_id && ownerReplicaId) {
+        requestBody.replica_id = ownerReplicaId
+      }
 
-    if (owner?.system_prompt) {
-      requestBody.system_prompt = owner.system_prompt
-      requestBody.owner_system_prompt = owner.system_prompt
+      const resolvedSlug = incomingPersonaSlug || resolvePersonaSlug(ownerDisplayName, ownerSettings?.persona_slug)
+      if (resolvedSlug) {
+        resolvedPersonaSlug = resolvedSlug
+        isKeyframeRequest = true
+        requestBody.persona_slug = resolvedSlug
+        delete requestBody.persona_id
+        delete requestBody.replica_id
+        console.log('[video-call] persona_slug_resolved', {
+          ownerId,
+          ownerDisplayName: ownerDisplayName || null,
+          personaSlug: resolvedSlug,
+          source: incomingPersonaSlug
+            ? 'request'
+            : ownerSettings?.persona_slug
+              ? 'owner_settings'
+              : 'display_name_mapping',
+        })
+      }
+
+      if (isJuanLockedOwner(ownerDisplayName, ownerEmail)) {
+        requestBody.persona_id = JUAN_LOCKED_PERSONA_ID
+        requestBody.replica_id = JUAN_LOCKED_REPLICA_ID
+        if (ownerDisplayName) {
+          requestBody.persona_name = ownerDisplayName
+          requestBody.persona = ownerDisplayName
+        }
+        requestBody.persona_override = true
+        requestBody.juan_persona_locked = true
+        console.log('[video-call] juan_persona_lock_applied', {
+          ownerId,
+          ownerDisplayName: ownerDisplayName || null,
+          personaId: JUAN_LOCKED_PERSONA_ID,
+          replicaId: JUAN_LOCKED_REPLICA_ID,
+        })
+      }
+
+      if (owner?.system_prompt) {
+        requestBody.system_prompt = owner.system_prompt
+        requestBody.owner_system_prompt = owner.system_prompt
+      }
+    } catch (error) {
+      console.error('[video-call] owner context load failed', error)
     }
   }
 
