@@ -33,7 +33,7 @@ interface BackendPersona {
 }
 
 const LIVE_CALL_API_BASE =
-  (import.meta.env.VITE_LIVE_CALL_API_BASE as string | undefined) || 'https://anima.onioko.com'
+  (import.meta.env.VITE_LIVE_CALL_API_BASE as string | undefined) || 'https://boardroom-api.onioko.com'
 const FALLBACK_REPLICA_ID = 'r987f6e6f73c'
 const JUAN_LOCKED_REPLICA_ID = 'rf5414018e80'
 const HEARTBEAT_INTERVAL_MS = 15_000

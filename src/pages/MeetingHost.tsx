@@ -6,7 +6,7 @@ import { resolveAvatarUrl } from '../lib/avatars'
 import { getCanonicalAppUrl } from '../lib/canonicalOrigin'
 
 const LIVE_CALL_API_BASE =
-  (import.meta.env.VITE_LIVE_CALL_API_BASE as string | undefined) || 'https://anima.onioko.com'
+  (import.meta.env.VITE_LIVE_CALL_API_BASE as string | undefined) || 'https://boardroom-api.onioko.com'
 
 type MeetingSession = {
   token: string

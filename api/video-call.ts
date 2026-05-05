@@ -3,12 +3,16 @@ import { getSupabaseAdmin, logLiveSessionEvent, normalizeBody } from './_lib/liv
 const LIVE_CALL_API_BASE =
   process.env.LIVE_CALL_API_BASE ||
   process.env.VITE_LIVE_CALL_API_BASE ||
-  'https://anima.onioko.com'
+  'https://boardroom-api.onioko.com'
 const JUAN_LOCKED_PERSONA_ID = 'p3ba4e8a40d1'
 const JUAN_LOCKED_REPLICA_ID = 'rf5414018e80'
 
 function normalizeBackendBaseUrl(value: string) {
-  return value.replace(/\/+$/, '').replace(/\/api$/, '')
+  const normalized = value.replace(/\/+$/, '').replace(/\/api$/, '')
+  if (normalized === 'https://anima.onioko.com') {
+    return 'https://boardroom-api.onioko.com'
+  }
+  return normalized
 }
 
 function isJuanLockedOwner(displayName: unknown, email: unknown) {
