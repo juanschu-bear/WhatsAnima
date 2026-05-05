@@ -340,54 +340,52 @@ export default async function handler(req: any, res: any) {
     try {
       const { meeting, error: meetingError } = await loadMeetingSession(supabase, meetingToken)
       if (meetingError) {
-        return res.status(500).json({ error: meetingError })
-      }
-      if (!meeting) {
-        return res.status(404).json({ error: 'Meeting session not found' })
-      }
-      if (meeting.expires_at && new Date(meeting.expires_at).getTime() < Date.now()) {
-        return res.status(410).json({ error: 'Meeting session has expired' })
-      }
-      meetingSessionIdToPersist = meeting.id
+        console.error('[video-call] meeting session lookup failed', { meetingToken, meetingError })
+      } else if (!meeting) {
+        console.warn('[video-call] meeting session missing, falling back to direct call', { meetingToken })
+      } else if (meeting.expires_at && new Date(meeting.expires_at).getTime() < Date.now()) {
+        console.warn('[video-call] meeting session expired, falling back to direct call', { meetingToken })
+      } else {
+        meetingSessionIdToPersist = meeting.id
 
-      const liveSessionId = String(meeting.live_session_id || '').trim()
-      const liveJoinUrl = String(meeting.live_join_url || '').trim()
-      if (liveJoinUrl) {
-        activeMeetingRoom = {
-          sessionId: liveSessionId || meeting.id,
-          joinUrl: liveJoinUrl,
+        const liveSessionId = String(meeting.live_session_id || '').trim()
+        const liveJoinUrl = String(meeting.live_join_url || '').trim()
+        if (liveJoinUrl) {
+          activeMeetingRoom = {
+            sessionId: liveSessionId || meeting.id,
+            joinUrl: liveJoinUrl,
+          }
+          console.log('[video-call] meeting_session_reuse', {
+            meetingToken,
+            sessionId: liveSessionId || meeting.id,
+            hasJoinUrl: true,
+          })
         }
-        console.log('[video-call] meeting_session_reuse', {
-          meetingToken,
-          sessionId: liveSessionId || meeting.id,
-          hasJoinUrl: true,
-        })
-      }
 
-      const participants = normalizeMeetingParticipants(meeting.participants)
-      const meetingPrompt = buildMeetingPrompt(String(meeting.topic || '').trim(), participants)
-      finalInstruction = `${finalInstruction}\n\n${meetingPrompt}`.trim()
-      requestBody.language_instruction = finalInstruction
-      requestBody.system_prompt_append = finalInstruction
-      requestBody.prompt_overrides = {
-        ...(requestBody.prompt_overrides as Record<string, unknown>),
-        language_policy: finalInstruction,
-        response_language: normalizedLanguageCode,
+        const participants = normalizeMeetingParticipants(meeting.participants)
+        const meetingPrompt = buildMeetingPrompt(String(meeting.topic || '').trim(), participants)
+        finalInstruction = `${finalInstruction}\n\n${meetingPrompt}`.trim()
+        requestBody.language_instruction = finalInstruction
+        requestBody.system_prompt_append = finalInstruction
+        requestBody.prompt_overrides = {
+          ...(requestBody.prompt_overrides as Record<string, unknown>),
+          language_policy: finalInstruction,
+          response_language: normalizedLanguageCode,
+        }
+        requestBody.meeting_context = {
+          token: meeting.token,
+          topic: meeting.topic || '',
+          participants,
+        }
+        requestBody.group_call = true
+        requestBody.daily_room_mode = 'group'
+        if (!requestBody.owner_id && meeting.owner_id) {
+          requestBody.owner_id = meeting.owner_id
+        }
+        requestBody.memory_context = `${String(requestBody.memory_context || '').trim()}\n\n${meetingPrompt}`.trim()
       }
-      requestBody.meeting_context = {
-        token: meeting.token,
-        topic: meeting.topic || '',
-        participants,
-      }
-      requestBody.group_call = true
-      requestBody.daily_room_mode = 'group'
-      if (!requestBody.owner_id && meeting.owner_id) {
-        requestBody.owner_id = meeting.owner_id
-      }
-      requestBody.memory_context = `${String(requestBody.memory_context || '').trim()}\n\n${meetingPrompt}`.trim()
     } catch (error) {
       console.error('[video-call] meeting context load failed', error)
-      return res.status(500).json({ error: 'Failed to prepare meeting context' })
     }
   }
 
@@ -407,7 +405,7 @@ export default async function handler(req: any, res: any) {
       })
     }
 
-    if (meetingToken) {
+    if (meetingSessionIdToPersist) {
       if (meetingGuestJoinOnly) {
         console.log('[video-call] meeting_guest_join_waiting_for_host', {
           meetingToken,
@@ -442,7 +440,7 @@ export default async function handler(req: any, res: any) {
       return res.status(responseStatus ?? 500).json(payload)
     }
 
-    if (supabase && meetingToken && meetingSessionIdToPersist && payload?.session_id && payload?.join_url) {
+    if (supabase && meetingSessionIdToPersist && payload?.session_id && payload?.join_url) {
       await supabase
         .from('wa_meeting_sessions')
         .update({
