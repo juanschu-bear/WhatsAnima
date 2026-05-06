@@ -18,47 +18,61 @@ export default async function handler(req: any, res: any) {
 
   const nowIso = new Date().toISOString()
 
-  await supabase
-    .from('wa_outbound_calls')
-    .update({ status: 'expired', last_error: 'Call invite expired.' })
-    .eq('contact_email', contactEmail)
-    .eq('status', 'ringing')
-    .lt('expires_at', nowIso)
-
-  const { data: dueCalls } = await supabase
-    .from('wa_outbound_calls')
-    .select('id')
-    .eq('contact_email', contactEmail)
-    .eq('status', 'scheduled')
-    .lte('scheduled_for', nowIso)
-    .order('scheduled_for', { ascending: true })
-    .limit(5)
-
-  if (dueCalls && dueCalls.length > 0) {
-    const ids = dueCalls.map((row) => row.id)
-    await supabase
+  try {
+    const { error: expireError } = await supabase
       .from('wa_outbound_calls')
-      .update({
-        status: 'ringing',
-        triggered_at: nowIso,
-        expires_at: new Date(Date.now() + 2 * 60_000).toISOString(),
-      })
-      .in('id', ids)
+      .update({ status: 'expired', last_error: 'Call invite expired.' })
+      .eq('contact_email', contactEmail)
+      .eq('status', 'ringing')
+      .lt('expires_at', nowIso)
+    if (expireError) {
+      console.error('[outbound-call-poll] expire failed', expireError)
+    }
+
+    const { data: dueCalls, error: dueError } = await supabase
+      .from('wa_outbound_calls')
+      .select('id')
+      .eq('contact_email', contactEmail)
+      .eq('status', 'scheduled')
+      .lte('scheduled_for', nowIso)
+      .order('scheduled_for', { ascending: true })
+      .limit(5)
+
+    if (dueError) {
+      console.error('[outbound-call-poll] due select failed', dueError)
+    } else if (dueCalls && dueCalls.length > 0) {
+      const ids = dueCalls.map((row) => row.id)
+      const { error: promoteError } = await supabase
+        .from('wa_outbound_calls')
+        .update({
+          status: 'ringing',
+          triggered_at: nowIso,
+          expires_at: new Date(Date.now() + 2 * 60_000).toISOString(),
+        })
+        .in('id', ids)
+      if (promoteError) {
+        console.error('[outbound-call-poll] promote failed', promoteError)
+      }
+    }
+
+    const { data, error } = await supabase
+      .from('wa_outbound_calls')
+      .select('*')
+      .eq('contact_email', contactEmail)
+      .eq('status', 'ringing')
+      .order('triggered_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (error) {
+      // Never hard-fail this endpoint. The UI polls continuously; 500 would create an endless error loop.
+      console.error('[outbound-call-poll] select failed', error)
+      return res.status(200).json({ call: null, degraded: true })
+    }
+
+    return res.status(200).json({ call: data || null })
+  } catch (error: any) {
+    console.error('[outbound-call-poll] unexpected error', error)
+    return res.status(200).json({ call: null, degraded: true })
   }
-
-  const { data, error } = await supabase
-    .from('wa_outbound_calls')
-    .select('*')
-    .eq('contact_email', contactEmail)
-    .eq('status', 'ringing')
-    .order('triggered_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-
-  if (error) {
-    console.error('[outbound-call-poll] select failed', error)
-    return res.status(500).json({ error: error.message || 'Failed to poll outbound calls' })
-  }
-
-  return res.status(200).json({ call: data || null })
 }

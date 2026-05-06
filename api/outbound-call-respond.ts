@@ -19,31 +19,36 @@ export default async function handler(req: any, res: any) {
     return res.status(503).json({ error: `DB not configured – missing ${missing}` })
   }
 
-  const body = normalizeBody(req)
-  const callId = String(body.callId || '').trim()
-  const action = String(body.action || '').trim().toLowerCase()
-  if (!callId || !['accept', 'decline'].includes(action)) {
-    return res.status(400).json({ error: 'callId and valid action are required' })
+  try {
+    const body = normalizeBody(req)
+    const callId = String(body.callId || '').trim()
+    const action = String(body.action || '').trim().toLowerCase()
+    if (!callId || !['accept', 'decline'].includes(action)) {
+      return res.status(400).json({ error: 'callId and valid action are required' })
+    }
+
+    const nowIso = new Date().toISOString()
+    const patch =
+      action === 'accept'
+        ? { status: 'accepted', accepted_at: nowIso }
+        : { status: 'declined', declined_at: nowIso }
+
+    const { data, error } = await supabase
+      .from('wa_outbound_calls')
+      .update(patch)
+      .eq('id', callId)
+      .select('*')
+      .single()
+
+    if (error) {
+      console.error('[outbound-call-respond] update failed', error)
+      return res.status(500).json({ error: error.message || 'Failed to update outbound call' })
+    }
+
+    const joinUrl = `${buildOrigin(req)}/video-call/${data.conversation_id}?incomingCallId=${encodeURIComponent(data.id)}`
+    return res.status(200).json({ call: data, joinUrl })
+  } catch (error: any) {
+    console.error('[outbound-call-respond] unexpected error', error)
+    return res.status(500).json({ error: 'Failed to update outbound call' })
   }
-
-  const nowIso = new Date().toISOString()
-  const patch =
-    action === 'accept'
-      ? { status: 'accepted', accepted_at: nowIso }
-      : { status: 'declined', declined_at: nowIso }
-
-  const { data, error } = await supabase
-    .from('wa_outbound_calls')
-    .update(patch)
-    .eq('id', callId)
-    .select('*')
-    .single()
-
-  if (error) {
-    console.error('[outbound-call-respond] update failed', error)
-    return res.status(500).json({ error: error.message || 'Failed to update outbound call' })
-  }
-
-  const joinUrl = `${buildOrigin(req)}/video-call/${data.conversation_id}?incomingCallId=${encodeURIComponent(data.id)}`
-  return res.status(200).json({ call: data, joinUrl })
 }

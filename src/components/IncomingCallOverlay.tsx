@@ -11,17 +11,21 @@ export default function IncomingCallOverlay() {
   const [call, setCall] = useState<OutboundCallRecord | null>(null)
   const [busy, setBusy] = useState(false)
   const seenCallRef = useRef<string | null>(null)
+  const failureCountRef = useRef(0)
+  const pausePollingUntilRef = useRef(0)
 
   const email = String(user?.email || '').trim().toLowerCase()
   const isOnCallScreen = location.pathname.startsWith('/video-call/')
 
   useEffect(() => {
-    if (loading || !email) return
+    if (loading || !email || isOnCallScreen) return
     let active = true
 
     const refresh = async () => {
+      if (Date.now() < pausePollingUntilRef.current) return
       try {
         const payload = await pollOutboundCall(email)
+        failureCountRef.current = 0
         if (!active) return
         const nextCall = payload.call
         setCall(nextCall)
@@ -39,7 +43,16 @@ export default function IncomingCallOverlay() {
           }
         }
       } catch (error) {
-        console.warn('[IncomingCallOverlay] poll failed', error)
+        failureCountRef.current += 1
+        const failures = failureCountRef.current
+        // Back off on repeated poll failures to avoid console spam and error loops.
+        if (failures >= 3) {
+          const backoffMs = Math.min(60_000, 5_000 * 2 ** Math.min(failures - 3, 4))
+          pausePollingUntilRef.current = Date.now() + backoffMs
+        }
+        if (failures <= 2 || failures % 6 === 0) {
+          console.warn('[IncomingCallOverlay] poll failed', error)
+        }
       }
     }
 
@@ -52,7 +65,7 @@ export default function IncomingCallOverlay() {
       active = false
       window.clearInterval(timer)
     }
-  }, [email, loading])
+  }, [email, loading, isOnCallScreen])
 
   const callerName = useMemo(() => call?.caller_display_name || 'Your avatar', [call])
 
