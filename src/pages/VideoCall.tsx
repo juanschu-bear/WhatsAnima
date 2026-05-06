@@ -714,6 +714,17 @@ export default function VideoCall() {
     creatorModeRef.current = creatorMode
   }, [creatorMode])
 
+  useEffect(() => {
+    if (!isLivekit) return
+    console.log('[LiveKit-PERF]', {
+      step: livekitRemoteVideo ? 'remote_video_state_set' : 'remote_video_state_cleared',
+      sessionId: sessionIdRef.current,
+      hasTrack: Boolean(livekitRemoteVideo),
+      trackSid: livekitRemoteVideo?.sid || null,
+      ts: Date.now(),
+    })
+  }, [isLivekit, livekitRemoteVideo])
+
   const getLocalAudioTrack = () => {
     const callObject = callObjectRef.current
     if (!callObject || typeof callObject.participants !== 'function') return null
@@ -1287,10 +1298,20 @@ export default function VideoCall() {
     void startCall()
   }, [conversation, error, loadingConversation, loadingPersonas, phase, shouldSkipLanguageSelection])
 
-  const teardownLivekit = () => {
+  const teardownLivekit = async (reason = 'unknown') => {
     const room = livekitRoomRef.current
     livekitRoomRef.current = null
     if (room) {
+      try {
+        await room.localParticipant.setCameraEnabled(false)
+      } catch {
+        // ignore
+      }
+      try {
+        await room.localParticipant.setMicrophoneEnabled(false)
+      } catch {
+        // ignore
+      }
       try {
         room.unregisterTextStreamHandler(LIVEKIT_TRANSCRIPTION_TOPIC)
       } catch {
@@ -1301,7 +1322,12 @@ export default function VideoCall() {
       } catch {
         // ignore
       }
-      void room.disconnect().catch(() => undefined)
+      try {
+        await room.disconnect()
+        console.log('[LiveKit] disconnected cleanly', { reason })
+      } catch (error) {
+        console.warn('[LiveKit] disconnect failed', { reason, error })
+      }
     }
     livekitRemoteNameRef.current = ''
     livekitLocalNameRef.current = ''
@@ -1324,7 +1350,7 @@ export default function VideoCall() {
       }
       stopOpmAudioCapture()
       void endBackendSession('component_unmount')
-      teardownLivekit()
+      void teardownLivekit('component_unmount')
       const callObject = callObjectRef.current
       callObjectRef.current = null
       if (!callObject) return
@@ -1609,7 +1635,7 @@ export default function VideoCall() {
     setStatusText('Ending call...')
     setPhase((current) => (current === 'error' ? current : 'starting'))
     stopOpmAudioCapture()
-    teardownLivekit()
+    await teardownLivekit('leave_button')
     setIsLivekit(false)
 
     const stopRecordingPromise = recordingActive ? toggleRecording(true) : Promise.resolve()
@@ -1809,6 +1835,16 @@ export default function VideoCall() {
       }
 
       if (isLivekitJoin) {
+        const livekitPerfStart = performance.now()
+        const logLivekitStep = (step: string, extra: Record<string, unknown> = {}) => {
+          console.log('[LiveKit-PERF]', {
+            step,
+            ms: Math.round(performance.now() - livekitPerfStart),
+            sessionId: payload?.session_id || null,
+            ...extra,
+          })
+        }
+        logLivekitStep('join_url_received')
         setIsLivekit(true)
         const prejoinLocalName = buildUserName(user, conversation)
         livekitRemoteNameRef.current = personaName
@@ -1825,6 +1861,7 @@ export default function VideoCall() {
         console.log('[VideoCall] LiveKit connect', { wsUrl, roomName })
 
         const room = new Room()
+        logLivekitStep('room_instance_created')
         livekitRoomRef.current = room
 
         const resolveDisplayNameForKind = (kind: LivekitSpeakerKind): string =>
@@ -1974,6 +2011,10 @@ export default function VideoCall() {
             const isAgent = isLivekitAgentParticipant(participant)
             if (track.kind === Track.Kind.Video) {
               if (isAgent) {
+                logLivekitStep('remote_video_track_subscribed', {
+                  participant: participant.identity,
+                  participantKind: participant.kind,
+                })
                 setLivekitRemoteVideo(track as RemoteVideoTrack)
                 livekitRemoteIdentityRef.current = participant.identity
                 const resolvedRemoteName =
@@ -2154,7 +2195,9 @@ export default function VideoCall() {
           joinedRef.current = false
         })
 
+        logLivekitStep('room_connect_start', { wsUrl, roomName: roomName || null })
         await room.connect(wsUrl, token)
+        logLivekitStep('room_connect_done')
         livekitLocalIdentityRef.current = room.localParticipant.identity || null
 
         const jwtLocalName = (room.localParticipant.name || '').trim()
@@ -2170,8 +2213,10 @@ export default function VideoCall() {
         }
 
         try {
+          logLivekitStep('local_tracks_publish_start', { mic: isMicEnabled, cam: isCameraEnabled })
           await room.localParticipant.setMicrophoneEnabled(isMicEnabled)
           await room.localParticipant.setCameraEnabled(isCameraEnabled)
+          logLivekitStep('local_tracks_publish_done')
           const cameraPub = room.localParticipant.getTrackPublication(Track.Source.Camera)
           if (cameraPub?.track?.kind === Track.Kind.Video) {
             setLivekitLocalVideo(cameraPub.track as LocalVideoTrack)
@@ -2199,6 +2244,7 @@ export default function VideoCall() {
         joinedRef.current = true
         setPhase('connected')
         setStatusText('Connected')
+        logLivekitStep('phase_connected')
         return
       }
 
