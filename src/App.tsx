@@ -18,6 +18,7 @@ import MeetingLobby from './pages/MeetingLobby'
 import MeetingHost from './pages/MeetingHost'
 import OPMPerceptionPanelPreviewScreen from './screens/OPMPerceptionPanelPreviewScreen'
 import EcosystemConsole from './pages/EcosystemConsole'
+import IncomingCallOverlay from './components/IncomingCallOverlay'
 
 export default function App() {
   return (
@@ -87,6 +88,7 @@ export default function App() {
             }
           />
         </Routes>
+        <IncomingCallOverlay />
       </AuthProvider>
     </BrowserRouter>
   )
