@@ -152,6 +152,18 @@ function formatCallDuration(seconds: number): string {
   return `${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
 }
 
+function serializeLivekitTranscript(blocks: LivekitTranscriptBlock[]): string {
+  if (!Array.isArray(blocks) || blocks.length === 0) return ''
+  const lines: string[] = []
+  for (const block of blocks) {
+    const text = block.segments.map((segment) => segment.text.trim()).filter(Boolean).join(' ').trim()
+    if (!text) continue
+    const speaker = block.displayName?.trim() || (block.kind === 'agent' ? 'Avatar' : 'User')
+    lines.push(`${speaker}: ${text}`)
+  }
+  return lines.join('\n').slice(0, 120_000)
+}
+
 function resolveTavusConversationId(joinUrl: string | null | undefined): string {
   const candidate = String(joinUrl || '').trim()
   if (!candidate) return ''
@@ -2954,11 +2966,17 @@ export default function VideoCall() {
     callObject.sendAppMessage(payload, '*')
   }
 
-async function toggleRecording(forceStop = false) {
+  async function toggleRecording(forceStop = false) {
     const activeSessionId = sessionIdRef.current
     if (!activeSessionId) return
 
     const action: 'start' | 'stop' = forceStop || recordingActive ? 'stop' : 'start'
+    const startedAt = callStartAtRef.current
+    const now = Date.now()
+    const durationSeconds = startedAt ? Math.max(1, Math.floor((now - startedAt) / 1000)) : null
+    const transcript = serializeLivekitTranscript(livekitTranscriptBlocks)
+    const avatarName = personaName || conversation?.wa_owners?.display_name || null
+    const userName = buildUserName(user, conversation)
     setRecordingBusy(true)
     setRecordingError(null)
     try {
@@ -2971,6 +2989,16 @@ async function toggleRecording(forceStop = false) {
           ...(meetingToken ? { meeting_token: meetingToken } : {}),
           join_url: joinUrl || undefined,
           recording_id: recordingId || undefined,
+          conversation_id: conversationId || null,
+          owner_id: conversation?.owner_id || conversation?.wa_owners?.id || null,
+          contact_id: conversation?.contact_id || null,
+          user_id: user?.id || null,
+          avatar_name: avatarName,
+          user_name: userName || null,
+          started_at: startedAt ? new Date(startedAt).toISOString() : null,
+          ended_at: action === 'stop' ? new Date(now).toISOString() : null,
+          call_duration_seconds: action === 'stop' ? durationSeconds : null,
+          transcript: action === 'stop' ? transcript : null,
           backendBaseUrl: LIVE_CALL_API_BASE,
         }),
       })
