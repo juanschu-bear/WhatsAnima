@@ -626,6 +626,7 @@ export default function VideoCall() {
   const [activeSpeakerId, setActiveSpeakerId] = useState<string | null>(null)
   const [meetingHostControl, setMeetingHostControl] = useState(false)
   const [meetingSelfName, setMeetingSelfName] = useState('')
+  const [hasRingingIncomingCall, setHasRingingIncomingCall] = useState(false)
 
   const callObjectRef = useRef<ReturnType<typeof DailyIframe.createCallObject> | null>(null)
   const livekitRoomRef = useRef<Room | null>(null)
@@ -678,7 +679,8 @@ export default function VideoCall() {
     meetingToken.length > 0 &&
     typeof window !== 'undefined' &&
     Boolean(window.sessionStorage.getItem(`wa_meeting_context:${meetingToken}`))
-  const shouldSkipLanguageSelection = Boolean(meetingToken) || hasMeetingContext || Boolean(incomingCallId)
+  const shouldSkipLanguageSelection =
+    Boolean(meetingToken) || hasMeetingContext || Boolean(incomingCallId) || hasRingingIncomingCall
   const isMeetingMode = meetingToken.length > 0
   const isMeetingGuest = isMeetingMode && !meetingHostControl
   const forcedSessionId = String(searchParams.get('session_id') || '').trim()
@@ -1193,6 +1195,50 @@ export default function VideoCall() {
     const ownerName = conversation?.wa_owners?.display_name?.trim()
     if (ownerName) setSelectedPersona(ownerName)
   }, [conversation?.wa_owners?.display_name, personaOverrideEnabled])
+
+  useEffect(() => {
+    if (incomingCallId) {
+      setHasRingingIncomingCall(true)
+      return
+    }
+    if (!conversation) return
+    const resolvedConversationId = resolveConversationId(conversationId, conversation)
+    if (!resolvedConversationId) return
+
+    let cancelled = false
+    ;(async () => {
+      const emailCandidates = [
+        String(conversation.wa_contacts?.email || '').trim().toLowerCase(),
+        String(user?.email || '').trim().toLowerCase(),
+      ].filter((value, index, all) => value && all.indexOf(value) === index)
+
+      for (const email of emailCandidates) {
+        try {
+          const response = await fetch(`/api/outbound-call-poll?email=${encodeURIComponent(email)}`, {
+            cache: 'no-store',
+          })
+          const payload = await response.json().catch(() => ({}))
+          const call = payload?.call as { conversation_id?: string; status?: string } | null
+          if (
+            !cancelled &&
+            call &&
+            call.status === 'ringing' &&
+            String(call.conversation_id || '').trim() === resolvedConversationId
+          ) {
+            setHasRingingIncomingCall(true)
+            return
+          }
+        } catch {
+          // Ignore poll errors here; standard poll loop handles retries.
+        }
+      }
+      if (!cancelled) setHasRingingIncomingCall(false)
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [incomingCallId, conversation, conversationId, user?.email])
 
   useEffect(() => {
     if (!shouldSkipLanguageSelection) return
