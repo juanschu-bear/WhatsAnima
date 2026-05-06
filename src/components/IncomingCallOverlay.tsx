@@ -6,6 +6,7 @@ import { playNotificationSound, showLocalNotification } from '../lib/notificatio
 
 const LAST_CONTACT_EMAIL_KEY = 'wa_last_contact_email'
 const INCOMING_CALL_CONTEXT_PREFIX = 'wa_incoming_call_context:'
+const INCOMING_CALL_PREWARM_PREFIX = 'wa_incoming_call_prewarm:'
 
 export default function IncomingCallOverlay() {
   const { user, loading } = useAuth()
@@ -15,6 +16,7 @@ export default function IncomingCallOverlay() {
   const [busy, setBusy] = useState(false)
   const [fallbackEmail, setFallbackEmail] = useState('')
   const seenCallRef = useRef<string | null>(null)
+  const prewarmedCallIdsRef = useRef<Set<string>>(new Set())
   const failureCountRef = useRef(0)
   const pausePollingUntilRef = useRef(0)
 
@@ -31,6 +33,33 @@ export default function IncomingCallOverlay() {
   const authEmail = String(user?.email || '').trim().toLowerCase()
   const pollEmails = [contactEmail, authEmail].filter((value, index, all) => value && all.indexOf(value) === index)
   const isOnCallScreen = location.pathname.startsWith('/video-call/')
+
+  async function prewarmIncomingSession(call: OutboundCallRecord) {
+    if (!call.id || prewarmedCallIdsRef.current.has(call.id)) return
+    prewarmedCallIdsRef.current.add(call.id)
+    try {
+      const response = await fetch('/api/video-call', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          persona_name: call.caller_display_name || 'Avatar',
+          persona: call.caller_display_name || 'Avatar',
+          language: 'en',
+          conversation_id: call.conversation_id,
+          owner_id: call.owner_id || null,
+          contact_id: call.contact_id || null,
+          incoming_call_id: call.id,
+        }),
+      })
+      if (!response.ok) return
+      const payload = await response.json().catch(() => ({}))
+      if (payload?.session_id && payload?.join_url) {
+        sessionStorage.setItem(`${INCOMING_CALL_PREWARM_PREFIX}${call.id}`, JSON.stringify(payload))
+      }
+    } catch {
+      // Prewarm is best-effort only.
+    }
+  }
 
   useEffect(() => {
     if (loading || pollEmails.length === 0 || isOnCallScreen) return
@@ -52,6 +81,7 @@ export default function IncomingCallOverlay() {
 
         if (nextCall && seenCallRef.current !== nextCall.id) {
           seenCallRef.current = nextCall.id
+          void prewarmIncomingSession(nextCall)
           if (document.visibilityState === 'visible') {
             playNotificationSound('pulse')
           } else {
@@ -86,6 +116,26 @@ export default function IncomingCallOverlay() {
       window.clearInterval(timer)
     }
   }, [pollEmails, loading, isOnCallScreen])
+
+  useEffect(() => {
+    if (!call) return
+    let active = true
+    const ring = () => {
+      if (!active) return
+      if (document.visibilityState === 'visible') {
+        playNotificationSound('pulse')
+        if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+          navigator.vibrate?.([140, 100, 160])
+        }
+      }
+    }
+    ring()
+    const timer = window.setInterval(ring, 2200)
+    return () => {
+      active = false
+      window.clearInterval(timer)
+    }
+  }, [call?.id])
 
   const callerName = useMemo(() => call?.caller_display_name || 'Your avatar', [call])
 

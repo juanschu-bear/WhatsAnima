@@ -184,13 +184,6 @@ export default async function handler(req: any, res: any) {
     const initialText = await initialResponse.text()
     initialBackendPayload = initialText ? JSON.parse(initialText) : {}
 
-    if (
-      initialResponse.ok &&
-      typeof initialBackendPayload?.join_url === 'string' &&
-      initialBackendPayload.join_url.startsWith('livekit://')
-    ) {
-      return res.status(200).json(initialBackendPayload)
-    }
   } catch (error) {
     console.warn('[video-call] initial backend probe failed', error)
   }
@@ -418,6 +411,14 @@ export default async function handler(req: any, res: any) {
     } catch (error) {
       console.error('[video-call] meeting context load failed', error)
     }
+  }
+
+  const requiresContextEnrichment = Boolean(conversationId || ownerId || meetingToken || incomingCallId)
+  if (requiresContextEnrichment) {
+    // Ensure enriched memory/owner/meeting context is actually applied.
+    // The initial probe happens before enrichment and must not short-circuit the final request.
+    initialBackendPayload = null
+    initialBackendStatus = null
   }
 
   try {

@@ -514,7 +514,7 @@ function LivekitVideoTile({
           autoPlay
           muted={isLocal}
           playsInline
-          className={`h-full w-full ${isLocal ? 'object-cover' : 'object-contain'}`}
+          className="h-full w-full object-cover"
           style={isLocal ? { transform: 'scaleX(-1)' } : undefined}
         />
       ) : (
@@ -584,6 +584,7 @@ const LIVEKIT_SEGMENT_ID_ATTR = 'lk.segment_id'
 const LIVEKIT_TRACK_ID_ATTR = 'lk.transcribed_track_id'
 const LIVEKIT_FINAL_ATTR = 'lk.transcription_final'
 const INCOMING_CALL_CONTEXT_PREFIX = 'wa_incoming_call_context:'
+const INCOMING_CALL_PREWARM_PREFIX = 'wa_incoming_call_prewarm:'
 
 function isLivekitAgentIdentity(identity: string | null | undefined): boolean {
   const value = (identity || '').trim()
@@ -1722,29 +1723,65 @@ export default function VideoCall() {
       }
       opmSpeakerNameRef.current = dailyUserName
       console.log('[VideoCall] startSession request', requestBody)
-      const response = await fetch('/api/video-call', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...requestBody,
-          backendBaseUrl: LIVE_CALL_API_BASE,
-        }),
-      })
-
-      if (!response.ok) {
-        throw new Error(`Session start failed (${response.status})`)
-      }
-
-      const payload = await response.json() as {
+      let payload: {
         session_id?: string
         join_url?: string
         status?: string
         persona?: string
         replica_id?: string
+      } | null = null
+      let usedPrewarmedSession = false
+
+      if (incomingCallId) {
+        try {
+          const raw = sessionStorage.getItem(`${INCOMING_CALL_PREWARM_PREFIX}${incomingCallId}`)
+          if (raw) {
+            const prewarmed = JSON.parse(raw) as {
+              session_id?: string
+              join_url?: string
+              status?: string
+              persona?: string
+              replica_id?: string
+            }
+            if (prewarmed?.session_id && prewarmed?.join_url) {
+              payload = prewarmed
+              usedPrewarmedSession = true
+              console.log('[VideoCall] using prewarmed incoming session', {
+                incomingCallId,
+                sessionId: prewarmed.session_id,
+              })
+            }
+          }
+        } catch {
+          // Ignore cache parse errors; normal start flow will run.
+        }
+      }
+
+      if (!payload) {
+        const response = await fetch('/api/video-call', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...requestBody,
+            backendBaseUrl: LIVE_CALL_API_BASE,
+          }),
+        })
+
+        if (!response.ok) {
+          throw new Error(`Session start failed (${response.status})`)
+        }
+
+        payload = await response.json() as {
+          session_id?: string
+          join_url?: string
+          status?: string
+          persona?: string
+          replica_id?: string
+        }
       }
       console.log('[VideoCall] startSession response', payload)
 
-      if (!payload.join_url || !payload.session_id) {
+      if (!payload?.join_url || !payload?.session_id) {
         throw new Error('Backend did not return a join URL.')
       }
 
@@ -1767,7 +1804,7 @@ export default function VideoCall() {
       endingSessionRef.current = false
       setStatusText(isMeetingGuest ? 'Joining room...' : 'Avatar joining...')
       setPhase('joining')
-      if (!isMeetingGuest) {
+      if (!isMeetingGuest && !usedPrewarmedSession) {
         await notifySessionStart(payload.session_id, payload.join_url, personaName, replicaId)
       }
 
