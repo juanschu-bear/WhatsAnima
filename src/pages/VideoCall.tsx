@@ -141,6 +141,17 @@ function buildUserName(user: ReturnType<typeof useAuth>['user'], conversation: C
   )
 }
 
+function formatCallDuration(seconds: number): string {
+  const safeSeconds = Math.max(0, Math.floor(seconds))
+  const hours = Math.floor(safeSeconds / 3600)
+  const minutes = Math.floor((safeSeconds % 3600) / 60)
+  const secs = safeSeconds % 60
+  if (hours > 0) {
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+  }
+  return `${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+}
+
 function resolveTavusConversationId(joinUrl: string | null | undefined): string {
   const candidate = String(joinUrl || '').trim()
   if (!candidate) return ''
@@ -506,7 +517,7 @@ function LivekitVideoTile({
     }
   }, [track, shouldShow])
 
-  const roundedClass = shape === 'bubble' ? 'rounded-[999px]' : 'rounded-[22px]'
+  const roundedClass = shape === 'bubble' ? 'rounded-[24px]' : 'rounded-[22px]'
   const videoFitClass = videoFit === 'contain' ? 'object-contain' : 'object-cover'
 
   return (
@@ -632,6 +643,7 @@ export default function VideoCall() {
   const [recordingId, setRecordingId] = useState<string | null>(null)
   const [recordingUrl, setRecordingUrl] = useState<string | null>(null)
   const [recordingError, setRecordingError] = useState<string | null>(null)
+  const [callElapsedSeconds, setCallElapsedSeconds] = useState(0)
   const [joinUrl, setJoinUrl] = useState<string | null>(null)
   const [participants, setParticipants] = useState<any[]>([])
   const [activeSpeakerId, setActiveSpeakerId] = useState<string | null>(null)
@@ -733,6 +745,28 @@ export default function VideoCall() {
       ts: Date.now(),
     })
   }, [isLivekit, livekitRemoteVideo])
+
+  useEffect(() => {
+    if (phase !== 'joining' && phase !== 'connected') {
+      setCallElapsedSeconds(0)
+      return
+    }
+
+    const updateElapsed = () => {
+      const startedAt = callStartAtRef.current
+      if (!startedAt) {
+        setCallElapsedSeconds(0)
+        return
+      }
+      setCallElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000))
+    }
+
+    updateElapsed()
+    const interval = window.setInterval(updateElapsed, 1000)
+    return () => {
+      window.clearInterval(interval)
+    }
+  }, [phase, sessionId])
 
   const getLocalAudioTrack = () => {
     const callObject = callObjectRef.current
@@ -2920,10 +2954,9 @@ export default function VideoCall() {
     callObject.sendAppMessage(payload, '*')
   }
 
-  async function toggleRecording(forceStop = false) {
-    if (!isMeetingMode) return
+async function toggleRecording(forceStop = false) {
     const activeSessionId = sessionIdRef.current
-    if (!activeSessionId || !meetingToken) return
+    if (!activeSessionId) return
 
     const action: 'start' | 'stop' = forceStop || recordingActive ? 'stop' : 'start'
     setRecordingBusy(true)
@@ -2935,7 +2968,7 @@ export default function VideoCall() {
         body: JSON.stringify({
           action,
           session_id: activeSessionId,
-          meeting_token: meetingToken,
+          ...(meetingToken ? { meeting_token: meetingToken } : {}),
           join_url: joinUrl || undefined,
           recording_id: recordingId || undefined,
           backendBaseUrl: LIVE_CALL_API_BASE,
@@ -3046,7 +3079,7 @@ export default function VideoCall() {
                             videoFit="contain"
                           />
                         </div>
-                        <div className="absolute bottom-4 right-4 h-32 w-24 sm:bottom-6 sm:right-6 sm:h-40 sm:w-28">
+                        <div className="absolute bottom-4 right-4 h-32 w-44 sm:bottom-6 sm:right-6 sm:h-40 sm:w-56">
                           <LivekitVideoTile
                             track={livekitLocalVideo}
                             isLocal
@@ -3275,6 +3308,9 @@ export default function VideoCall() {
               <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-center px-3 pt-4 sm:px-4 sm:pt-5">
                 <div className="flex items-center gap-2 rounded-full border border-white/10 bg-black/28 px-3 py-2 text-[11px] font-medium tracking-[0.22em] text-white/78 backdrop-blur-xl sm:px-4 sm:text-xs">
                   <span>{statusText}</span>
+                  {(phase === 'joining' || phase === 'connected') && callStartAtRef.current ? (
+                    <span className="tracking-[0.12em] text-white/72">· {formatCallDuration(callElapsedSeconds)}</span>
+                  ) : null}
                   {recordingActive ? (
                     <span className="inline-flex items-center gap-1 rounded-full border border-red-400/30 bg-red-500/18 px-2 py-0.5 text-[10px] tracking-[0.14em] text-red-100">
                       <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-300" />
@@ -3402,20 +3438,18 @@ export default function VideoCall() {
               </button>
             )}
 
-            {isMeetingMode ? (
-              <button
-                type="button"
-                onClick={() => void toggleRecording(false)}
-                disabled={recordingBusy || phase !== 'connected'}
-                className={`flex h-14 min-w-[6.5rem] touch-manipulation items-center justify-center rounded-full border px-4 text-sm font-semibold transition ${
-                  recordingActive
-                    ? 'border-red-400/30 bg-red-500/18 text-red-100 hover:bg-red-500/24'
-                    : 'border-white/12 bg-white/6 text-white hover:bg-white/10'
-                } disabled:opacity-60`}
-              >
-                {recordingBusy ? '...' : recordingActive ? 'Stop Rec' : 'Record'}
-              </button>
-            ) : null}
+            <button
+              type="button"
+              onClick={() => void toggleRecording(false)}
+              disabled={recordingBusy || phase !== 'connected'}
+              className={`flex h-14 min-w-[6.5rem] touch-manipulation items-center justify-center rounded-full border px-4 text-sm font-semibold transition ${
+                recordingActive
+                  ? 'border-red-400/30 bg-red-500/18 text-red-100 hover:bg-red-500/24'
+                  : 'border-white/12 bg-white/6 text-white hover:bg-white/10'
+              } disabled:opacity-60`}
+            >
+              {recordingBusy ? '...' : recordingActive ? 'Stop Rec' : 'Record'}
+            </button>
 
             <button
               type="button"

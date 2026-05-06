@@ -118,20 +118,24 @@ export default async function handler(req: any, res: any) {
   const joinUrl = String(body.join_url || body.joinUrl || '').trim()
   const backendBaseUrl = normalizeBackendBaseUrl(String(body.backendBaseUrl || LIVE_CALL_API_BASE))
 
-  if (!meetingToken || !sessionId || !['start', 'stop'].includes(action)) {
-    return res.status(400).json({ error: 'meeting_token, session_id and action(start|stop) are required' })
+  if (!sessionId || !['start', 'stop'].includes(action)) {
+    return res.status(400).json({ error: 'session_id and action(start|stop) are required' })
   }
 
-  const { data: meeting, error: meetingError } = await supabase
-    .from('wa_meeting_sessions')
-    .select('id, token, expires_at, recording_url')
-    .eq('token', meetingToken)
-    .maybeSingle()
+  let meeting: { id: string; token: string; expires_at: string | null; recording_url: string | null } | null = null
+  if (meetingToken) {
+    const { data: meetingData, error: meetingError } = await supabase
+      .from('wa_meeting_sessions')
+      .select('id, token, expires_at, recording_url')
+      .eq('token', meetingToken)
+      .maybeSingle()
 
-  if (meetingError) return res.status(500).json({ error: meetingError.message || 'Failed to load meeting session' })
-  if (!meeting) return res.status(404).json({ error: 'Meeting not found' })
-  if (meeting.expires_at && new Date(meeting.expires_at).getTime() < Date.now()) {
-    return res.status(410).json({ error: 'Meeting has expired' })
+    if (meetingError) return res.status(500).json({ error: meetingError.message || 'Failed to load meeting session' })
+    if (!meetingData) return res.status(404).json({ error: 'Meeting not found' })
+    if (meetingData.expires_at && new Date(meetingData.expires_at).getTime() < Date.now()) {
+      return res.status(410).json({ error: 'Meeting has expired' })
+    }
+    meeting = meetingData
   }
 
   const dailyApiKey = String(process.env.DAILY_API_KEY || '').trim()
@@ -155,7 +159,7 @@ export default async function handler(req: any, res: any) {
     const recordingUrl = deriveRecordingUrl(providerPayload)
     const recordingId = String(providerPayload?.id || providerPayload?.recording_id || '').trim()
 
-    if (action === 'stop') {
+    if (action === 'stop' && meeting) {
       const updatePayload: Record<string, unknown> = {
         status: 'ready',
       }
@@ -175,7 +179,7 @@ export default async function handler(req: any, res: any) {
       action,
       active: action === 'start',
       recording_id: recordingId || null,
-      recording_url: action === 'stop' ? (recordingUrl || meeting.recording_url || null) : null,
+      recording_url: action === 'stop' ? (recordingUrl || meeting?.recording_url || null) : null,
     })
   } catch (error) {
     const detail = error instanceof Error ? error.message : 'Unknown recording error'
