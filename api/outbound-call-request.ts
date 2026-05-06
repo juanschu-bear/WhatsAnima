@@ -67,8 +67,10 @@ export default async function handler(req: any, res: any) {
 
     let call = insertedCall
 
-    // Server-side prewarm for immediate calls to reduce answer->connect latency.
-    if (immediate) {
+    // Keep server-side prewarm OFF in production incident mode.
+    // We observed session-flood side effects when many immediate requests queue at once.
+    const enableServerPrewarm = String(process.env.OUTBOUND_SERVER_PREWARM || '').toLowerCase() === 'true'
+    if (immediate && enableServerPrewarm) {
       try {
         const prewarmResponse = await fetch(`${buildOrigin(req)}/api/video-call`, {
           method: 'POST',
