@@ -50,6 +50,7 @@ export interface OutboundCallRecord {
   declined_at: string | null
   expires_at: string | null
   last_error: string | null
+  metadata?: Record<string, unknown> | null
 }
 
 export interface OwnerDashboardStats {
@@ -1080,5 +1081,9 @@ export async function respondToOutboundCall(callId: string, action: 'accept' | '
   if (!response.ok) {
     throw new Error(data?.error || `outbound-call-respond failed (${response.status})`)
   }
-  return data as { call: OutboundCallRecord; joinUrl: string }
+  return data as {
+    call: OutboundCallRecord
+    joinUrl: string
+    prewarmedSession?: { session_id?: string; join_url?: string; warmed_at?: string } | null
+  }
 }

@@ -456,7 +456,7 @@ function ParticipantTile({
           autoPlay
           muted={isLocal}
           playsInline
-          className="h-full w-full object-cover"
+          className="h-full w-full bg-black object-contain"
           style={isLocal ? { transform: 'scaleX(-1)' } : undefined}
         />
       ) : (
@@ -2178,6 +2178,22 @@ export default function VideoCall() {
           }
         } catch (publishError) {
           console.warn('[LiveKit] failed to publish local tracks', publishError)
+        }
+
+        if (incomingCallTriggerText.trim()) {
+          try {
+            const languageCode = normalizeLanguageCode(languageRef.current)
+            const kickoffText =
+              languageCode === 'de'
+                ? `System-Handoff: Du hast diesen Anruf aufgrund der letzten Chat-Nachricht initiiert: "${incomingCallTriggerText}". Starte jetzt mit einer kurzen Begrüßung und erkenne diesen Anlass explizit an.`
+                : languageCode === 'es'
+                  ? `System handoff: Iniciaste esta llamada por el último mensaje del chat: "${incomingCallTriggerText}". Empieza ahora con un saludo breve y reconoce explícitamente este motivo.`
+                  : `System handoff: You initiated this call because of the latest chat message: "${incomingCallTriggerText}". Start now with a short greeting and explicitly acknowledge this reason.`
+            await room.localParticipant.sendText(kickoffText, { topic: LIVEKIT_CHAT_TOPIC })
+            console.log('[LiveKit] call handoff kickoff sent')
+          } catch (kickoffError) {
+            console.warn('[LiveKit] call handoff kickoff failed', kickoffError)
+          }
         }
 
         joinedRef.current = true

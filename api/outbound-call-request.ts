@@ -1,5 +1,13 @@
 import { getSupabaseAdmin, normalizeBody } from './_lib/liveSessionAudit.js'
 
+function buildOrigin(req: any) {
+  const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim()
+  const forwardedHost = String(req.headers['x-forwarded-host'] || '').split(',')[0].trim()
+  const host = forwardedHost || String(req.headers.host || '').trim()
+  const proto = forwardedProto || (host.includes('localhost') ? 'http' : 'https')
+  return host ? `${proto}://${host}` : 'https://www.whatsanima.com'
+}
+
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST')
@@ -46,7 +54,7 @@ export default async function handler(req: any, res: any) {
       expires_at: expiresAt,
     }
 
-    const { data, error } = await supabase
+    const { data: insertedCall, error } = await supabase
       .from('wa_outbound_calls')
       .insert(insertPayload)
       .select('*')
@@ -57,7 +65,51 @@ export default async function handler(req: any, res: any) {
       return res.status(500).json({ error: error.message || 'Failed to create outbound call' })
     }
 
-    return res.status(200).json({ call: data })
+    let call = insertedCall
+
+    // Server-side prewarm for immediate calls to reduce answer->connect latency.
+    if (immediate) {
+      try {
+        const prewarmResponse = await fetch(`${buildOrigin(req)}/api/video-call`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            persona_name: callerDisplayName,
+            persona: callerDisplayName,
+            language: 'en',
+            conversation_id: conversationId,
+            owner_id: ownerId,
+            contact_id: contactId,
+            incoming_call_id: call.id,
+          }),
+        })
+
+        if (prewarmResponse.ok) {
+          const prewarmPayload = await prewarmResponse.json().catch(() => ({}))
+          if (prewarmPayload?.session_id && prewarmPayload?.join_url) {
+            const nextMetadata = {
+              ...(call?.metadata && typeof call.metadata === 'object' ? call.metadata : {}),
+              prewarmed_session: {
+                session_id: String(prewarmPayload.session_id),
+                join_url: String(prewarmPayload.join_url),
+                warmed_at: new Date().toISOString(),
+              },
+            }
+            const { data: updatedCall } = await supabase
+              .from('wa_outbound_calls')
+              .update({ metadata: nextMetadata })
+              .eq('id', call.id)
+              .select('*')
+              .single()
+            if (updatedCall) call = updatedCall
+          }
+        }
+      } catch (prewarmError) {
+        console.warn('[outbound-call-request] prewarm failed', prewarmError)
+      }
+    }
+
+    return res.status(200).json({ call })
   } catch (error: any) {
     console.error('[outbound-call-request] unexpected error', error)
     return res.status(500).json({ error: 'Failed to create outbound call' })

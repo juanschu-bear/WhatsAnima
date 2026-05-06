@@ -38,6 +38,22 @@ export default function IncomingCallOverlay() {
     if (!call.id || prewarmedCallIdsRef.current.has(call.id)) return
     prewarmedCallIdsRef.current.add(call.id)
     try {
+      const metadataPrewarmed =
+        call?.metadata && typeof call.metadata === 'object'
+          ? (call.metadata as Record<string, unknown>).prewarmed_session
+          : null
+      const prewarmedFromMetadata =
+        metadataPrewarmed && typeof metadataPrewarmed === 'object'
+          ? (metadataPrewarmed as Record<string, unknown>)
+          : null
+      if (prewarmedFromMetadata?.session_id && prewarmedFromMetadata?.join_url) {
+        sessionStorage.setItem(
+          `${INCOMING_CALL_PREWARM_PREFIX}${call.id}`,
+          JSON.stringify(prewarmedFromMetadata),
+        )
+        return
+      }
+
       const response = await fetch('/api/video-call', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -157,6 +173,12 @@ export default function IncomingCallOverlay() {
             `${INCOMING_CALL_CONTEXT_PREFIX}${call.id}`,
             JSON.stringify(context),
           )
+          if (payload.prewarmedSession?.session_id && payload.prewarmedSession?.join_url) {
+            sessionStorage.setItem(
+              `${INCOMING_CALL_PREWARM_PREFIX}${call.id}`,
+              JSON.stringify(payload.prewarmedSession),
+            )
+          }
         } catch {
           // Ignore storage failures; call still proceeds.
         }
@@ -173,8 +195,8 @@ export default function IncomingCallOverlay() {
   if (!call || isOnCallScreen) return null
 
   return (
-    <div className="pointer-events-none fixed inset-0 z-[120] flex items-end justify-center p-4 sm:items-center">
-      <div className="pointer-events-auto w-full max-w-md rounded-[28px] border border-[#78f0de]/20 bg-[linear-gradient(180deg,rgba(11,20,31,0.98),rgba(7,14,22,0.98))] p-5 shadow-[0_25px_80px_rgba(0,0,0,0.45)] backdrop-blur-2xl">
+    <div className="pointer-events-none fixed inset-0 z-[120] flex items-end justify-center bg-[radial-gradient(circle_at_top,rgba(83,239,217,0.14),transparent_38%),rgba(2,6,12,0.55)] p-4 sm:items-center">
+      <div className="pointer-events-auto w-full max-w-md rounded-[28px] border border-[#78f0de]/24 bg-[linear-gradient(180deg,rgba(11,20,31,0.99),rgba(7,14,22,0.99))] p-5 shadow-[0_25px_80px_rgba(0,0,0,0.45)] backdrop-blur-2xl ring-1 ring-[#79f5e4]/25 animate-[pulse_2.2s_ease-in-out_infinite]">
         <div className="flex items-center gap-3">
           <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[rgba(66,214,193,0.18)] text-[#9af8ea]">
             <svg className="h-6 w-6" fill="currentColor" viewBox="0 0 24 24">
@@ -185,6 +207,7 @@ export default function IncomingCallOverlay() {
             <p className="text-xs uppercase tracking-[0.22em] text-[#9af8ea]/70">Incoming Call</p>
             <h2 className="truncate text-xl font-semibold text-white">{callerName}</h2>
             <p className="mt-1 text-sm text-white/62">Wants to talk with you now.</p>
+            <p className="mt-2 text-[11px] uppercase tracking-[0.2em] text-[#9af8ea]/80">Ringing...</p>
           </div>
         </div>
 

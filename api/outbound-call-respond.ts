@@ -46,7 +46,11 @@ export default async function handler(req: any, res: any) {
     }
 
     const joinUrl = `${buildOrigin(req)}/video-call/${data.conversation_id}?incomingCallId=${encodeURIComponent(data.id)}`
-    return res.status(200).json({ call: data, joinUrl })
+    const prewarmedSession =
+      data?.metadata && typeof data.metadata === 'object'
+        ? (data.metadata as Record<string, unknown>).prewarmed_session ?? null
+        : null
+    return res.status(200).json({ call: data, joinUrl, prewarmedSession })
   } catch (error: any) {
     console.error('[outbound-call-respond] unexpected error', error)
     return res.status(500).json({ error: 'Failed to update outbound call' })
