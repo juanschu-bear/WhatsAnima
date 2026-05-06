@@ -23,7 +23,7 @@ import { useMessageSelection } from '../hooks/useMessageSelection'
 import { useVoiceRecording } from '../hooks/useVoiceRecording'
 import { useVideoRecording } from '../hooks/useVideoRecording'
 import { VideoRecorder } from '../components/VideoRecorder'
-import { buildOutboundCallAck, parseOutboundCallIntent } from '../lib/callIntent'
+import { buildOutboundCallAck, parseAvatarOutboundCallIntent, parseOutboundCallIntent } from '../lib/callIntent'
 import { getAvatarFirstName } from '../lib/voiceDelay'
 import { useVoiceMessage } from '../lib/voice'
 import {
@@ -2479,6 +2479,31 @@ export default function Chat() {
             showLocalNotification(avatarName, preview || 'New message', conversationId)
             incrementUnreadBadge()
           }
+
+          // Avatar-proactive outbound trigger:
+          // when the avatar says "I'll call you now/in X minutes", persist a real outbound call.
+          const lastAvatarText = insertedMessages
+            .filter((message) => message.sender === 'avatar' && typeof message.content === 'string')
+            .map((message) => String(message.content || '').trim())
+            .reverse()
+            .find((text) => text.length > 0)
+          const avatarCallIntent = lastAvatarText ? parseAvatarOutboundCallIntent(lastAvatarText) : null
+          if (avatarCallIntent && conversation?.wa_contacts?.email) {
+            try {
+              await requestOutboundCall({
+                conversationId,
+                ownerId: conversation?.owner_id ?? null,
+                contactId: conversation?.contact_id ?? null,
+                contactEmail: String(conversation.wa_contacts.email || '').trim(),
+                triggerText: lastAvatarText || 'avatar outbound intent',
+                callerDisplayName: conversation?.wa_owners?.display_name ?? 'Avatar',
+                delayMinutes: avatarCallIntent.delayMinutes,
+              })
+            } catch (callRequestError) {
+              console.error('[outbound-call-request][avatar-voice]', callRequestError)
+            }
+          }
+
           replySucceeded = true
         }
         return replySucceeded
@@ -2491,6 +2516,24 @@ export default function Chat() {
       }
 
       const replyPayload = await getAvatarReply(seedText, { ...options, userMessageId: options?.userMessageId })
+
+      const avatarCallIntent = parseAvatarOutboundCallIntent(replyPayload.content)
+      if (avatarCallIntent && conversation?.wa_contacts?.email) {
+        try {
+          await requestOutboundCall({
+            conversationId,
+            ownerId: conversation?.owner_id ?? null,
+            contactId: conversation?.contact_id ?? null,
+            contactEmail: String(conversation.wa_contacts.email || '').trim(),
+            requestedByMessageId: options?.userMessageId ?? null,
+            triggerText: replyPayload.content,
+            callerDisplayName: conversation?.wa_owners?.display_name ?? 'Avatar',
+            delayMinutes: avatarCallIntent.delayMinutes,
+          })
+        } catch (callRequestError) {
+          console.error('[outbound-call-request][avatar-text]', callRequestError)
+        }
+      }
 
       // Handle generated image responses
       if (replyPayload.isGeneratedImage && replyPayload.mediaUrl) {

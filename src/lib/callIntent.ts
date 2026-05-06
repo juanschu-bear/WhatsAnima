@@ -38,6 +38,38 @@ export function parseOutboundCallIntent(input: string): OutboundCallIntent | nul
   return null
 }
 
+const AVATAR_IMMEDIATE_PATTERNS: RegExp[] = [
+  /\bi(?:'| wi)?ll call you(?: now| right now| right away)?\b/i,
+  /\bich rufe dich(?: jetzt| gleich| kurz)?(?: an)?\b/i,
+  /\bte llamo(?: ahora| ya| enseguida)?\b/i,
+]
+
+const AVATAR_SCHEDULED_PATTERNS: RegExp[] = [
+  /\bi(?:'| wi)?ll call you in\s+(\d{1,3})\s*(minutes?|mins?)\b/i,
+  /\bich rufe dich in\s+(\d{1,3})\s*(minuten|min)\s*(?:an)?\b/i,
+  /\bte llamo en\s+(\d{1,3})\s*(minutos|min)\b/i,
+]
+
+export function parseAvatarOutboundCallIntent(input: string): OutboundCallIntent | null {
+  const text = String(input || '').trim()
+  if (!text) return null
+
+  for (const pattern of AVATAR_SCHEDULED_PATTERNS) {
+    const match = text.match(pattern)
+    if (!match) continue
+    const minutes = Number(match[1])
+    if (Number.isFinite(minutes) && minutes > 0 && minutes <= 720) {
+      return { delayMinutes: minutes, mode: 'video' }
+    }
+  }
+
+  if (AVATAR_IMMEDIATE_PATTERNS.some((pattern) => pattern.test(text))) {
+    return { delayMinutes: 0, mode: 'video' }
+  }
+
+  return null
+}
+
 export function buildOutboundCallAck(text: string, delayMinutes: number) {
   const isGerman = /\b(ruf mich|bitte|gleich|jetzt|minuten)\b/i.test(text)
   const isSpanish = /\b(ll[aá]mame|ahora|enseguida|minutos)\b/i.test(text)
