@@ -483,12 +483,16 @@ function LivekitVideoTile({
   label,
   isActive,
   cameraEnabled,
+  videoFit = 'cover',
+  shape = 'tile',
 }: {
   track: LivekitVideoTrack | null
   isLocal: boolean
   label: string
   isActive: boolean
   cameraEnabled: boolean
+  videoFit?: 'cover' | 'contain'
+  shape?: 'tile' | 'bubble'
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const shouldShow = Boolean(track) && (!isLocal || cameraEnabled)
@@ -502,9 +506,12 @@ function LivekitVideoTile({
     }
   }, [track, shouldShow])
 
+  const roundedClass = shape === 'bubble' ? 'rounded-[999px]' : 'rounded-[22px]'
+  const videoFitClass = videoFit === 'contain' ? 'object-contain' : 'object-cover'
+
   return (
     <div
-      className={`relative h-full w-full overflow-hidden rounded-[22px] border bg-black/70 shadow-[0_18px_60px_rgba(0,0,0,0.35)] ${
+      className={`relative h-full w-full overflow-hidden border bg-black/70 shadow-[0_18px_60px_rgba(0,0,0,0.35)] ${roundedClass} ${
         isActive ? 'border-[#70f0de]/70 ring-2 ring-[#70f0de]/30' : 'border-white/10'
       }`}
     >
@@ -515,7 +522,7 @@ function LivekitVideoTile({
             autoPlay
             muted={isLocal}
             playsInline
-            className="max-h-full max-w-full object-contain"
+            className={`h-full w-full ${videoFitClass}`}
             style={isLocal ? { transform: 'scaleX(-1)' } : undefined}
           />
         </div>
@@ -525,7 +532,7 @@ function LivekitVideoTile({
           <div className="text-xs text-white/55">{isLocal ? 'Camera off' : 'Waiting for video...'}</div>
         </div>
       )}
-      <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/72 to-transparent px-3 py-2 text-[11px] text-white/80">
+      <div className={`absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/72 to-transparent text-white/80 ${shape === 'bubble' ? 'px-3 py-1.5 text-[10px]' : 'px-3 py-2 text-[11px]'}`}>
         <span className="truncate">{label}</span>
         {isActive ? (
           <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#70f0de]">Live</span>
@@ -1917,6 +1924,8 @@ export default function VideoCall() {
           return adoptRemoteTracks(preferred, reason)
         }
 
+        let remoteRecoveryTimer: number | null = null
+
         const lastActiveSpeakerRef: { current: { kind: LivekitSpeakerKind; at: number } | null } = { current: null }
 
         const findTrackOwner = (trackSid: string): Participant | null => {
@@ -2256,6 +2265,10 @@ export default function VideoCall() {
         room.on(RoomEvent.Disconnected, () => {
           console.log('[LiveKit] disconnected')
           joinedRef.current = false
+          if (remoteRecoveryTimer) {
+            window.clearInterval(remoteRecoveryTimer)
+            remoteRecoveryTimer = null
+          }
         })
 
         logLivekitStep('room_connect_start', { wsUrl, roomName: roomName || null })
@@ -2276,6 +2289,31 @@ export default function VideoCall() {
         }
 
         recoverRemoteTracks('post_connect_scan')
+        const recoveryDeadline = Date.now() + 30_000
+        remoteRecoveryTimer = window.setInterval(() => {
+          if (livekitRoomRef.current !== room) {
+            if (remoteRecoveryTimer) {
+              window.clearInterval(remoteRecoveryTimer)
+              remoteRecoveryTimer = null
+            }
+            return
+          }
+          const hasRemoteVideoTrack = Array.from(room.remoteParticipants.values()).some((participant) =>
+            Array.from(participant.trackPublications.values()).some((publication) => publication.track?.kind === Track.Kind.Video),
+          )
+          if (hasRemoteVideoTrack) {
+            recoverRemoteTracks('interval_recovery')
+            if (remoteRecoveryTimer) {
+              window.clearInterval(remoteRecoveryTimer)
+              remoteRecoveryTimer = null
+            }
+            return
+          }
+          if (Date.now() > recoveryDeadline && remoteRecoveryTimer) {
+            window.clearInterval(remoteRecoveryTimer)
+            remoteRecoveryTimer = null
+          }
+        }, 1000)
 
         try {
           logLivekitStep('local_tracks_publish_start', { mic: isMicEnabled, cam: isCameraEnabled })
@@ -3005,15 +3043,18 @@ export default function VideoCall() {
                             label={livekitRemoteName || personaName}
                             isActive={livekitActiveKinds.includes('agent')}
                             cameraEnabled
+                            videoFit="contain"
                           />
                         </div>
-                        <div className="absolute bottom-4 right-4 aspect-video w-40 sm:bottom-6 sm:right-6 sm:w-48">
+                        <div className="absolute bottom-4 right-4 h-32 w-24 sm:bottom-6 sm:right-6 sm:h-40 sm:w-28">
                           <LivekitVideoTile
                             track={livekitLocalVideo}
                             isLocal
                             label={livekitLocalName || 'You'}
                             isActive={livekitActiveKinds.includes('user')}
                             cameraEnabled={isCameraEnabled}
+                            videoFit="cover"
+                            shape="bubble"
                           />
                         </div>
                       </div>
@@ -3028,6 +3069,7 @@ export default function VideoCall() {
                           label={livekitRemoteName || personaName}
                           isActive={livekitActiveKinds.includes('agent')}
                           cameraEnabled
+                          videoFit="cover"
                         />
                         <LivekitVideoTile
                           track={livekitLocalVideo}
@@ -3035,6 +3077,7 @@ export default function VideoCall() {
                           label={livekitLocalName || 'You'}
                           isActive={livekitActiveKinds.includes('user')}
                           cameraEnabled={isCameraEnabled}
+                          videoFit="cover"
                         />
                       </div>
                     )
