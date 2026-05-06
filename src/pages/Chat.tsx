@@ -98,6 +98,7 @@ interface CaptionDraft {
 }
 const WAVEFORM_BARS = Array.from({ length: 15 }, (_, index) => index)
 const HTTPS_URL_REGEX = /https:\/\/[^\s]+/gi
+const LAST_CONTACT_EMAIL_KEY = 'wa_last_contact_email'
 
 interface YouTubePreviewItem {
   url: string
@@ -2146,6 +2147,16 @@ export default function Chat() {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
     }
   }, [messages, avatarStatus])
+
+  useEffect(() => {
+    const contactEmail = String(conversation?.wa_contacts?.email || '').trim().toLowerCase()
+    if (!contactEmail) return
+    try {
+      localStorage.setItem(LAST_CONTACT_EMAIL_KEY, contactEmail)
+    } catch {
+      // Ignore localStorage access issues.
+    }
+  }, [conversation?.wa_contacts?.email])
 
   useEffect(() => {
     const closeMenu = () => setMediaMenuOpen(false)

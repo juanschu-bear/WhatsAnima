@@ -4,17 +4,29 @@ import { useAuth } from '../contexts/AuthContext'
 import { type OutboundCallRecord, pollOutboundCall, respondToOutboundCall } from '../lib/api'
 import { playNotificationSound, showLocalNotification } from '../lib/notifications'
 
+const LAST_CONTACT_EMAIL_KEY = 'wa_last_contact_email'
+
 export default function IncomingCallOverlay() {
   const { user, loading } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [call, setCall] = useState<OutboundCallRecord | null>(null)
   const [busy, setBusy] = useState(false)
+  const [fallbackEmail, setFallbackEmail] = useState('')
   const seenCallRef = useRef<string | null>(null)
   const failureCountRef = useRef(0)
   const pausePollingUntilRef = useRef(0)
 
-  const email = String(user?.email || '').trim().toLowerCase()
+  useEffect(() => {
+    try {
+      const cached = String(localStorage.getItem(LAST_CONTACT_EMAIL_KEY) || '').trim().toLowerCase()
+      if (cached) setFallbackEmail(cached)
+    } catch {
+      // Ignore localStorage access errors.
+    }
+  }, [])
+
+  const email = String(user?.email || fallbackEmail || '').trim().toLowerCase()
   const isOnCallScreen = location.pathname.startsWith('/video-call/')
 
   useEffect(() => {
