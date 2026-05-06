@@ -514,7 +514,7 @@ function LivekitVideoTile({
           autoPlay
           muted={isLocal}
           playsInline
-          className="h-full w-full object-cover"
+          className="h-full w-full object-contain"
           style={isLocal ? { transform: 'scaleX(-1)' } : undefined}
         />
       ) : (
