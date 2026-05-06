@@ -583,6 +583,7 @@ const LIVEKIT_CHAT_TOPIC = 'lk.chat'
 const LIVEKIT_SEGMENT_ID_ATTR = 'lk.segment_id'
 const LIVEKIT_TRACK_ID_ATTR = 'lk.transcribed_track_id'
 const LIVEKIT_FINAL_ATTR = 'lk.transcription_final'
+const INCOMING_CALL_CONTEXT_PREFIX = 'wa_incoming_call_context:'
 
 function isLivekitAgentIdentity(identity: string | null | undefined): boolean {
   const value = (identity || '').trim()
@@ -627,6 +628,7 @@ export default function VideoCall() {
   const [meetingHostControl, setMeetingHostControl] = useState(false)
   const [meetingSelfName, setMeetingSelfName] = useState('')
   const [hasRingingIncomingCall, setHasRingingIncomingCall] = useState(false)
+  const [incomingCallTriggerText, setIncomingCallTriggerText] = useState('')
 
   const callObjectRef = useRef<ReturnType<typeof DailyIframe.createCallObject> | null>(null)
   const livekitRoomRef = useRef<Room | null>(null)
@@ -672,6 +674,7 @@ export default function VideoCall() {
   const audioStreamRef = useRef<MediaStream | null>(null)
   const opmSpeakerNameRef = useRef<string>('')
   const participantsInjectedRef = useRef(false)
+  const callHandoffInjectedRef = useRef(false)
   const languageContextInjectedRef = useRef(false)
   const meetingToken = String(searchParams.get('meeting_token') || '').trim()
   const incomingCallId = String(searchParams.get('incomingCallId') || '').trim()
@@ -684,6 +687,19 @@ export default function VideoCall() {
   const isMeetingMode = meetingToken.length > 0
   const isMeetingGuest = isMeetingMode && !meetingHostControl
   const forcedSessionId = String(searchParams.get('session_id') || '').trim()
+
+  useEffect(() => {
+    if (!incomingCallId) return
+    try {
+      const raw = sessionStorage.getItem(`${INCOMING_CALL_CONTEXT_PREFIX}${incomingCallId}`)
+      if (!raw) return
+      const parsed = JSON.parse(raw) as { trigger_text?: string }
+      const triggerText = String(parsed?.trigger_text || '').trim()
+      if (triggerText) setIncomingCallTriggerText(triggerText)
+    } catch {
+      // Ignore parse/storage errors.
+    }
+  }, [incomingCallId])
 
   useEffect(() => {
     sessionIdRef.current = sessionId
@@ -925,6 +941,24 @@ export default function VideoCall() {
     callObject.sendAppMessage(payload, '*')
     participantsInjectedRef.current = true
     console.log('[OPM-CONTEXT] participants pre-injected', { text: contextText })
+
+    if (!callHandoffInjectedRef.current && incomingCallTriggerText.trim()) {
+      const handoffContext =
+        normalizeLanguageCode(languageRef.current) === 'de'
+          ? `[CALL HANDOFF] Direkt vor diesem Call hat der User im Chat geschrieben: "${incomingCallTriggerText}". Eröffne den Call damit natürlich und knüpfe direkt daran an.`
+          : normalizeLanguageCode(languageRef.current) === 'es'
+            ? `[CALL HANDOFF] Justo antes de esta llamada, el usuario escribió en el chat: "${incomingCallTriggerText}". Abre la llamada de forma natural y conecta directamente con ese motivo.`
+            : `[CALL HANDOFF] Right before this call, the user wrote in chat: "${incomingCallTriggerText}". Open naturally by acknowledging this reason and continue from there.`
+      const handoffPayload = {
+        message_type: 'conversation',
+        event_type: 'conversation.append_context',
+        conversation_id: conversationIdForContext,
+        properties: { context: handoffContext },
+      }
+      callObject.sendAppMessage(handoffPayload, '*')
+      callHandoffInjectedRef.current = true
+      console.log('[OPM-CONTEXT] call handoff injected', { trigger: incomingCallTriggerText })
+    }
   }
 
   // DISABLED: Filler responses — kept for future use
@@ -1652,6 +1686,7 @@ export default function VideoCall() {
     callStartAtRef.current = null
     callSummarySentRef.current = false
     participantsInjectedRef.current = false
+    callHandoffInjectedRef.current = false
     languageContextInjectedRef.current = false
     participantsRef.current = []
     lastUserSpeechEndAtRef.current = null
@@ -1681,6 +1716,7 @@ export default function VideoCall() {
         owner_id: owner.id || conversation.owner_id || null,
         contact_id: conversation.contact_id || null,
         contact_name: conversation.wa_contacts?.display_name || null,
+        incoming_call_id: incomingCallId || null,
         meeting_token: meetingToken || undefined,
         meeting_guest_join_only: isMeetingGuest,
       }
@@ -2468,6 +2504,7 @@ export default function VideoCall() {
       callObject.on('joined-meeting', (event: any) => {
         handleParticipantChange('joined-meeting', event)
         injectLanguageContext(callObject)
+        injectParticipantsContext(callObject)
         void startOpmAudioCapture()
       })
       callObject.on('app-message', (event: any) => {

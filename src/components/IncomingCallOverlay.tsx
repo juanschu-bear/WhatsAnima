@@ -5,6 +5,7 @@ import { type OutboundCallRecord, pollOutboundCall, respondToOutboundCall } from
 import { playNotificationSound, showLocalNotification } from '../lib/notifications'
 
 const LAST_CONTACT_EMAIL_KEY = 'wa_last_contact_email'
+const INCOMING_CALL_CONTEXT_PREFIX = 'wa_incoming_call_context:'
 
 export default function IncomingCallOverlay() {
   const { user, loading } = useAuth()
@@ -95,6 +96,20 @@ export default function IncomingCallOverlay() {
       const payload = await respondToOutboundCall(call.id, action)
       setCall(null)
       if (action === 'accept') {
+        try {
+          const context = {
+            trigger_text: call.trigger_text || '',
+            requested_at: call.requested_at || '',
+            conversation_id: call.conversation_id || '',
+            caller_display_name: call.caller_display_name || '',
+          }
+          sessionStorage.setItem(
+            `${INCOMING_CALL_CONTEXT_PREFIX}${call.id}`,
+            JSON.stringify(context),
+          )
+        } catch {
+          // Ignore storage failures; call still proceeds.
+        }
         const relative = payload.joinUrl.replace(/^https?:\/\/[^/]+/i, '')
         navigate(relative)
       }

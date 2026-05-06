@@ -145,6 +145,7 @@ export default async function handler(req: any, res: any) {
   const ownerId = String(body.owner_id || body.ownerId || '').trim()
   const contactId = String(body.contact_id || body.contactId || '').trim()
   const contactName = String(body.contact_name || body.contactName || '').trim()
+  const incomingCallId = String(body.incoming_call_id || body.incomingCallId || '').trim()
   const meetingToken = String(body.meeting_token || body.meetingToken || '').trim()
   const meetingGuestJoinOnly = Boolean(body.meeting_guest_join_only)
   const conversationIdForRequest = conversationId || (meetingToken ? `meeting-${meetingToken}` : '')
@@ -163,6 +164,7 @@ export default async function handler(req: any, res: any) {
     owner_id: ownerId || null,
     contact_id: contactId || null,
     contact_name: contactName || null,
+    incoming_call_id: incomingCallId || null,
   }
   if (resolvedPersonaSlug) {
     requestBody.persona_slug = resolvedPersonaSlug
@@ -221,7 +223,7 @@ export default async function handler(req: any, res: any) {
 
   if (supabase && conversationId) {
     try {
-      const [{ data: memoryRow }, { data: messages }] = await Promise.all([
+      const [{ data: memoryRow }, { data: messages }, { data: outboundCall }] = await Promise.all([
         supabase
           .from('wa_conversation_memory')
           .select('summary, key_facts, behavioral_profile')
@@ -233,6 +235,13 @@ export default async function handler(req: any, res: any) {
           .eq('conversation_id', conversationId)
           .order('created_at', { ascending: false })
           .limit(10),
+        incomingCallId
+          ? supabase
+              .from('wa_outbound_calls')
+              .select('id, trigger_text, requested_at, requested_by_message_id')
+              .eq('id', incomingCallId)
+              .maybeSingle()
+          : Promise.resolve({ data: null }),
       ])
 
       const memorySummary = String(memoryRow?.summary || '').trim()
@@ -250,6 +259,14 @@ export default async function handler(req: any, res: any) {
         key_facts: keyFacts,
         behavioral_profile: behavioralProfile,
         recent_messages: recentMessages,
+        outbound_call: outboundCall
+          ? {
+              id: outboundCall.id,
+              trigger_text: String(outboundCall.trigger_text || '').trim() || null,
+              requested_at: outboundCall.requested_at || null,
+              requested_by_message_id: outboundCall.requested_by_message_id || null,
+            }
+          : null,
       }
 
       const memoryLines: string[] = []
@@ -261,6 +278,12 @@ export default async function handler(req: any, res: any) {
           .map((msg) => `[${msg.sender}] ${String(msg.content || '').trim()}`)
           .filter((line) => line.length > 2)
         if (compact.length > 0) memoryLines.push(`Recent context: ${compact.join(' || ')}`)
+      }
+      if (outboundCall) {
+        const triggerText = String(outboundCall.trigger_text || '').trim()
+        if (triggerText) {
+          memoryLines.push(`Call handoff reason: User asked in chat: "${triggerText}"`)
+        }
       }
       if (memoryLines.length > 0) {
         requestBody.memory_context = memoryLines.join('\n')
