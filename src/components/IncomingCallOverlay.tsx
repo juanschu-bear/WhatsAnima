@@ -26,17 +26,24 @@ export default function IncomingCallOverlay() {
     }
   }, [])
 
-  const email = String(user?.email || fallbackEmail || '').trim().toLowerCase()
+  const contactEmail = String(fallbackEmail || '').trim().toLowerCase()
+  const authEmail = String(user?.email || '').trim().toLowerCase()
+  const pollEmails = [contactEmail, authEmail].filter((value, index, all) => value && all.indexOf(value) === index)
   const isOnCallScreen = location.pathname.startsWith('/video-call/')
 
   useEffect(() => {
-    if (loading || !email || isOnCallScreen) return
+    if (loading || pollEmails.length === 0 || isOnCallScreen) return
     let active = true
 
     const refresh = async () => {
       if (Date.now() < pausePollingUntilRef.current) return
       try {
-        const payload = await pollOutboundCall(email)
+        let payload: { call: OutboundCallRecord | null } | null = null
+        for (const email of pollEmails) {
+          payload = await pollOutboundCall(email)
+          if (payload.call) break
+        }
+        if (!payload) return
         failureCountRef.current = 0
         if (!active) return
         const nextCall = payload.call
@@ -77,7 +84,7 @@ export default function IncomingCallOverlay() {
       active = false
       window.clearInterval(timer)
     }
-  }, [email, loading, isOnCallScreen])
+  }, [pollEmails, loading, isOnCallScreen])
 
   const callerName = useMemo(() => call?.caller_display_name || 'Your avatar', [call])
 
