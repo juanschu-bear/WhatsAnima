@@ -509,14 +509,16 @@ function LivekitVideoTile({
       }`}
     >
       {shouldShow ? (
-        <video
-          ref={videoRef}
-          autoPlay
-          muted={isLocal}
-          playsInline
-          className="h-full w-full object-contain"
-          style={isLocal ? { transform: 'scaleX(-1)' } : undefined}
-        />
+        <div className="flex h-full w-full items-center justify-center bg-black">
+          <video
+            ref={videoRef}
+            autoPlay
+            muted={isLocal}
+            playsInline
+            className="max-h-full max-w-full object-contain"
+            style={isLocal ? { transform: 'scaleX(-1)' } : undefined}
+          />
+        </div>
       ) : (
         <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.08),transparent_45%),linear-gradient(180deg,rgba(14,19,30,0.98),rgba(7,10,18,0.98))] px-4 text-center">
           <div className="text-sm font-semibold text-white/85">{label}</div>
@@ -1869,6 +1871,52 @@ export default function VideoCall() {
             ? livekitRemoteNameRef.current || personaName || 'Avatar'
             : livekitLocalNameRef.current || 'You'
 
+        const adoptRemoteTracks = (participant: RemoteParticipant, reason: string): boolean => {
+          let hasVideo = false
+          let hasAudio = false
+          for (const publication of participant.trackPublications.values()) {
+            const track = publication.track
+            if (!track) continue
+            if (!hasVideo && track.kind === Track.Kind.Video) {
+              setLivekitRemoteVideo(track as RemoteVideoTrack)
+              hasVideo = true
+            } else if (!hasAudio && track.kind === Track.Kind.Audio) {
+              setLivekitRemoteAudio(track as RemoteAudioTrack)
+              hasAudio = true
+            }
+          }
+          if (!hasVideo && !hasAudio) return false
+          livekitRemoteIdentityRef.current = participant.identity
+          const resolvedRemoteName = readLivekitRoomDisplayName(room.metadata) || personaName || participant.identity
+          if (resolvedRemoteName && resolvedRemoteName !== livekitRemoteNameRef.current) {
+            livekitRemoteNameRef.current = resolvedRemoteName
+            setLivekitRemoteName(resolvedRemoteName)
+          }
+          logLivekitStep('remote_tracks_adopted', {
+            reason,
+            participant: participant.identity,
+            hasVideo,
+            hasAudio,
+          })
+          return true
+        }
+
+        const recoverRemoteTracks = (reason: string): boolean => {
+          const participants = Array.from(room.remoteParticipants.values())
+          const preferred =
+            participants.find((p) => isLivekitAgentParticipant(p)) ||
+            participants.find((p) => {
+              for (const pub of p.trackPublications.values()) {
+                if (pub.track?.kind === Track.Kind.Video) return true
+              }
+              return false
+            }) ||
+            participants[0] ||
+            null
+          if (!preferred) return false
+          return adoptRemoteTracks(preferred, reason)
+        }
+
         const lastActiveSpeakerRef: { current: { kind: LivekitSpeakerKind; at: number } | null } = { current: null }
 
         const findTrackOwner = (trackSid: string): Participant | null => {
@@ -2023,10 +2071,14 @@ export default function VideoCall() {
                   livekitRemoteNameRef.current = resolvedRemoteName
                   setLivekitRemoteName(resolvedRemoteName)
                 }
+              } else {
+                adoptRemoteTracks(participant, 'track_subscribed_non_agent_fallback')
               }
             } else if (track.kind === Track.Kind.Audio) {
               if (isAgent) {
                 setLivekitRemoteAudio(track as RemoteAudioTrack)
+              } else {
+                adoptRemoteTracks(participant, 'audio_subscribed_non_agent_fallback')
               }
             }
           },
@@ -2190,6 +2242,17 @@ export default function VideoCall() {
           }
         })
 
+        room.on(RoomEvent.ParticipantConnected, (participant: RemoteParticipant) => {
+          recoverRemoteTracks(`participant_connected:${participant.identity}`)
+        })
+
+        room.on(
+          RoomEvent.TrackPublished,
+          (_publication: RemoteTrackPublication, participant: RemoteParticipant) => {
+            recoverRemoteTracks(`track_published:${participant.identity}`)
+          },
+        )
+
         room.on(RoomEvent.Disconnected, () => {
           console.log('[LiveKit] disconnected')
           joinedRef.current = false
@@ -2212,6 +2275,8 @@ export default function VideoCall() {
           setLivekitRemoteName(metadataRemoteName)
         }
 
+        recoverRemoteTracks('post_connect_scan')
+
         try {
           logLivekitStep('local_tracks_publish_start', { mic: isMicEnabled, cam: isCameraEnabled })
           await room.localParticipant.setMicrophoneEnabled(isMicEnabled)
@@ -2224,6 +2289,12 @@ export default function VideoCall() {
         } catch (publishError) {
           console.warn('[LiveKit] failed to publish local tracks', publishError)
         }
+
+        window.setTimeout(() => {
+          if (!livekitRemoteVideo) {
+            recoverRemoteTracks('delayed_recovery_8s')
+          }
+        }, 8000)
 
         if (incomingCallTriggerText.trim()) {
           try {
