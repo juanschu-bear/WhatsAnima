@@ -514,7 +514,7 @@ function LivekitVideoTile({
           autoPlay
           muted={isLocal}
           playsInline
-          className="h-full w-full object-cover"
+          className="h-full w-full object-contain"
           style={isLocal ? { transform: 'scaleX(-1)' } : undefined}
         />
       ) : (
@@ -1832,6 +1832,19 @@ export default function VideoCall() {
             ? livekitRemoteNameRef.current || personaName || 'Avatar'
             : livekitLocalNameRef.current || 'You'
 
+        const isLikelyAvatarParticipant = (participant: RemoteParticipant): boolean => {
+          if (isLivekitAgentParticipant(participant)) return true
+          const identity = (participant.identity || '').trim().toLowerCase()
+          if (!identity) return false
+          const displayName = readLivekitRoomDisplayName(room.metadata).trim().toLowerCase()
+          const persona = (personaName || '').trim().toLowerCase()
+          if (displayName && identity === displayName) return true
+          if (persona && identity === persona) return true
+          // Fallback for one-to-one calls: first non-local remote is the avatar.
+          if (!livekitRemoteIdentityRef.current) return true
+          return identity === livekitRemoteIdentityRef.current.toLowerCase()
+        }
+
         const lastActiveSpeakerRef: { current: { kind: LivekitSpeakerKind; at: number } | null } = { current: null }
 
         const findTrackOwner = (trackSid: string): Participant | null => {
@@ -1971,7 +1984,7 @@ export default function VideoCall() {
               participant: participant.identity,
               participantKind: participant.kind,
             })
-            const isAgent = isLivekitAgentParticipant(participant)
+            const isAgent = isLikelyAvatarParticipant(participant)
             if (track.kind === Track.Kind.Video) {
               if (isAgent) {
                 setLivekitRemoteVideo(track as RemoteVideoTrack)
@@ -1992,8 +2005,12 @@ export default function VideoCall() {
         )
 
         room.on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => {
-          if (track.kind === Track.Kind.Video) setLivekitRemoteVideo(null)
-          if (track.kind === Track.Kind.Audio) setLivekitRemoteAudio(null)
+          if (track.kind === Track.Kind.Video) {
+            setLivekitRemoteVideo((current) => (current?.sid === track.sid ? null : current))
+          }
+          if (track.kind === Track.Kind.Audio) {
+            setLivekitRemoteAudio((current) => (current?.sid === track.sid ? null : current))
+          }
         })
 
         room.on(
@@ -2167,6 +2184,21 @@ export default function VideoCall() {
         if (metadataRemoteName) {
           livekitRemoteNameRef.current = metadataRemoteName
           setLivekitRemoteName(metadataRemoteName)
+        }
+
+        for (const participant of room.remoteParticipants.values()) {
+          if (!isLikelyAvatarParticipant(participant)) continue
+          livekitRemoteIdentityRef.current = participant.identity
+          for (const publication of participant.trackPublications.values()) {
+            const remoteTrack = publication.track
+            if (!remoteTrack) continue
+            if (remoteTrack.kind === Track.Kind.Video) {
+              setLivekitRemoteVideo(remoteTrack as RemoteVideoTrack)
+            } else if (remoteTrack.kind === Track.Kind.Audio) {
+              setLivekitRemoteAudio(remoteTrack as RemoteAudioTrack)
+            }
+          }
+          break
         }
 
         try {
