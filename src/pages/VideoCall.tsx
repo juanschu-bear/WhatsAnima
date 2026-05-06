@@ -673,11 +673,12 @@ export default function VideoCall() {
   const participantsInjectedRef = useRef(false)
   const languageContextInjectedRef = useRef(false)
   const meetingToken = String(searchParams.get('meeting_token') || '').trim()
+  const incomingCallId = String(searchParams.get('incomingCallId') || '').trim()
   const hasMeetingContext =
     meetingToken.length > 0 &&
     typeof window !== 'undefined' &&
     Boolean(window.sessionStorage.getItem(`wa_meeting_context:${meetingToken}`))
-  const shouldSkipLanguageSelection = Boolean(meetingToken) || hasMeetingContext
+  const shouldSkipLanguageSelection = Boolean(meetingToken) || hasMeetingContext || Boolean(incomingCallId)
   const isMeetingMode = meetingToken.length > 0
   const isMeetingGuest = isMeetingMode && !meetingHostControl
   const forcedSessionId = String(searchParams.get('session_id') || '').trim()
