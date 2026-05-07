@@ -43,7 +43,7 @@ export default function Login() {
     }
     setError(null)
     await supabase.auth.resetPasswordForEmail(email.trim(), {
-      redirectTo: getCanonicalAppUrl('/auth/callback?next=/login'),
+      redirectTo: getCanonicalAppUrl('/auth/reset-password'),
     })
     setResetSent(true)
   }
@@ -85,8 +85,8 @@ export default function Login() {
   // Handle invite link paste
   function handleInviteLinkSubmit() {
     const trimmed = inviteLink.trim()
-    // Extract token from URL like /invite/TOKEN or just use raw token
-    const match = trimmed.match(/\/invite\/([a-f0-9-]+)/i) || trimmed.match(/^([a-f0-9-]{36})$/i)
+    // Extract token from URL like /invite/TOKEN or just use a raw URL-safe token.
+    const match = trimmed.match(/\/invite\/([a-z0-9-]+)/i) || trimmed.match(/^([a-z0-9-]{6,64})$/i)
     if (!match) {
       setError(t(locale, 'invalidInviteLink'))
       return

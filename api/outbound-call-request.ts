@@ -1,4 +1,5 @@
 import { getSupabaseAdmin, normalizeBody } from './_lib/liveSessionAudit.js'
+import { syncChannelState } from './_lib/channelConsistency.js'
 
 function buildOrigin(req: any) {
   const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim()
@@ -6,6 +7,17 @@ function buildOrigin(req: any) {
   const host = forwardedHost || String(req.headers.host || '').trim()
   const proto = forwardedProto || (host.includes('localhost') ? 'http' : 'https')
   return host ? `${proto}://${host}` : 'https://www.whatsanima.com'
+}
+
+function detectCallLanguageFromText(text: string): 'de' | 'en' | 'es' {
+  const t = String(text || '').toLowerCase()
+  const deSignals = [/\bruf mich an\b/, /\brufe mich an\b/, /\banruf\b/, /\brufst du mich an\b/, /\bin \d+\s*(min|minuten)\b/]
+  const esSignals = [/\bllámame\b/i, /\bllamame\b/, /\bllámame ahora\b/i, /\bllámame en\b/i, /\bl(l)?ama(me)?\b/, /\ben\s+\d+\s*min(uto|utos)?\b/]
+  const enSignals = [/\bcall me\b/, /\bcall me now\b/, /\bcall me in\b/, /\bin \d+\s*(min|mins|minutes)\b/]
+  if (deSignals.some((rx) => rx.test(t))) return 'de'
+  if (esSignals.some((rx) => rx.test(t))) return 'es'
+  if (enSignals.some((rx) => rx.test(t))) return 'en'
+  return 'en'
 }
 
 export default async function handler(req: any, res: any) {
@@ -24,9 +36,13 @@ export default async function handler(req: any, res: any) {
     const conversationId = String(body.conversationId || '').trim()
     const ownerId = String(body.ownerId || '').trim() || null
     const contactId = String(body.contactId || '').trim() || null
+    const userId = String(body.userId || '').trim() || null
     const contactEmail = String(body.contactEmail || '').trim().toLowerCase()
     const requestedByMessageId = String(body.requestedByMessageId || '').trim() || null
     const triggerText = String(body.triggerText || '').trim()
+    const requestedLanguage = String(body.language || '').trim().toLowerCase()
+    const outboundLanguage = (requestedLanguage || detectCallLanguageFromText(triggerText)) as 'de' | 'en' | 'es'
+    const timezone = String(body.timezone || 'UTC').trim() || 'UTC'
     const callerDisplayName = String(body.callerDisplayName || '').trim() || 'Avatar'
     const delayMinutesRaw = Number(body.delayMinutes ?? 0)
     const delayMinutes = Number.isFinite(delayMinutesRaw) ? Math.max(0, Math.min(720, Math.round(delayMinutesRaw))) : 0
@@ -52,6 +68,12 @@ export default async function handler(req: any, res: any) {
       scheduled_for: scheduledFor.toISOString(),
       triggered_at: immediate ? nowIso : null,
       expires_at: expiresAt,
+      metadata: {
+        language: outboundLanguage,
+        timezone,
+        user_id: userId,
+        onboarding: triggerText === 'onboarding_first_call',
+      },
     }
 
     const { data: insertedCall, error } = await supabase
@@ -67,6 +89,15 @@ export default async function handler(req: any, res: any) {
 
     let call = insertedCall
 
+    await syncChannelState({
+      supabase,
+      conversationId,
+      channel: 'outbound',
+      timezone,
+      messageText: triggerText,
+      callStatus: immediate ? 'ringing' : 'scheduled',
+    })
+
     // Keep server-side prewarm OFF in production incident mode.
     // We observed session-flood side effects when many immediate requests queue at once.
     const enableServerPrewarm = String(process.env.OUTBOUND_SERVER_PREWARM || '').toLowerCase() === 'true'
@@ -78,7 +109,8 @@ export default async function handler(req: any, res: any) {
           body: JSON.stringify({
             persona_name: callerDisplayName,
             persona: callerDisplayName,
-            language: 'en',
+            language: outboundLanguage,
+            timezone,
             conversation_id: conversationId,
             owner_id: ownerId,
             contact_id: contactId,

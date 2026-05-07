@@ -1,4 +1,7 @@
 import { getSupabaseAdmin, logLiveSessionEvent, normalizeBody } from './_lib/liveSessionAudit.js'
+import { syncChannelState } from './_lib/channelConsistency.js'
+import { buildCurrentTimeContext, normalizeTimezone as normalizeTemporalTimezone } from './_lib/temporalCore.js'
+import { normalizeCallSummaryText } from './_lib/callSummary.js'
 
 const LIVE_CALL_API_BASE =
   process.env.LIVE_CALL_API_BASE ||
@@ -145,6 +148,7 @@ export default async function handler(req: any, res: any) {
   const ownerId = String(body.owner_id || body.ownerId || '').trim()
   const contactId = String(body.contact_id || body.contactId || '').trim()
   const contactName = String(body.contact_name || body.contactName || '').trim()
+  const timezone = normalizeTemporalTimezone(String(body.timezone || 'UTC').trim() || 'UTC')
   const incomingCallId = String(body.incoming_call_id || body.incomingCallId || '').trim()
   const meetingToken = String(body.meeting_token || body.meetingToken || '').trim()
   const meetingGuestJoinOnly = Boolean(body.meeting_guest_join_only)
@@ -159,6 +163,7 @@ export default async function handler(req: any, res: any) {
     persona_name: body.persona_name,
     persona: body.persona,
     language: body.language,
+    timezone,
     user_name: body.user_name,
     conversation_id: conversationIdForRequest,
     owner_id: ownerId || null,
@@ -189,12 +194,14 @@ export default async function handler(req: any, res: any) {
   }
   const normalizedLanguageCode = normalizeLanguageCode(body.language)
   const languageInstruction = buildLiveLanguageInstruction(normalizedLanguageCode)
+  const currentTimeContext = buildCurrentTimeContext(timezone, normalizedLanguageCode)
   let finalInstruction = languageInstruction
   requestBody.language_instruction = finalInstruction
-  requestBody.system_prompt_append = finalInstruction
+  requestBody.system_prompt_append = `${currentTimeContext}\n\n${finalInstruction}`
   requestBody.prompt_overrides = {
     language_policy: languageInstruction,
     response_language: normalizedLanguageCode,
+    current_time_context: currentTimeContext,
   }
   console.log('[video-call] language enforcement', {
     language: normalizedLanguageCode,
@@ -213,10 +220,20 @@ export default async function handler(req: any, res: any) {
   }
 
   const { client: supabase } = getSupabaseAdmin()
+  if (supabase && conversationId) {
+    await syncChannelState({
+      supabase,
+      conversationId,
+      channel: 'video',
+      timezone,
+      callStatus: 'starting',
+      messageText: String(body.persona_name || body.persona || ''),
+    })
+  }
 
   if (supabase && conversationId) {
     try {
-      const [{ data: memoryRow }, { data: messages }, { data: outboundCall }] = await Promise.all([
+      const [{ data: memoryRow }, { data: messages }, { data: callSummaryRows }, { data: outboundCall }, { data: temporalEvents }, { data: temporalPrefs }, { data: temporalPatterns }] = await Promise.all([
         supabase
           .from('wa_conversation_memory')
           .select('summary, key_facts, behavioral_profile')
@@ -228,13 +245,46 @@ export default async function handler(req: any, res: any) {
           .eq('conversation_id', conversationId)
           .order('created_at', { ascending: false })
           .limit(10),
+        supabase
+          .from('wa_messages')
+          .select('content, created_at')
+          .eq('conversation_id', conversationId)
+          .eq('type', 'call_summary')
+          .order('created_at', { ascending: false })
+          .limit(5),
         incomingCallId
           ? supabase
               .from('wa_outbound_calls')
-              .select('id, trigger_text, requested_at, requested_by_message_id')
+              .select('id, trigger_text, requested_at, requested_by_message_id, metadata')
               .eq('id', incomingCallId)
               .maybeSingle()
           : Promise.resolve({ data: null }),
+        contactId
+          ? supabase
+              .from('wa_temporal_events')
+              .select('id, event_type, trigger_at, status, action')
+              .eq('user_id', contactId)
+              .in('status', ['pending', 'triggered'])
+              .order('trigger_at', { ascending: true })
+              .limit(8)
+          : Promise.resolve({ data: [] }),
+        contactId && requestedPersonaName
+          ? supabase
+              .from('wa_temporal_preferences')
+              .select('timezone, quiet_hours_start, quiet_hours_end, reminder_lead_minutes, morning_briefing, proactive_calls')
+              .eq('user_id', contactId)
+              .eq('avatar_name', requestedPersonaName)
+              .maybeSingle()
+          : Promise.resolve({ data: null }),
+        contactId
+          ? supabase
+              .from('wa_temporal_patterns')
+              .select('pattern_type, pattern_data, detected_at')
+              .eq('user_id', contactId)
+              .eq('active', true)
+              .order('detected_at', { ascending: false })
+              .limit(10)
+          : Promise.resolve({ data: [] }),
       ])
 
       const memorySummary = String(memoryRow?.summary || '').trim()
@@ -246,12 +296,22 @@ export default async function handler(req: any, res: any) {
         content: message.content,
         created_at: message.created_at,
       }))
+      const callSummaries = (callSummaryRows ?? [])
+        .map((row) => ({
+          created_at: row.created_at,
+          text: normalizeCallSummaryText(row.content),
+        }))
+        .filter((row) => row.text.length > 0)
 
       requestBody.session_memory = {
         summary: memorySummary || null,
         key_facts: keyFacts,
         behavioral_profile: behavioralProfile,
         recent_messages: recentMessages,
+        call_summaries: callSummaries,
+        temporal_events: temporalEvents || [],
+        temporal_preferences: temporalPrefs || null,
+        temporal_patterns: temporalPatterns || [],
         outbound_call: outboundCall
           ? {
               id: outboundCall.id,
@@ -272,16 +332,62 @@ export default async function handler(req: any, res: any) {
           .filter((line) => line.length > 2)
         if (compact.length > 0) memoryLines.push(`Recent context: ${compact.join(' || ')}`)
       }
+      if (callSummaries.length > 0) {
+        const compactSummaries = callSummaries
+          .slice(0, 3)
+          .map((entry) => {
+            const ts = String(entry.created_at || '').trim()
+            const when = ts ? new Date(ts).toISOString() : 'unknown-time'
+            return `[${when}] ${entry.text}`
+          })
+        if (compactSummaries.length > 0) {
+          memoryLines.push(`Previous call summaries: ${compactSummaries.join(' || ')}`)
+          memoryLines.push(
+            'You DO have access to prior calls via these summaries. If asked about previous calls, answer using this history naturally.',
+          )
+        }
+      }
       if (outboundCall) {
         const triggerText = String(outboundCall.trigger_text || '').trim()
+        const metadata = outboundCall.metadata && typeof outboundCall.metadata === 'object'
+          ? outboundCall.metadata as Record<string, unknown>
+          : {}
+        const onboardingFromMetadata = Boolean(metadata.onboarding)
+        const isOnboardingTrigger = triggerText === 'onboarding_first_call' || onboardingFromMetadata
         if (triggerText) {
           memoryLines.push(`Call handoff reason: User asked in chat: "${triggerText}"`)
         }
+        if (isOnboardingTrigger) {
+          memoryLines.push(
+            'Onboarding mode: this is the very first call. Greet warmly, explain that this call is to get to know the user, ask goals and background, summarize at the end, and keep language natural and non-technical.',
+          )
+          requestBody.onboarding_mode = true
+          requestBody.onboarding_trigger_text = 'onboarding_first_call'
+        }
+        const onboardingUserId = String(metadata.user_id || '').trim()
+        if (onboardingUserId) {
+          requestBody.onboarding_user_id = onboardingUserId
+        }
+      }
+      if (Array.isArray(temporalEvents) && temporalEvents.length > 0) {
+        const upcoming = temporalEvents
+          .slice(0, 4)
+          .map((event) => `${event.event_type} @ ${event.trigger_at}`)
+        memoryLines.push(`Temporal events: ${upcoming.join(' | ')}`)
+      }
+      if (temporalPrefs) {
+        memoryLines.push(
+          `Temporal preferences: quiet ${temporalPrefs.quiet_hours_start || '-'}-${temporalPrefs.quiet_hours_end || '-'}, proactive_calls=${String(temporalPrefs.proactive_calls)}`,
+        )
+      }
+      if (Array.isArray(temporalPatterns) && temporalPatterns.length > 0) {
+        const pat = temporalPatterns.slice(0, 3).map((p) => p.pattern_type)
+        memoryLines.push(`Temporal pattern hints: ${pat.join(', ')}`)
       }
       if (memoryLines.length > 0) {
         requestBody.memory_context = memoryLines.join('\n')
       }
-      requestBody.memory_context = `${String(requestBody.memory_context || '').trim()}\n\n${finalInstruction}`.trim()
+      requestBody.memory_context = `${currentTimeContext}\n\n${String(requestBody.memory_context || '').trim()}\n\n${finalInstruction}`.trim()
     } catch (error) {
       console.error('[video-call] memory fetch failed', error)
     }
@@ -390,11 +496,12 @@ export default async function handler(req: any, res: any) {
         const meetingPrompt = buildMeetingPrompt(String(meeting.topic || '').trim(), participants)
         finalInstruction = `${finalInstruction}\n\n${meetingPrompt}`.trim()
         requestBody.language_instruction = finalInstruction
-        requestBody.system_prompt_append = finalInstruction
+        requestBody.system_prompt_append = `${currentTimeContext}\n\n${finalInstruction}`
         requestBody.prompt_overrides = {
           ...(requestBody.prompt_overrides as Record<string, unknown>),
           language_policy: finalInstruction,
           response_language: normalizedLanguageCode,
+          current_time_context: currentTimeContext,
         }
         requestBody.meeting_context = {
           token: meeting.token,
@@ -500,6 +607,15 @@ export default async function handler(req: any, res: any) {
       } catch (error) {
         console.error('[video-call] audit write failed', error)
       }
+
+      await syncChannelState({
+        supabase,
+        conversationId: conversationId || `session:${String(payload.session_id)}`,
+        channel: 'video',
+        timezone,
+        callStatus: 'active',
+        sessionId: String(payload.session_id),
+      })
     }
 
     return res.status(200).json(payload)

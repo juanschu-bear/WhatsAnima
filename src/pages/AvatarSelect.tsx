@@ -38,12 +38,12 @@ export default function AvatarSelect() {
     setLoading(true)
     setError(null)
     const userEmail = user?.email
-    if (!userEmail) {
+    if (!userEmail && !user?.id) {
       setOwners([])
       setLoading(false)
       return
     }
-    listOwnersForUser(userEmail)
+    listOwnersForUser({ email: userEmail, userId: user?.id })
       .then((data) => setOwners(data as OwnerOption[]))
       .catch((err) => {
         console.error('Failed to load avatars:', err)
@@ -55,7 +55,7 @@ export default function AvatarSelect() {
   useEffect(() => {
     loadOwners()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.email])
+  }, [user?.email, user?.id])
 
   useEffect(() => {
     // Clear transient loading states whenever this route is entered again.

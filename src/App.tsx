@@ -7,11 +7,13 @@ import Login from './pages/Login'
 import Signup from './pages/Signup'
 import Dashboard from './pages/Dashboard'
 import Invite from './pages/Invite'
+import InviteAccept from './pages/InviteAccept'
 import Chat from './pages/Chat'
 import AvatarSelect from './pages/AvatarSelect'
 import Settings from './pages/Settings'
 import Status from './pages/Status'
 import AuthCallback from './pages/AuthCallback'
+import AuthResetPassword from './pages/AuthResetPassword'
 import VideoCall from './pages/VideoCall'
 import Perception from './pages/Perception'
 import MeetingLobby from './pages/MeetingLobby'
@@ -26,9 +28,10 @@ export default function App() {
       <AuthProvider>
         <Routes>
           <Route path="/auth/callback" element={<AuthCallback />} />
+          <Route path="/auth/reset-password" element={<AuthResetPassword />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
-          <Route path="/invite/:token" element={<Invite />} />
+          <Route path="/invite/:inviteCode" element={<InviteAccept />} />
           <Route path="/status" element={<Status />} />
           <Route path="/meeting/:token" element={<MeetingLobby />} />
           <Route path="/chat/:conversationId" element={<Chat />} />
@@ -60,6 +63,14 @@ export default function App() {
             element={
               <OwnerRoute>
                 <Dashboard />
+              </OwnerRoute>
+            }
+          />
+          <Route
+            path="/invite"
+            element={
+              <OwnerRoute>
+                <Invite />
               </OwnerRoute>
             }
           />

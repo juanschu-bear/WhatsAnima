@@ -103,13 +103,75 @@ export interface OwnerListItem {
   avatar_url: string | null
 }
 
-// Returns only the owners the user has been provisioned for (via bundle/single
-// invite). Filters wa_owners by the owner_ids referenced in the user's
-// wa_contacts rows for the given email.
-export async function listOwnersForUser(email: string): Promise<OwnerListItem[]> {
-  const normalizedEmail = email.trim()
-  if (!normalizedEmail) return []
+export interface InvitationRecord {
+  id: string
+  invite_code: string
+  inviter_id: string
+  invitee_name: string
+  invitee_email: string | null
+  allowed_avatars: string[]
+  language: string
+  status: 'pending' | 'accepted' | 'expired' | 'revoked'
+  created_at: string
+  accepted_at: string | null
+  expires_at: string
+}
 
+type ListOwnersForUserArgs =
+  | string
+  | {
+      email?: string | null
+      userId?: string | null
+    }
+
+// Returns only owners available to the signed-in user.
+// Primary source: wa_user_avatar_access (invited access control).
+// Legacy fallback: wa_contacts linkage by email.
+export async function listOwnersForUser(input: ListOwnersForUserArgs): Promise<OwnerListItem[]> {
+  const email = (typeof input === 'string' ? input : input.email || '').trim()
+  const userId = (typeof input === 'string' ? '' : input.userId || '').trim()
+
+  if (userId) {
+    const { data: accessRows, error: accessError } = await supabase
+      .from('wa_user_avatar_access')
+      .select('owner_id, avatar_name')
+      .eq('user_id', userId)
+      .is('revoked_at', null)
+
+    if (accessError) throw accessError
+
+    const ownerIds = Array.from(
+      new Set((accessRows ?? []).map((row) => String(row.owner_id || '').trim()).filter(Boolean)),
+    )
+    const avatarNames = Array.from(
+      new Set((accessRows ?? []).map((row) => String(row.avatar_name || '').trim()).filter(Boolean)),
+    )
+
+    if (ownerIds.length > 0) {
+      const { data, error } = await supabase
+        .from('wa_owners')
+        .select('id, display_name, avatar_url')
+        .in('id', ownerIds)
+        .is('deleted_at', null)
+        .order('display_name', { ascending: true })
+      if (error) throw error
+      return (data ?? []) as OwnerListItem[]
+    }
+
+    if (avatarNames.length > 0) {
+      const { data, error } = await supabase
+        .from('wa_owners')
+        .select('id, display_name, avatar_url')
+        .in('display_name', avatarNames)
+        .is('deleted_at', null)
+        .order('display_name', { ascending: true })
+      if (error) throw error
+      return (data ?? []) as OwnerListItem[]
+    }
+  }
+
+  if (!email) return []
+  const normalizedEmail = email.toLowerCase()
   const { data: contacts, error: contactsError } = await supabase
     .from('wa_contacts')
     .select('owner_id')
@@ -407,6 +469,72 @@ export async function validateInvitationToken(token: string) {
       tavus_replica_id: null,
       system_prompt: null,
     },
+  }
+}
+
+export async function getOnboardingInvitation(inviteCode: string): Promise<InvitationRecord | null> {
+  const normalizedCode = inviteCode.trim()
+  if (!normalizedCode) return null
+
+  const { data, error } = await supabase
+    .from('wa_invitations')
+    .select('*')
+    .eq('invite_code', normalizedCode)
+    .maybeSingle()
+
+  if (error || !data) return null
+
+  const allowed = Array.isArray(data.allowed_avatars)
+    ? data.allowed_avatars.map((entry: unknown) => String(entry || '').trim()).filter(Boolean)
+    : []
+
+  return {
+    ...(data as Omit<InvitationRecord, 'allowed_avatars'>),
+    allowed_avatars: allowed,
+  } as InvitationRecord
+}
+
+export async function createOnboardingInvitation(payload: {
+  inviterId: string
+  inviteeName: string
+  inviteeEmail?: string | null
+  allowedAvatars: string[]
+  language?: string
+}) {
+  const response = await fetch('/api/create-invitation', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    throw new Error(data?.error || `create-invitation failed (${response.status})`)
+  }
+  return data as {
+    invitation: InvitationRecord
+    inviteUrl: string
+  }
+}
+
+export async function acceptOnboardingInvitation(payload: {
+  inviteCode: string
+  userId: string
+  userEmail?: string | null
+}) {
+  const response = await fetch('/api/accept-invitation', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    throw new Error(data?.error || `accept-invitation failed (${response.status})`)
+  }
+  return data as {
+    invitationId: string
+    inviteeName: string
+    language: string
+    allowedAvatars: string[]
   }
 }
 
@@ -958,6 +1086,8 @@ export async function sendMessage(
     audioLastError?: string | null
   }
 ) {
+  const timezone =
+    (typeof Intl !== 'undefined' && Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC'
   const response = await fetch('/api/send-message', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -975,6 +1105,7 @@ export async function sendMessage(
       audioStatus: extra?.audioStatus ?? null,
       audioRetryCount: extra?.audioRetryCount ?? null,
       audioLastError: extra?.audioLastError ?? null,
+      timezone,
     }),
   })
 
@@ -1042,16 +1173,22 @@ export async function requestOutboundCall(payload: {
   conversationId: string
   ownerId?: string | null
   contactId?: string | null
+  userId?: string | null
   contactEmail: string
   requestedByMessageId?: string | null
   triggerText: string
+  language?: string | null
   callerDisplayName?: string | null
   delayMinutes?: number
+  timezone?: string
 }) {
+  const timezone =
+    payload.timezone ||
+    ((typeof Intl !== 'undefined' && Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC')
   const response = await fetch('/api/outbound-call-request', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ ...payload, timezone }),
   })
   const data = await response.json().catch(() => ({}))
   if (!response.ok) {

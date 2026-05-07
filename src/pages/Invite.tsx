@@ -1,527 +1,206 @@
-import { useEffect, useState, type FormEvent } from 'react'
-import { useParams, Link, useNavigate } from 'react-router-dom'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { Link } from 'react-router-dom'
+import { useAuth } from '../contexts/AuthContext'
+import { createOnboardingInvitation, listAllOwners } from '../lib/api'
 import { supabase } from '../lib/supabase'
-import { getCanonicalAppUrl } from '../lib/canonicalOrigin'
-import {
-  createContactAndConversation,
-  createContactAndConversationsFromBundle,
-  validateInvitationToken,
-  validateBundleToken,
-} from '../lib/api'
 
-interface InviteData {
+type AvatarOption = {
   id: string
-  token: string
-  active: boolean
-  wa_owners: {
-    id: string
-    display_name: string
-    voice_id: string | null
-    tavus_replica_id: string | null
-    system_prompt?: string | null
-  }
-}
-
-interface BundleData {
-  bundle: { id: string; owner_ids: string[]; label: string | null }
-  owners: Array<{ id: string; display_name: string }>
-}
-
-/** Key used to persist pending invite data across the magic-link redirect. */
-const PENDING_KEY = 'wa_pending_invite'
-
-interface PendingInvite {
-  token: string
-  firstName: string
-  lastName: string
-  email: string
+  display_name: string
 }
 
 export default function Invite() {
-  const { token } = useParams<{ token: string }>()
-  const navigate = useNavigate()
+  const { user } = useAuth()
+  const [ownerId, setOwnerId] = useState<string | null>(null)
+  const [avatars, setAvatars] = useState<AvatarOption[]>([])
+  const [selectedAvatarIds, setSelectedAvatarIds] = useState<Set<string>>(new Set())
 
-  const [invite, setInvite] = useState<InviteData | null>(null)
-  const [bundleInvite, setBundleInvite] = useState<BundleData | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [finalising, setFinalising] = useState(false)
-  const [invalid, setInvalid] = useState(false)
+  const [inviteeName, setInviteeName] = useState('')
+  const [inviteeEmail, setInviteeEmail] = useState('')
+  const [language, setLanguage] = useState('en')
+
+  const [inviteUrl, setInviteUrl] = useState('')
+  const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Contact info
-  const [firstName, setFirstName] = useState('')
-  const [lastName, setLastName] = useState('')
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [confirmPassword, setConfirmPassword] = useState('')
-  const [resetSent, setResetSent] = useState(false)
-
-  const [authMode, setAuthMode] = useState<'password' | 'magic-link'>('password')
-  const [emailSent, setEmailSent] = useState(false)
-  const [submitting, setSubmitting] = useState(false)
-  const [welcomeData, setWelcomeData] = useState<{ ownerName: string; chatId: string } | null>(null)
-
-  // --- validate token (try bundle first, then single) ---
   useEffect(() => {
-    if (!token) {
-      setInvalid(true)
-      setLoading(false)
-      return
-    }
+    if (!user?.id) return
+
     void (async () => {
-      const bundleResult = await validateBundleToken(token)
-      if (bundleResult && bundleResult.owners.length > 0) {
-        setBundleInvite(bundleResult)
-        setLoading(false)
-        return
+      const [{ data: owner }, owners] = await Promise.all([
+        supabase
+          .from('wa_owners')
+          .select('id')
+          .eq('user_id', user.id)
+          .is('deleted_at', null)
+          .maybeSingle(),
+        listAllOwners(),
+      ])
+
+      setOwnerId(String(owner?.id || '').trim() || null)
+      const options = (owners ?? [])
+        .map((row: any) => ({
+          id: String(row.id || '').trim(),
+          display_name: String(row.display_name || '').trim(),
+        }))
+        .filter((row: AvatarOption) => row.id && row.display_name)
+      setAvatars(options)
+      if (options.length > 0) {
+        setSelectedAvatarIds(new Set([options[0].id]))
       }
-      const singleResult = await validateInvitationToken(token)
-      if (!singleResult) {
-        setInvalid(true)
-      } else {
-        setInvite(singleResult as InviteData)
-      }
-      setLoading(false)
     })()
-  }, [token])
+  }, [user?.id])
 
-  // --- If user already logged in: auto-finalise the invite immediately ---
-  useEffect(() => {
-    if (!invite && !bundleInvite) return
-    if (finalising) return
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session?.user?.email) return
-      const pending = localStorage.getItem(PENDING_KEY)
-      if (pending) return // Let the normal pending flow handle it
+  const selectedAvatarNames = useMemo(
+    () => avatars.filter((avatar) => selectedAvatarIds.has(avatar.id)).map((avatar) => avatar.display_name),
+    [avatars, selectedAvatarIds],
+  )
 
-      // User is already logged in — auto-finalise with their session data
-      const meta = session.user.user_metadata
-      const autoFirst = String(meta?.first_name || '').trim()
-      const autoLast = String(meta?.last_name || '').trim()
-      const autoEmail = session.user.email
-
-      if (autoFirst && autoLast && autoEmail) {
-        // All data available — finalise immediately
-        setFinalising(true)
-        void finalisePendingInvite({
-          token: token!,
-          firstName: autoFirst,
-          lastName: autoLast,
-          email: autoEmail,
-        })
+  function toggleAvatar(avatarId: string) {
+    setSelectedAvatarIds((current) => {
+      const next = new Set(current)
+      if (next.has(avatarId)) {
+        next.delete(avatarId)
       } else {
-        // Pre-fill what we have, let them complete the form
-        if (autoEmail) setEmail(autoEmail)
-        if (autoFirst) setFirstName(autoFirst)
-        if (autoLast) setLastName(autoLast)
+        next.add(avatarId)
       }
+      return next
     })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [invite, bundleInvite])
+  }
 
-  // --- complete the invite ---
-  async function finalisePendingInvite(pending: PendingInvite) {
-    console.log('[Invite] finalising invite for', pending.email)
-    setFinalising(true)
-
-    // Try bundle first
-    const bundleResult = await validateBundleToken(pending.token)
-    if (bundleResult && bundleResult.owners.length > 0) {
-      try {
-        const result = await createContactAndConversationsFromBundle({
-          bundleId: bundleResult.bundle.id,
-          ownerIds: bundleResult.bundle.owner_ids,
-          firstName: pending.firstName,
-          lastName: pending.lastName,
-          email: pending.email,
-        })
-        localStorage.removeItem(PENDING_KEY)
-        const ownerNames = bundleResult.owners.map((o) => o.display_name).join(', ')
-        const firstChatId = result.conversations[0]?.id || ''
-        setWelcomeData({ ownerName: ownerNames, chatId: firstChatId })
-        return
-      } catch (err) {
-        console.error('[Invite] bundle createContacts error:', err)
-        localStorage.removeItem(PENDING_KEY)
-        setError(err instanceof Error ? err.message : 'Unable to start conversations.')
-        setFinalising(false)
-        return
-      }
-    }
-
-    // Fallback to single invite
-    const inviteData = await validateInvitationToken(pending.token)
-    if (!inviteData) {
-      localStorage.removeItem(PENDING_KEY)
-      setError('This invitation link is no longer active.')
-      setFinalising(false)
+  async function onSubmit(event: FormEvent) {
+    event.preventDefault()
+    if (!ownerId) {
+      setError('Owner profile not found. Please complete your owner setup first.')
       return
     }
+    if (!inviteeName.trim() || selectedAvatarNames.length === 0) {
+      setError('Invitee name and at least one avatar are required.')
+      return
+    }
+
+    setCreating(true)
+    setError(null)
+    setInviteUrl('')
 
     try {
-      const ownerInfo = (inviteData as InviteData).wa_owners
-      const { conversation } = await createContactAndConversation({
-        ownerId: ownerInfo.id,
-        invitationId: (inviteData as InviteData).id,
-        firstName: pending.firstName,
-        lastName: pending.lastName,
-        email: pending.email,
+      const payload = await createOnboardingInvitation({
+        inviterId: ownerId,
+        inviteeName: inviteeName.trim(),
+        inviteeEmail: inviteeEmail.trim() || null,
+        allowedAvatars: selectedAvatarNames,
+        language,
       })
-      localStorage.removeItem(PENDING_KEY)
-      setWelcomeData({
-        ownerName: ownerInfo.display_name,
-        chatId: conversation.id,
-      })
-    } catch (err) {
-      console.error('[Invite] createContactAndConversation error:', err)
-      localStorage.removeItem(PENDING_KEY)
-      setError(err instanceof Error ? err.message : 'Unable to start the conversation.')
-      setFinalising(false)
-    }
-  }
-
-  // Handle magic-link return or password-based sign-in completion
-  useEffect(() => {
-    let cancelled = false
-
-    function readPending(): PendingInvite | null {
-      const raw = localStorage.getItem(PENDING_KEY)
-      if (!raw) return null
-      const pending: PendingInvite = JSON.parse(raw)
-      if (pending.token !== token) return null
-      return pending
-    }
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event) => {
-        if (cancelled) return
-        if (event !== 'SIGNED_IN') return
-        const pending = readPending()
-        if (!pending) return
-        await finalisePendingInvite(pending)
-      },
-    )
-
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (cancelled) return
-      if (!session) return
-      const pending = readPending()
-      if (!pending) return
-      console.log('[Invite] session already active on mount, finalising…')
-      finalisePendingInvite(pending)
-    })
-
-    return () => {
-      cancelled = true
-      subscription.unsubscribe()
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, navigate])
-
-  // --- auto-navigate after welcome screen ---
-  useEffect(() => {
-    if (!welcomeData) return
-    const dest = welcomeData.chatId ? `/chat/${welcomeData.chatId}` : '/avatars'
-    const timer = window.setTimeout(() => {
-      navigate(dest, { replace: true })
-    }, 2000)
-    return () => window.clearTimeout(timer)
-  }, [welcomeData, navigate])
-
-  // --- register with password (primary) ---
-  async function handlePasswordSignup(event: FormEvent) {
-    event.preventDefault()
-    if (!firstName.trim() || !lastName.trim() || !email.trim() || !password.trim()) {
-      setError('Please fill in all fields.')
-      return
-    }
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters.')
-      return
-    }
-    if (!/[a-z]/.test(password) || !/[A-Z]/.test(password) || !/[0-9]/.test(password)) {
-      setError('Password must contain at least one lowercase letter, one uppercase letter, and one digit.')
-      return
-    }
-    if (password !== confirmPassword) {
-      setError('Passwords do not match.')
-      return
-    }
-    setError(null)
-    setSubmitting(true)
-
-    // Persist form data so we can pick it up after email confirmation redirect
-    const pending: PendingInvite = {
-      token: token!,
-      firstName: firstName.trim(),
-      lastName: lastName.trim(),
-      email: email.trim(),
-    }
-    localStorage.setItem(PENDING_KEY, JSON.stringify(pending))
-
-    // Try signUp first (new user)
-    const { error: signUpError } = await supabase.auth.signUp({
-      email: email.trim(),
-      password: password.trim(),
-      options: {
-        emailRedirectTo: getCanonicalAppUrl(`/auth/callback?next=${encodeURIComponent(`/invite/${token}`)}`),
-        data: {
-          first_name: firstName.trim(),
-          last_name: lastName.trim(),
-          full_name: `${firstName.trim()} ${lastName.trim()}`,
-        },
-      },
-    })
-
-    if (signUpError) {
-      // If user already exists, try signIn
-      if (signUpError.message.includes('already registered') || signUpError.message.includes('already been registered')) {
-        const { error: signInError } = await supabase.auth.signInWithPassword({
-          email: email.trim(),
-          password: password.trim(),
-        })
-        if (signInError) {
-          setError(signInError.message)
-          localStorage.removeItem(PENDING_KEY)
-          setSubmitting(false)
-          return
-        }
-        // signIn succeeded — onAuthStateChange will fire and finalise
-        return
+      setInviteUrl(payload.inviteUrl)
+      try {
+        await navigator.clipboard.writeText(payload.inviteUrl)
+      } catch {
+        // Clipboard not available in all browser contexts.
       }
-      setError(signUpError.message)
-      localStorage.removeItem(PENDING_KEY)
-      setSubmitting(false)
-      return
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : 'Could not create invitation.')
+    } finally {
+      setCreating(false)
     }
-
-    // signUp succeeded — show email confirmation message
-    setEmailSent(true)
-    setSubmitting(false)
   }
-
-  // --- send magic link (alternative) ---
-  async function handleSendLink(event: FormEvent) {
-    event.preventDefault()
-    if (!firstName.trim() || !lastName.trim() || !email.trim()) {
-      setError('Enter your first name, last name, and email.')
-      return
-    }
-    setError(null)
-    setSubmitting(true)
-
-    const redirectTo = getCanonicalAppUrl(`/auth/callback?next=${encodeURIComponent(`/invite/${token}`)}`)
-
-    const pending: PendingInvite = {
-      token: token!,
-      firstName: firstName.trim(),
-      lastName: lastName.trim(),
-      email: email.trim(),
-    }
-    localStorage.setItem(PENDING_KEY, JSON.stringify(pending))
-
-    const { error: otpError } = await supabase.auth.signInWithOtp({
-      email: email.trim(),
-      options: {
-        shouldCreateUser: true,
-        emailRedirectTo: redirectTo,
-        data: {
-          first_name: firstName.trim(),
-          last_name: lastName.trim(),
-          full_name: `${firstName.trim()} ${lastName.trim()}`,
-        },
-      },
-    })
-
-    if (otpError) {
-      setError(otpError.message)
-      localStorage.removeItem(PENDING_KEY)
-      setSubmitting(false)
-      return
-    }
-
-    setEmailSent(true)
-    setSubmitting(false)
-  }
-
-  // ---------- render ----------
-
-  if (loading || finalising) {
-    return (
-      <div className="brand-scene flex min-h-screen items-center justify-center">
-        <div className="text-center">
-          <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-[#1f2c34] border-t-[#00a884]" />
-          {finalising && <p className="mt-4 text-sm text-white/60">Setting up your conversations...</p>}
-        </div>
-      </div>
-    )
-  }
-
-  if (welcomeData) {
-    const initials = welcomeData.ownerName
-      .split(/\s+/)
-      .map((w) => w.charAt(0).toUpperCase())
-      .join('')
-      .slice(0, 2)
-
-    return (
-      <div className="brand-scene flex min-h-screen flex-col items-center justify-center px-4 text-center">
-        <div className="brand-panel relative z-10 w-full max-w-md rounded-[30px] p-8">
-          <div className="mx-auto mb-4 flex h-24 w-24 items-center justify-center rounded-full bg-[linear-gradient(135deg,#0e8f74,#153f43)] text-2xl font-bold text-white ring-4 ring-[#00a884]/30 shadow-[0_0_40px_rgba(0,168,132,0.3)]">
-            {initials}
-          </div>
-          <h1 className="text-2xl font-bold text-white">You're now connected with</h1>
-          <p className="mt-2 text-xl font-semibold text-[#00a884]">{welcomeData.ownerName}</p>
-          <p className="mt-4 text-sm text-white/60">Opening your conversation...</p>
-          <div className="mx-auto mt-6 h-8 w-8 animate-spin rounded-full border-4 border-[#1f2c34] border-t-[#00a884]" />
-        </div>
-      </div>
-    )
-  }
-
-  if (invalid || (!invite && !bundleInvite)) {
-    return (
-      <div className="brand-scene flex min-h-screen flex-col items-center justify-center px-4 text-center">
-        <div className="brand-panel relative z-10 rounded-[30px] p-8">
-          <h1 className="text-2xl font-bold text-white">Invalid Link</h1>
-          <p className="mt-3 text-white/60">
-            This invitation link is invalid or no longer active.
-          </p>
-          <Link
-            to="/"
-            className="brand-inset mt-6 inline-block rounded-2xl px-6 py-3 text-sm text-white transition hover:border-[#00a884]/60 hover:text-[#00a884]"
-          >
-            Go to Home
-          </Link>
-        </div>
-      </div>
-    )
-  }
-
-  const isBundleFlow = Boolean(bundleInvite)
-  const bundleLabel = isBundleFlow ? bundleInvite!.bundle.label : null
-  const displayTitle = isBundleFlow
-    ? (bundleLabel || bundleInvite!.owners.map((o) => o.display_name).join(' & '))
-    : invite!.wa_owners.display_name
-  const displaySubtitle = isBundleFlow
-    ? (bundleLabel
-      ? `${bundleInvite!.owners.map((o) => o.display_name).join(', ')} — ${bundleInvite!.owners.length} avatars`
-      : `have invited you to start ${bundleInvite!.owners.length} conversations`)
-    : 'has invited you to start a conversation'
 
   return (
-    <div className="brand-scene flex min-h-screen flex-col items-center justify-center px-4 text-center">
-      <div className="brand-panel relative z-10 w-full max-w-md rounded-[30px] p-8">
-        <h1 className="text-2xl font-bold text-white">{displayTitle}</h1>
-        <p className="mt-2 text-white/60">{displaySubtitle}</p>
-
-        {emailSent ? (
-          <div className="mt-8 space-y-4">
-            <div className="rounded-2xl border border-[#00a884]/20 bg-[#00a884]/10 px-5 py-4 text-sm leading-relaxed text-[#00a884]">
-              {authMode === 'password'
-                ? <>We've sent a confirmation email to <strong>{email}</strong>. Please check your inbox and click the link to activate your account. After confirming, you can log in with your password.</>
-                : <>We sent a verification link to <strong>{email}</strong>. Open your email and click the link to continue.</>}
-            </div>
-            <button
-              type="button"
-              onClick={() => { setEmailSent(false); setSubmitting(false) }}
-              className="text-sm text-white/50 underline transition hover:text-white/80"
-            >
-              Try again
-            </button>
+    <div className="brand-scene min-h-screen text-white">
+      <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-3xl items-center justify-center px-6 py-10">
+        <div className="brand-panel w-full rounded-[30px] p-8 sm:p-10">
+          <div className="flex items-center justify-between gap-3">
+            <h1 className="text-3xl font-bold tracking-tight">Create Invitation</h1>
+            <Link to="/dashboard" className="text-sm text-[#58e3c7] hover:text-[#00a884]">
+              Back to dashboard
+            </Link>
           </div>
-        ) : authMode === 'password' ? (
-          <form onSubmit={handlePasswordSignup} className="mt-6 space-y-4 text-left">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label htmlFor="invite-first" className="mb-2 block text-sm font-medium text-white/80">First Name</label>
-                <input id="invite-first" type="text" required value={firstName} onChange={(e) => setFirstName(e.target.value)}
-                  className="brand-inset w-full rounded-2xl px-4 py-3 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20" placeholder="Juan" />
-              </div>
-              <div>
-                <label htmlFor="invite-last" className="mb-2 block text-sm font-medium text-white/80">Last Name</label>
-                <input id="invite-last" type="text" required value={lastName} onChange={(e) => setLastName(e.target.value)}
-                  className="brand-inset w-full rounded-2xl px-4 py-3 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20" placeholder="Schubert" />
-              </div>
-            </div>
+          <p className="mt-2 text-sm text-white/65">
+            Invite a user and choose exactly which avatars they can access.
+          </p>
+
+          <form onSubmit={onSubmit} className="mt-8 space-y-6">
             <div>
-              <label htmlFor="invite-email" className="mb-2 block text-sm font-medium text-white/80">Email</label>
-              <input id="invite-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
-                className="brand-inset w-full rounded-2xl px-4 py-3 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20" placeholder="you@example.com" />
-            </div>
-            <div>
-              <label htmlFor="invite-password" className="mb-2 block text-sm font-medium text-white/80">Password</label>
-              <input id="invite-password" type="password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)}
-                className="brand-inset w-full rounded-2xl px-4 py-3 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20" placeholder="Min. 8 chars, upper + lower + digit" />
-            </div>
-            <div>
-              <label htmlFor="invite-confirm-password" className="mb-2 block text-sm font-medium text-white/80">Confirm Password</label>
-              <input id="invite-confirm-password" type="password" required minLength={8} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)}
-                className="brand-inset w-full rounded-2xl px-4 py-3 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20" placeholder="Repeat password" />
+              <label className="mb-2 block text-sm font-medium text-white/80">Invitee name</label>
+              <input
+                value={inviteeName}
+                onChange={(event) => setInviteeName(event.target.value)}
+                required
+                className="brand-inset w-full rounded-2xl px-4 py-3 text-white outline-none focus:border-[#00a884]"
+                placeholder="Geordi"
+              />
             </div>
 
-            {error && (
-              <p className="rounded-2xl border border-red-400/15 bg-red-500/15 px-4 py-3 text-sm text-red-200">{error}</p>
-            )}
+            <div>
+              <label className="mb-2 block text-sm font-medium text-white/80">Invitee email (optional)</label>
+              <input
+                value={inviteeEmail}
+                onChange={(event) => setInviteeEmail(event.target.value)}
+                type="email"
+                className="brand-inset w-full rounded-2xl px-4 py-3 text-white outline-none focus:border-[#00a884]"
+                placeholder="geordi@example.com"
+              />
+            </div>
 
-            {resetSent ? (
-              <p className="rounded-2xl border border-[#00a884]/20 bg-[#00a884]/10 px-4 py-3 text-sm text-[#00a884]">Password reset email sent. Check your inbox.</p>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-white/80">Language</label>
+              <select
+                value={language}
+                onChange={(event) => setLanguage(event.target.value)}
+                className="brand-inset w-full rounded-2xl px-4 py-3 text-white outline-none focus:border-[#00a884]"
+              >
+                <option value="en">English</option>
+                <option value="de">Deutsch</option>
+                <option value="es">Español</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium text-white/80">Allowed avatars</label>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {avatars.map((avatar) => {
+                  const checked = selectedAvatarIds.has(avatar.id)
+                  return (
+                    <label
+                      key={avatar.id}
+                      className={`cursor-pointer rounded-2xl border px-4 py-3 text-sm transition ${
+                        checked
+                          ? 'border-[#00a884]/70 bg-[#00a884]/15 text-white'
+                          : 'border-white/10 bg-[#102029]/70 text-white/80 hover:border-[#00a884]/35'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleAvatar(avatar.id)}
+                        className="mr-3"
+                      />
+                      {avatar.display_name}
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+
+            {error ? (
+              <p className="rounded-2xl border border-red-400/20 bg-red-500/15 px-4 py-3 text-sm text-red-200">{error}</p>
             ) : null}
 
-            <button type="submit" disabled={submitting}
-              className="w-full rounded-2xl bg-[#00a884] py-3 font-semibold text-[#0b141a] transition hover:brightness-110 disabled:opacity-50">
-              {submitting ? 'Creating account...' : 'Create Account & Start'}
-            </button>
+            {inviteUrl ? (
+              <div className="rounded-2xl border border-[#00a884]/35 bg-[#00a884]/10 px-4 py-4">
+                <p className="text-sm font-medium text-[#7af4dd]">Invitation created</p>
+                <p className="mt-2 break-all font-mono text-xs text-white/85">{inviteUrl}</p>
+              </div>
+            ) : null}
 
-            <button type="button" onClick={async () => {
-              if (!email.trim()) { setError('Enter your email to reset password.'); return }
-              setError(null)
-              await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: getCanonicalAppUrl(`/auth/callback?next=${encodeURIComponent(`/invite/${token}`)}`) })
-              setResetSent(true)
-            }} className="w-full text-center text-sm text-white/50 transition hover:text-white/80">
-              Forgot password?
-            </button>
-
-            <button type="button" onClick={() => { setAuthMode('magic-link'); setError(null) }}
-              className="w-full text-center text-sm text-white/50 transition hover:text-white/80">
-              Or sign in with magic link instead
+            <button
+              type="submit"
+              disabled={creating}
+              className="w-full rounded-2xl bg-[#00a884] px-4 py-3 font-semibold text-[#08111a] transition hover:brightness-110 disabled:opacity-60"
+            >
+              {creating ? 'Creating…' : 'Create Invitation'}
             </button>
           </form>
-        ) : (
-          <form onSubmit={handleSendLink} className="mt-6 space-y-4 text-left">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label htmlFor="invite-first-ml" className="mb-2 block text-sm font-medium text-white/80">First Name</label>
-                <input id="invite-first-ml" type="text" required value={firstName} onChange={(e) => setFirstName(e.target.value)}
-                  className="brand-inset w-full rounded-2xl px-4 py-3 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20" placeholder="Juan" />
-              </div>
-              <div>
-                <label htmlFor="invite-last-ml" className="mb-2 block text-sm font-medium text-white/80">Last Name</label>
-                <input id="invite-last-ml" type="text" required value={lastName} onChange={(e) => setLastName(e.target.value)}
-                  className="brand-inset w-full rounded-2xl px-4 py-3 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20" placeholder="Schubert" />
-              </div>
-            </div>
-            <div>
-              <label htmlFor="invite-email-ml" className="mb-2 block text-sm font-medium text-white/80">Email</label>
-              <input id="invite-email-ml" type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
-                className="brand-inset w-full rounded-2xl px-4 py-3 text-white placeholder-white/35 outline-none focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20" placeholder="you@example.com" />
-            </div>
-
-            {error && (
-              <p className="rounded-2xl border border-red-400/15 bg-red-500/15 px-4 py-3 text-sm text-red-200">{error}</p>
-            )}
-
-            <button type="submit" disabled={submitting}
-              className="w-full rounded-2xl bg-[#00a884] py-3 font-semibold text-[#0b141a] transition hover:brightness-110 disabled:opacity-50">
-              {submitting ? 'Sending...' : 'Send Verification Email'}
-            </button>
-
-            <button type="button" onClick={() => { setAuthMode('password'); setError(null) }}
-              className="w-full text-center text-sm text-white/50 transition hover:text-white/80">
-              Or create account with password instead
-            </button>
-          </form>
-        )}
+        </div>
       </div>
     </div>
   )
