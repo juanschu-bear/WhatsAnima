@@ -2,6 +2,7 @@ import { getSupabaseAdmin, logLiveSessionEvent, normalizeBody } from './_lib/liv
 import { syncChannelState } from './_lib/channelConsistency.js'
 import { buildCurrentTimeContext, normalizeTimezone as normalizeTemporalTimezone } from './_lib/temporalCore.js'
 import { normalizeCallSummaryText } from './_lib/callSummary.js'
+import { getKnowledgeBaseContent } from './_lib/knowledgeBase.js'
 
 const LIVE_CALL_API_BASE =
   process.env.LIVE_CALL_API_BASE ||
@@ -371,6 +372,51 @@ export default async function handler(req: any, res: any) {
         if (onboardingUserId) {
           requestBody.onboarding_user_id = onboardingUserId
         }
+
+        const outboundDocumentIds = Array.isArray(metadata.document_ids)
+          ? metadata.document_ids.map((value) => String(value || '').trim()).filter(Boolean).slice(0, 8)
+          : []
+        if (outboundDocumentIds.length > 0) {
+          const { data: documentRows } = await supabase
+            .from('wa_documents')
+            .select('id, file_name')
+            .in('id', outboundDocumentIds)
+            .limit(5)
+          const { data: chunkRows } = await supabase
+            .from('wa_document_chunks')
+            .select('document_id, chunk_index, content')
+            .in('document_id', outboundDocumentIds)
+            .order('chunk_index', { ascending: true })
+            .limit(12)
+
+          const chunksByDoc = new Map<string, string[]>()
+          for (const row of chunkRows || []) {
+            const documentId = String(row.document_id || '').trim()
+            if (!documentId) continue
+            const content = String(row.content || '').trim()
+            if (!content) continue
+            const current = chunksByDoc.get(documentId) || []
+            if (current.length < 2) {
+              current.push(content.slice(0, 550))
+              chunksByDoc.set(documentId, current)
+            }
+          }
+
+          const documentLines: string[] = []
+          for (const row of documentRows || []) {
+            const documentId = String(row.id || '').trim()
+            const title = String(row.file_name || 'Shared document').trim()
+            const excerpts = chunksByDoc.get(documentId) || []
+            for (const excerpt of excerpts) {
+              documentLines.push(`[${title}] ${excerpt}`)
+            }
+          }
+          if (documentLines.length > 0) {
+            memoryLines.push('[SHARED DOCUMENT CONTEXT]')
+            memoryLines.push(...documentLines)
+            memoryLines.push('Refer to this document content naturally during the call when relevant.')
+          }
+        }
       }
       if (Array.isArray(temporalEvents) && temporalEvents.length > 0) {
         const upcoming = temporalEvents
@@ -545,6 +591,17 @@ export default async function handler(req: any, res: any) {
         status: 'ready',
         meeting_shared_room: true,
       })
+    }
+
+    if (isKeyframeRequest) {
+      const knowledgeBase = getKnowledgeBaseContent()
+      if (knowledgeBase) {
+        const knowledgePrefix = `[EXTENDED HUMAN KNOWLEDGE BASE]\n${knowledgeBase}\n\n`
+        requestBody.system_prompt_append = `${knowledgePrefix}${String(requestBody.system_prompt_append || '').trim()}`.trim()
+        requestBody.memory_context = `${knowledgePrefix}${String(requestBody.memory_context || '').trim()}`.trim()
+        requestBody.knowledge_base = knowledgeBase
+        requestBody.knowledge_base_loaded = true
+      }
     }
 
     if (meetingSessionIdToPersist) {
