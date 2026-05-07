@@ -8,6 +8,17 @@ const LAST_CONTACT_EMAIL_KEY = 'wa_last_contact_email'
 const INCOMING_CALL_CONTEXT_PREFIX = 'wa_incoming_call_context:'
 const INCOMING_CALL_PREWARM_PREFIX = 'wa_incoming_call_prewarm:'
 
+function normalizeOutboundLanguage(value: unknown): 'en' | 'de' | 'es' {
+  const v = String(value || '').trim().toLowerCase()
+  if (v === 'de' || v === 'deu' || v === 'german') return 'de'
+  if (v === 'es' || v === 'spa' || v === 'spanish') return 'es'
+  return 'en'
+}
+
+function resolveUserTimezone(): string {
+  return (typeof Intl !== 'undefined' && Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC'
+}
+
 export default function IncomingCallOverlay() {
   const { user, loading } = useAuth()
   const navigate = useNavigate()
@@ -60,7 +71,12 @@ export default function IncomingCallOverlay() {
         body: JSON.stringify({
           persona_name: call.caller_display_name || 'Avatar',
           persona: call.caller_display_name || 'Avatar',
-          language: 'en',
+          language: normalizeOutboundLanguage(
+            (call.metadata as Record<string, unknown> | null | undefined)?.language,
+          ),
+          timezone: String(
+            (call.metadata as Record<string, unknown> | null | undefined)?.timezone || resolveUserTimezone(),
+          ),
           conversation_id: call.conversation_id,
           owner_id: call.owner_id || null,
           contact_id: call.contact_id || null,
@@ -165,6 +181,9 @@ export default function IncomingCallOverlay() {
         try {
           const context = {
             trigger_text: call.trigger_text || '',
+            language: normalizeOutboundLanguage(
+              (call.metadata as Record<string, unknown> | null | undefined)?.language,
+            ),
             requested_at: call.requested_at || '',
             conversation_id: call.conversation_id || '',
             caller_display_name: call.caller_display_name || '',

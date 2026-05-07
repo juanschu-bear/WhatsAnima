@@ -1,5 +1,7 @@
 import crypto from 'node:crypto'
 import { createClient } from '@supabase/supabase-js'
+import { syncChannelState } from './_lib/channelConsistency.js'
+import { normalizeCallSummaryText } from './_lib/callSummary.js'
 
 type ChatHistoryMessage = {
   role: 'user' | 'assistant'
@@ -40,6 +42,23 @@ function sanitizeContent(raw: unknown): string {
   const text = typeof raw === 'string' ? raw.trim() : ''
   if (!text) return ''
   return text.replace(/```generate_image\s*\n?[\s\S]*?\n?```/g, '').trim()
+}
+
+export function mapHistoryRowsToChatHistory(rows: any[], userMessageId?: string | null): ChatHistoryMessage[] {
+  return (rows || [])
+    .filter((message: any) => !userMessageId || String(message.id) !== String(userMessageId))
+    .slice()
+    .reverse()
+    .map((message: any): ChatHistoryMessage => ({
+      role: (message.sender === 'contact' ? 'user' : 'assistant') as 'user' | 'assistant',
+      content:
+        String(message.type || '') === 'call_summary'
+          ? `Call summary: ${normalizeCallSummaryText(message.content)}`
+          : String(message.content || '').trim(),
+      msgType: String(message.type || 'text'),
+    }))
+    .filter((message: ChatHistoryMessage) => message.content.length > 0)
+    .slice(-10)
 }
 
 function getAllowedCfoOwnerIds(): Set<string> {
@@ -172,11 +191,13 @@ export default async function handler(req: any, res: any) {
     conversationId,
     userMessage,
     userMessageId,
+    timezone,
     options,
   }: {
     conversationId?: string
     userMessage?: string
     userMessageId?: string
+    timezone?: string
     options?: {
       useVoice?: boolean
       imageUrl?: string
@@ -244,26 +265,23 @@ export default async function handler(req: any, res: any) {
       .from('wa_messages')
       .select('id, sender, type, content, created_at')
       .eq('conversation_id', conversationId)
-      .neq('type', 'call_summary')
       .order('created_at', { ascending: false })
-      .limit(12)
+      .limit(24)
 
-    const history: ChatHistoryMessage[] = (historyRows || [])
-      .filter((message: any) => !userMessageId || String(message.id) !== String(userMessageId))
-      .slice()
-      .reverse()
-      .map((message: any) => ({
-        role: message.sender === 'contact' ? 'user' : 'assistant',
-        content: String(message.content || '').trim(),
-        msgType: String(message.type || 'text'),
-      }))
-      .filter((message) => message.content.length > 0)
-      .slice(-10)
+    const history: ChatHistoryMessage[] = mapHistoryRowsToChatHistory(historyRows || [], userMessageId || null)
 
     const origin = getOrigin(req)
     if (!origin) {
       return res.status(500).json({ error: 'Unable to resolve API origin' })
     }
+
+    await syncChannelState({
+      supabase,
+      conversationId,
+      channel: options?.isVoice ? 'voice' : options?.isVideo ? 'video' : 'chat',
+      timezone: String(timezone || 'UTC'),
+      messageText: userMessage,
+    })
 
     const chatResponse = await fetch(`${origin}/api/chat`, {
       method: 'POST',
@@ -273,6 +291,8 @@ export default async function handler(req: any, res: any) {
         conversationId,
         ownerId,
         ownerName: ownerRow?.display_name || null,
+        metadata: { timezone: String(timezone || 'UTC') },
+        timezone: String(timezone || 'UTC'),
         history,
         image_url: options?.imageUrl,
         isImage: Boolean(options?.isImage),

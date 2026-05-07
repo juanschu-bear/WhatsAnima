@@ -372,7 +372,6 @@ export default async function handler(req: any, res: any) {
 
       providerPayload = await callLivekitEgress(credentials, 'StopEgress', {
         egressId: stopEgressId,
-        egress_id: stopEgressId,
       })
       recordingId = stopEgressId
       recordingUrl = deriveRecordingUrl(providerPayload, coerceString(existing?.recording_url))

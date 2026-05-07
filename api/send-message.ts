@@ -1,4 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
+import { syncChannelState } from './_lib/channelConsistency.js'
+import { extractTemporalFacts, ingestTemporalMemories, upsertTemporalEvents } from './_lib/temporalMemory.js'
 
 function getSupabaseAdmin() {
   const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
@@ -93,6 +95,54 @@ export default async function handler(req: any, res: any) {
 
     if (updateError) {
       console.error('[send-message] Conversation update error:', updateError.message)
+    }
+
+    await syncChannelState({
+      supabase,
+      conversationId: String(conversationId),
+      channel: type === 'voice' ? 'voice' : type === 'video' ? 'video' : 'chat',
+      timezone: String((req.body?.metadata?.timezone || req.body?.timezone || 'UTC')),
+      messageText: sender === 'contact' ? String(content || '') : '',
+    })
+
+    if (sender === 'contact' && typeof content === 'string' && content.trim().length > 0) {
+      const timezone = String((req.body?.metadata?.timezone || req.body?.timezone || 'UTC'))
+      const { data: conv } = await supabase
+        .from('wa_conversations')
+        .select('owner_id, contact_id')
+        .eq('id', conversationId)
+        .maybeSingle()
+      const ownerId = conv?.owner_id ? String(conv.owner_id) : null
+      const contactId = conv?.contact_id ? String(conv.contact_id) : null
+      let avatarName = 'Avatar'
+      if (ownerId) {
+        const { data: owner } = await supabase
+          .from('wa_owners')
+          .select('display_name')
+          .eq('id', ownerId)
+          .maybeSingle()
+        if (owner?.display_name) avatarName = String(owner.display_name)
+      }
+
+      await ingestTemporalMemories({
+        text: content,
+        conversationId: String(conversationId),
+        ownerId,
+        avatarName,
+        channel: type === 'voice' ? 'voice_message' : type === 'video' ? 'video_call' : 'chat',
+        timezone,
+      })
+
+      const temporalItems = extractTemporalFacts({ text: content, timezone })
+      if (contactId && temporalItems.length > 0) {
+        await upsertTemporalEvents({
+          supabase,
+          userId: contactId,
+          avatarName,
+          temporalItems,
+          preferredChannel: 'chat',
+        })
+      }
     }
 
     return res.status(200).json(data)

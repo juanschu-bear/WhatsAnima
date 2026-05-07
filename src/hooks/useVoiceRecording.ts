@@ -214,10 +214,12 @@ export function useVoiceRecording({
         }).catch((logErr) => console.warn('[perception-log]', logErr.message))
         onTranscript(message.id, finalTranscript)
 
-        const outboundCallIntent = parseOutboundCallIntent(finalTranscript)
+        const outboundCallIntent = parseOutboundCallIntent(finalTranscript, {
+          timezone: (typeof Intl !== 'undefined' && Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC',
+        })
         if (outboundCallIntent && conversation?.wa_contacts?.email) {
           try {
-            await requestOutboundCall({
+            const outboundCallPromise = requestOutboundCall({
               conversationId,
               ownerId: conversation?.owner_id ?? null,
               contactId: conversation?.contact_id ?? null,
@@ -227,12 +229,13 @@ export function useVoiceRecording({
               callerDisplayName: conversation?.wa_owners?.display_name ?? 'Avatar',
               delayMinutes: outboundCallIntent.delayMinutes,
             })
-            const ack = await sendMessage(
+            const ackPromise = sendMessage(
               conversationId,
               'avatar',
-              'system',
+              'text',
               buildOutboundCallAck(finalTranscript, outboundCallIntent.delayMinutes),
             )
+            const [ack] = await Promise.all([ackPromise, outboundCallPromise])
             onMessageSent(ack as Message)
             maybeAvatarReact(message.id)
             return

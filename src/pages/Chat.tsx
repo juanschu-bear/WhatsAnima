@@ -2273,6 +2273,7 @@ export default function Chat() {
     }
   ): Promise<{ content: string; mediaUrl: string | null; isGeneratedImage?: boolean; videoTopics?: string[]; videoSuggestions?: VideoSuggestion[] }> {
     try {
+      const timezone = (typeof Intl !== 'undefined' && Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC'
       const {
         useVoice = true,
         imageUrl,
@@ -2304,6 +2305,8 @@ export default function Chat() {
           conversationId,
           ownerId: conversation?.owner_id || conversation?.wa_owners?.id || null,
           ownerName: conversation?.wa_owners?.display_name || null,
+          metadata: { timezone },
+          timezone,
           history,
           image_url: imageUrl,
           isImage,
@@ -2445,6 +2448,7 @@ export default function Chat() {
           conversationId,
           userMessage: seedText,
           userMessageId: options?.userMessageId,
+          timezone: (typeof Intl !== 'undefined' && Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC',
           options: {
             useVoice,
             imageUrl: options?.imageUrl,
@@ -2531,7 +2535,7 @@ export default function Chat() {
       const avatarCallIntent = parseAvatarOutboundCallIntent(replyPayload.content)
       if (avatarCallIntent && conversation?.wa_contacts?.email) {
         try {
-          await requestOutboundCall({
+          const outboundCallPromise = requestOutboundCall({
             conversationId,
             ownerId: conversation?.owner_id ?? null,
             contactId: conversation?.contact_id ?? null,
@@ -2541,6 +2545,8 @@ export default function Chat() {
             callerDisplayName: conversation?.wa_owners?.display_name ?? 'Avatar',
             delayMinutes: avatarCallIntent.delayMinutes,
           })
+          replyPayload.content = buildOutboundCallAck(replyPayload.content, avatarCallIntent.delayMinutes)
+          await outboundCallPromise
         } catch (callRequestError) {
           console.error('[outbound-call-request][avatar-text]', callRequestError)
         }
@@ -2660,10 +2666,12 @@ export default function Chat() {
       simulateAvatarRead((message as Message).id)
       const messageId = String((message as Message).id)
 
-      const outboundCallIntent = parseOutboundCallIntent(content)
+      const outboundCallIntent = parseOutboundCallIntent(content, {
+        timezone: (typeof Intl !== 'undefined' && Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC',
+      })
       if (outboundCallIntent && conversation?.wa_contacts?.email) {
         try {
-          await requestOutboundCall({
+          const outboundCallPromise = requestOutboundCall({
             conversationId,
             ownerId: conversation?.owner_id ?? null,
             contactId: conversation?.contact_id ?? null,
@@ -2673,12 +2681,13 @@ export default function Chat() {
             callerDisplayName: conversation?.wa_owners?.display_name ?? 'Avatar',
             delayMinutes: outboundCallIntent.delayMinutes,
           })
-          const ack = await sendMessage(
+          const ackPromise = sendMessage(
             conversationId,
             'avatar',
-            'system',
+            'text',
             buildOutboundCallAck(content, outboundCallIntent.delayMinutes),
           )
+          const [ack] = await Promise.all([ackPromise, outboundCallPromise])
           setMessages((current) => [...current, ack as Message])
           markAsInstantlyRead(String((ack as Message).id))
           return

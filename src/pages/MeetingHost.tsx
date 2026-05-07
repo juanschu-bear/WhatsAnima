@@ -255,6 +255,7 @@ export default function MeetingHost() {
     }))
     setStartingLive(true)
     setError(null)
+    const timezone = (typeof Intl !== 'undefined' && Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC'
     void fetch('/api/video-call', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -262,6 +263,7 @@ export default function MeetingHost() {
         persona_name: selectedOwner?.display_name || ownerName,
         persona: selectedOwner?.display_name || ownerName,
         language: 'en',
+        timezone,
         user_name: selfName,
         conversation_id: `meeting-${session.token}`,
         owner_id: selectedOwnerId,

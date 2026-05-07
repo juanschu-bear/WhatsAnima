@@ -5,11 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "npm run test:atc && tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:atc": "vitest run tests/call-intent.test.ts tests/temporal-memory.test.ts tests/atc-golden.test.ts tests/time-arithmetic.test.ts tests/call-memory-history.test.ts tests/channel-consistency.test.ts",
     "precheck": "tsc --noEmit && eslint ."
   },
   "dependencies": {
