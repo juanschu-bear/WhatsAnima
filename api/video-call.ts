@@ -247,11 +247,11 @@ export default async function handler(req: any, res: any) {
           .limit(10),
         supabase
           .from('wa_messages')
-          .select('content, created_at')
+          .select('content, created_at, type')
           .eq('conversation_id', conversationId)
-          .eq('type', 'call_summary')
+          .or('type.eq.call_summary,content.ilike.[Call summary]%')
           .order('created_at', { ascending: false })
-          .limit(5),
+          .limit(8),
         incomingCallId
           ? supabase
               .from('wa_outbound_calls')
@@ -299,7 +299,7 @@ export default async function handler(req: any, res: any) {
       const callSummaries = (callSummaryRows ?? [])
         .map((row) => ({
           created_at: row.created_at,
-          text: normalizeCallSummaryText(row.content),
+          text: normalizeCallSummaryText(String(row.content || '').replace(/^\[Call summary\]\s*/i, '').trim()),
         }))
         .filter((row) => row.text.length > 0)
 
@@ -344,6 +344,9 @@ export default async function handler(req: any, res: any) {
           memoryLines.push(`Previous call summaries: ${compactSummaries.join(' || ')}`)
           memoryLines.push(
             'You DO have access to prior calls via these summaries. If asked about previous calls, answer using this history naturally.',
+          )
+          memoryLines.push(
+            'Never claim that you have no memory of previous calls when summaries are present. Use them directly and then ask one clarifying follow-up question if needed.',
           )
         }
       }

@@ -622,7 +622,7 @@ const LIVEKIT_FINAL_ATTR = 'lk.transcription_final'
 const INCOMING_CALL_CONTEXT_PREFIX = 'wa_incoming_call_context:'
 const INCOMING_CALL_PREWARM_PREFIX = 'wa_incoming_call_prewarm:'
 const ONBOARDING_TRIGGER = 'onboarding_first_call'
-const VIDEO_ZOOM_MIN = 0.7
+const VIDEO_ZOOM_MIN = 0.4
 const VIDEO_ZOOM_MAX = 1.6
 const VIDEO_ZOOM_STEP = 0.05
 const VIDEO_ZOOM_STORAGE_REMOTE = 'wa_video_zoom_remote'
@@ -636,9 +636,13 @@ function clampVideoZoom(value: number): number {
 function readZoomPreference(key: string): number {
   if (typeof window === 'undefined') return 1
   try {
-    return clampVideoZoom(Number(window.localStorage.getItem(key)))
+    const value = Number(window.localStorage.getItem(key))
+    if (!Number.isFinite(value)) {
+      return key === VIDEO_ZOOM_STORAGE_REMOTE ? 0.75 : 1
+    }
+    return clampVideoZoom(value)
   } catch {
-    return 1
+    return key === VIDEO_ZOOM_STORAGE_REMOTE ? 0.75 : 1
   }
 }
 
@@ -3223,7 +3227,7 @@ export default function VideoCall() {
                             label={livekitRemoteName || personaName}
                             isActive={livekitActiveKinds.includes('agent')}
                             cameraEnabled
-                            videoFit="cover"
+                            videoFit="contain"
                             zoom={remoteZoom}
                           />
                         </div>
@@ -3250,7 +3254,7 @@ export default function VideoCall() {
                           label={livekitRemoteName || personaName}
                           isActive={livekitActiveKinds.includes('agent')}
                           cameraEnabled
-                          videoFit="cover"
+                          videoFit="contain"
                           zoom={remoteZoom}
                         />
                         <LivekitVideoTile
