@@ -14,6 +14,83 @@ type OnboardingAvatar = {
   ownerId: string
   avatarName: string
   provider: 'keyframe' | 'tavus'
+  onboardingCompleted: boolean
+}
+
+type Locale = 'en' | 'es' | 'de'
+
+const COPY: Record<Locale, {
+  welcome: (name: string) => string
+  intro: string
+  startOnboarding: string
+  startingOnboarding: string
+  startChat: string
+  openingChat: string
+  noAvatars: string
+  loadFailed: string
+  chatFailed: string
+  callFailed: string
+  elite: string
+  premium: string
+  contactMissing: string
+}> = {
+  en: {
+    welcome: (name) => `Welcome ${name}, your avatars are ready!`,
+    intro: 'Think of it like a first date with your avatars. Tell them who you are, and they will tell you what they bring to the table. After that you know each other, and we can get going.',
+    startOnboarding: 'Start getting to know',
+    startingOnboarding: 'Starting…',
+    startChat: 'Start chat',
+    openingChat: 'Opening chat…',
+    noAvatars: 'No avatars are unlocked for your account yet.',
+    loadFailed: 'Onboarding could not be loaded.',
+    chatFailed: 'Chat could not be started.',
+    callFailed: 'Onboarding call could not be started.',
+    elite: 'Elite Avatar',
+    premium: 'Premium Avatar',
+    contactMissing: 'Contact could not be determined.',
+  },
+  es: {
+    welcome: (name) => `Bienvenido ${name}, tus avatares estan listos!`,
+    intro: 'Imaginalo como una primera cita con tus avatares. Cuentales quien eres, y ellos te contaran que saben hacer. Despues ya se conocen y podemos empezar.',
+    startOnboarding: 'Empezar a conocer',
+    startingOnboarding: 'Iniciando…',
+    startChat: 'Iniciar chat',
+    openingChat: 'Abriendo chat…',
+    noAvatars: 'Aun no se han desbloqueado avatares para tu cuenta.',
+    loadFailed: 'No se pudo cargar el onboarding.',
+    chatFailed: 'No se pudo iniciar el chat.',
+    callFailed: 'No se pudo iniciar la llamada de onboarding.',
+    elite: 'Avatar Elite',
+    premium: 'Avatar Premium',
+    contactMissing: 'No se pudo determinar el contacto.',
+  },
+  de: {
+    welcome: (name) => `Willkommen ${name}, deine Avatare sind bereit!`,
+    intro: 'Stell es dir vor wie ein erstes Date mit deinen Avataren. Erzaehl ihnen wer du bist, und sie erzaehlen dir was sie drauf haben. Danach kennt ihr euch, und es kann losgehen.',
+    startOnboarding: 'Kennenlernen starten',
+    startingOnboarding: 'Starte Kennenlernen…',
+    startChat: 'Chat starten',
+    openingChat: 'Oeffne Chat…',
+    noAvatars: 'Fuer dein Konto wurden noch keine Avatare freigeschaltet.',
+    loadFailed: 'Onboarding konnte nicht geladen werden.',
+    chatFailed: 'Chat konnte nicht gestartet werden.',
+    callFailed: 'Onboarding Call konnte nicht gestartet werden.',
+    elite: 'Elite Avatar',
+    premium: 'Premium Avatar',
+    contactMissing: 'Kontakt konnte nicht bestimmt werden.',
+  },
+}
+
+function pickLocale(value: string | null | undefined): Locale {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (normalized.startsWith('es')) return 'es'
+  if (normalized.startsWith('de')) return 'de'
+  return 'en'
+}
+
+function isKeyframeDisplayName(value: string) {
+  const normalized = value.trim().toLowerCase()
+  return normalized.includes('trace flores') || normalized.includes('jordan cash')
 }
 
 export default function Onboarding() {
@@ -28,6 +105,8 @@ export default function Onboarding() {
   const inviteCode = String(user?.user_metadata?.invite_code || '').trim()
   const inviteeName = String(user?.user_metadata?.invitee_name || '').trim()
   const inviteLanguage = String(user?.user_metadata?.language || 'en').trim().toLowerCase() || 'en'
+  const locale = pickLocale(inviteLanguage)
+  const copy = COPY[locale]
 
   const welcomeName = useMemo(() => {
     if (inviteeName) return inviteeName
@@ -85,15 +164,22 @@ export default function Onboarding() {
           if (ownerId && ownerName) ownerNameById.set(ownerId, ownerName)
           const settings = owner.settings && typeof owner.settings === 'object' ? owner.settings as Record<string, unknown> : null
           const personaSlug = typeof settings?.persona_slug === 'string' ? settings.persona_slug.trim() : ''
-          const normalizedName = ownerName.toLowerCase()
-          const provider: 'keyframe' | 'tavus' = isKeyframeDisplayName(normalizedName)
+          const provider: 'keyframe' | 'tavus' = isKeyframeDisplayName(ownerName.toLowerCase())
             ? 'keyframe'
-            : (personaSlug
-              ? 'keyframe'
-              : (String(owner.tavus_replica_id || '').trim()
-              ? 'tavus'
-                : 'tavus'))
+            : (personaSlug ? 'keyframe' : 'tavus')
           if (ownerId) ownerProviderById.set(ownerId, provider)
+        }
+
+        const { data: onboardingRows, error: onboardingError } = await supabase
+          .from('wa_user_onboarding')
+          .select('avatar_name, onboarding_completed')
+          .eq('user_id', user.id)
+
+        if (onboardingError) throw onboardingError
+        const onboardingByAvatar = new Map<string, boolean>()
+        for (const row of onboardingRows ?? []) {
+          const avatarName = String(row.avatar_name || '').trim()
+          if (avatarName) onboardingByAvatar.set(avatarName, Boolean(row.onboarding_completed))
         }
 
         const normalized: OnboardingAvatar[] = []
@@ -107,18 +193,47 @@ export default function Onboarding() {
           const key = `${ownerId}::${avatarName}`
           if (seen.has(key)) continue
           seen.add(key)
-          normalized.push({ ownerId, avatarName, provider })
+          normalized.push({
+            ownerId,
+            avatarName,
+            provider,
+            onboardingCompleted: onboardingByAvatar.get(avatarName) ?? false,
+          })
         }
 
-        if (!cancelled) {
-          setAvatars(normalized)
-          if (normalized.length === 0) {
-            setError('Für dein Konto wurden noch keine Avatare freigeschaltet.')
+        if (cancelled) return
+
+        if (normalized.length === 0) {
+          setAvatars([])
+          setError(copy.noAvatars)
+          return
+        }
+
+        const allCompleted = normalized.every((entry) => entry.onboardingCompleted)
+        if (allCompleted) {
+          const first = normalized[0]
+          try {
+            const existingContact = await findContactByEmailForOwner(first.ownerId, user.email || '')
+            const contactId = existingContact?.id
+              ? existingContact.id
+              : (await createContactForOwner({
+                  ownerId: first.ownerId,
+                  firstName: welcomeName,
+                  lastName: '',
+                  email: user.email || '',
+                })).id
+            const conversationId = await findOrCreateConversation(first.ownerId, contactId)
+            navigate(`/chat/${conversationId}`, { replace: true })
+            return
+          } catch {
+            // fall through and render the onboarding screen
           }
         }
+
+        setAvatars(normalized)
       } catch (loadError) {
         if (!cancelled) {
-          setError(loadError instanceof Error ? loadError.message : 'Onboarding konnte nicht geladen werden.')
+          setError(loadError instanceof Error ? loadError.message : copy.loadFailed)
         }
       } finally {
         if (!cancelled) setLoading(false)
@@ -128,7 +243,7 @@ export default function Onboarding() {
     return () => {
       cancelled = true
     }
-  }, [inviteCode, navigate, user])
+  }, [inviteCode, navigate, user, copy.loadFailed, copy.noAvatars, welcomeName])
 
   async function ensureConversation(ownerId: string) {
     if (!user?.email) throw new Error('User email missing')
@@ -139,7 +254,7 @@ export default function Onboarding() {
     }
 
     const firstName = String(user.user_metadata?.first_name || '').trim() || welcomeName
-    const lastName = String(user.user_metadata?.last_name || '').trim() || 'User'
+    const lastName = String(user.user_metadata?.last_name || '').trim() || ''
     const createdContact = await createContactForOwner({
       ownerId,
       firstName,
@@ -158,7 +273,7 @@ export default function Onboarding() {
       const conversationId = await ensureConversation(avatar.ownerId)
       navigate(`/chat/${conversationId}`)
     } catch (chatError) {
-      setError(chatError instanceof Error ? chatError.message : 'Chat konnte nicht gestartet werden.')
+      setError(chatError instanceof Error ? chatError.message : copy.chatFailed)
       setBusyAvatar(null)
     }
   }
@@ -177,7 +292,7 @@ export default function Onboarding() {
         .maybeSingle()
       if (convError) throw convError
       const contactId = String(conversationRow?.contact_id || '').trim()
-      if (!contactId) throw new Error('Kontakt konnte nicht bestimmt werden.')
+      if (!contactId) throw new Error(copy.contactMissing)
 
       await requestOutboundCall({
         conversationId,
@@ -190,9 +305,18 @@ export default function Onboarding() {
         callerDisplayName: avatar.avatarName,
       })
 
+      try {
+        sessionStorage.setItem(
+          `wa_onboarding_call:${conversationId}`,
+          JSON.stringify({ avatarName: avatar.avatarName, ownerId: avatar.ownerId }),
+        )
+      } catch {
+        // ignore storage errors
+      }
+
       navigate(`/video-call/${conversationId}`)
     } catch (callError) {
-      setError(callError instanceof Error ? callError.message : 'Onboarding Call konnte nicht gestartet werden.')
+      setError(callError instanceof Error ? callError.message : copy.callFailed)
       setBusyAvatar(null)
     }
   }
@@ -209,8 +333,8 @@ export default function Onboarding() {
     <div className="brand-scene min-h-screen text-white">
       <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-4xl flex-col px-6 py-10">
         <div className="brand-panel rounded-[30px] p-8 sm:p-10">
-          <h1 className="text-3xl font-bold tracking-tight">Willkommen, {welcomeName}!</h1>
-          <p className="mt-2 text-sm text-white/70">Deine Avatare sind bereit.</p>
+          <h1 className="text-3xl font-bold tracking-tight">{copy.welcome(welcomeName)}</h1>
+          <p className="mt-3 text-sm text-white/70">{copy.intro}</p>
 
           {error ? (
             <div className="mt-6 rounded-2xl border border-red-400/20 bg-red-500/15 px-4 py-3 text-sm text-red-200">
@@ -219,9 +343,9 @@ export default function Onboarding() {
           ) : null}
 
           <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {avatars.map((avatar, index) => {
-              const isPrimary = index === 0
+            {avatars.map((avatar) => {
               const isBusy = busyAvatar === avatar.ownerId
+              const completed = avatar.onboardingCompleted
               return (
                 <div
                   key={`${avatar.ownerId}-${avatar.avatarName}`}
@@ -234,51 +358,34 @@ export default function Onboarding() {
                   />
                   <h2 className="mt-4 text-lg font-semibold text-white">{avatar.avatarName}</h2>
                   <p className="mt-1 inline-flex rounded-full border border-white/15 bg-white/5 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/70">
-                    {avatar.provider === 'keyframe' ? 'Elite Avatar' : 'Premium Avatar'}
-                  </p>
-                  <p className="mt-1 text-xs text-white/55">
-                    {isPrimary ? 'Empfohlener Start für dein Kennenlernen' : 'Bereit für deinen Chat'}
+                    {avatar.provider === 'keyframe' ? copy.elite : copy.premium}
                   </p>
 
-                  {isPrimary ? (
-                    <button
-                      type="button"
-                      disabled={Boolean(busyAvatar)}
-                      onClick={() => void handleStartOnboardingCall(avatar)}
-                      className="mt-5 w-full rounded-2xl bg-[#00a884] px-4 py-3 text-sm font-semibold text-[#08111a] transition hover:brightness-110 disabled:opacity-60"
-                    >
-                      {isBusy ? 'Starte Kennenlernen…' : 'Kennenlernen starten'}
-                    </button>
-                  ) : (
+                  {completed ? (
                     <button
                       type="button"
                       disabled={Boolean(busyAvatar)}
                       onClick={() => void handleStartChat(avatar)}
                       className="mt-5 w-full rounded-2xl border border-white/12 bg-white/5 px-4 py-3 text-sm font-semibold text-white/90 transition hover:bg-white/10 disabled:opacity-60"
                     >
-                      {isBusy ? 'Öffne Chat…' : 'Chat starten'}
+                      {isBusy ? copy.openingChat : copy.startChat}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={Boolean(busyAvatar)}
+                      onClick={() => void handleStartOnboardingCall(avatar)}
+                      className="mt-5 w-full rounded-2xl bg-[#00a884] px-4 py-3 text-sm font-semibold text-[#08111a] transition hover:brightness-110 disabled:opacity-60"
+                    >
+                      {isBusy ? copy.startingOnboarding : copy.startOnboarding}
                     </button>
                   )}
                 </div>
               )
             })}
           </div>
-
-          <div className="mt-8 text-center">
-            <button
-              type="button"
-              onClick={() => navigate('/avatars')}
-              className="text-sm text-white/60 transition hover:text-white"
-            >
-              Alle verfügbaren Avatare anzeigen
-            </button>
-          </div>
         </div>
       </div>
     </div>
   )
 }
-  function isKeyframeDisplayName(value: string) {
-    const normalized = value.trim().toLowerCase()
-    return normalized.includes('trace flores') || normalized.includes('jordan cash')
-  }

@@ -21,6 +21,7 @@ export default async function handler(req: any, res: any) {
     const inviteCode = String(body.inviteCode || '').trim()
     const userId = String(body.userId || '').trim()
     const userEmail = String(body.userEmail || '').trim().toLowerCase() || null
+    const inviteeName = String(body.inviteeName || '').trim()
 
     if (!inviteCode || !userId) {
       return res.status(400).json({ error: 'inviteCode and userId are required' })
@@ -69,6 +70,8 @@ export default async function handler(req: any, res: any) {
       if (key) ownerByAvatar.set(key, String(owner.id || '').trim())
     }
 
+    const contactDisplayName = inviteeName || invitation.invitee_name || (userEmail ?? 'Guest')
+
     for (const avatarName of allowedAvatars) {
       const ownerId = ownerByAvatar.get(avatarName) || null
       await supabase
@@ -95,16 +98,47 @@ export default async function handler(req: any, res: any) {
           },
           { onConflict: 'user_id,avatar_name' },
         )
+
+      if (ownerId && userEmail) {
+        const { data: existingContact } = await supabase
+          .from('wa_contacts')
+          .select('id')
+          .eq('owner_id', ownerId)
+          .eq('email', userEmail)
+          .maybeSingle()
+
+        if (!existingContact) {
+          await supabase
+            .from('wa_contacts')
+            .insert({
+              owner_id: ownerId,
+              display_name: contactDisplayName,
+              email: userEmail,
+            })
+        } else if (inviteeName) {
+          await supabase
+            .from('wa_contacts')
+            .update({ display_name: contactDisplayName })
+            .eq('id', existingContact.id)
+        }
+      }
     }
+
+    const invitationUpdate: Record<string, unknown> = {
+      status: 'accepted',
+      accepted_at: new Date().toISOString(),
+      invitee_email: userEmail,
+    }
+    if (inviteeName) invitationUpdate.invitee_name = inviteeName
 
     await supabase
       .from('wa_invitations')
-      .update({ status: 'accepted', accepted_at: new Date().toISOString(), invitee_email: userEmail })
+      .update(invitationUpdate)
       .eq('id', invitation.id)
 
     return res.status(200).json({
       invitationId: invitation.id,
-      inviteeName: invitation.invitee_name,
+      inviteeName: inviteeName || invitation.invitee_name,
       language: invitation.language || 'en',
       allowedAvatars,
     })

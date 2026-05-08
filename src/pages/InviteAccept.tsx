@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import {
   acceptOnboardingInvitation,
   getOnboardingInvitation,
@@ -11,6 +11,117 @@ import { getCanonicalAppUrl } from '../lib/canonicalOrigin'
 
 const PENDING_KEY = 'wa_pending_onboarding_invite'
 const SIGNUP_DONE_KEY_PREFIX = 'wa_onboarding_signup_done:'
+
+type Locale = 'en' | 'es' | 'de'
+
+const COPY: Record<Locale, {
+  welcome: (name: string) => string
+  unlock: (avatars: string) => string
+  nameLabel: string
+  namePlaceholder: string
+  emailLabel: string
+  passwordLabel: string
+  passwordPlaceholder: string
+  confirmPasswordLabel: string
+  confirmPasswordPlaceholder: string
+  createAccount: string
+  creating: string
+  passwordsMismatch: string
+  passwordTooShort: string
+  emailRequired: string
+  alreadyRegistered: string
+  inviteUnavailable: string
+  inviteCannotBeUsed: string
+  verificationTitle: string
+  verificationBody: string
+  invalidLink: string
+  alreadyUsed: string
+  expired: string
+  nameRequired: string
+}> = {
+  en: {
+    welcome: (name) => `Hey ${name || 'there'}, welcome to WhatsAnima`,
+    unlock: (avatars) => `Create your account to unlock: ${avatars}.`,
+    nameLabel: 'How should I call you?',
+    namePlaceholder: 'First name or nickname',
+    emailLabel: 'Email',
+    passwordLabel: 'Password',
+    passwordPlaceholder: 'At least 8 characters',
+    confirmPasswordLabel: 'Confirm password',
+    confirmPasswordPlaceholder: 'Repeat your password',
+    createAccount: 'Create Account',
+    creating: 'Creating account…',
+    passwordsMismatch: 'Passwords do not match.',
+    passwordTooShort: 'Password must be at least 8 characters.',
+    emailRequired: 'Please provide email and password.',
+    nameRequired: 'Please tell us how to call you.',
+    alreadyRegistered: 'This email is already registered. Please log in or use a different email.',
+    inviteUnavailable: 'Invitation not available',
+    inviteCannotBeUsed: 'This invitation cannot be used right now.',
+    verificationTitle: 'Email confirmation required',
+    verificationBody: 'Check your email and click the confirmation link to continue.',
+    invalidLink: 'This invitation link is invalid.',
+    alreadyUsed: 'This invitation link has already been used.',
+    expired: 'This invitation link has expired. Please request a new one.',
+  },
+  es: {
+    welcome: (name) => `Hola ${name || 'amigo'}, bienvenido a WhatsAnima`,
+    unlock: (avatars) => `Crea tu cuenta para desbloquear: ${avatars}.`,
+    nameLabel: '¿Cómo te llamo?',
+    namePlaceholder: 'Nombre o apodo',
+    emailLabel: 'Correo electrónico',
+    passwordLabel: 'Contraseña',
+    passwordPlaceholder: 'Al menos 8 caracteres',
+    confirmPasswordLabel: 'Confirmar contraseña',
+    confirmPasswordPlaceholder: 'Repite tu contraseña',
+    createAccount: 'Crear cuenta',
+    creating: 'Creando cuenta…',
+    passwordsMismatch: 'Las contraseñas no coinciden.',
+    passwordTooShort: 'La contraseña debe tener al menos 8 caracteres.',
+    emailRequired: 'Por favor ingresa email y contraseña.',
+    nameRequired: 'Por favor dinos cómo llamarte.',
+    alreadyRegistered: 'Este correo ya está registrado. Inicia sesión o usa otro correo.',
+    inviteUnavailable: 'Invitación no disponible',
+    inviteCannotBeUsed: 'Esta invitación no se puede usar en este momento.',
+    verificationTitle: 'Confirmación de email requerida',
+    verificationBody: 'Revisa tu correo y haz clic en el enlace de confirmación para continuar.',
+    invalidLink: 'Este enlace de invitación no es válido.',
+    alreadyUsed: 'Este enlace de invitación ya fue utilizado.',
+    expired: 'Este enlace de invitación ha expirado. Solicita uno nuevo.',
+  },
+  de: {
+    welcome: (name) => `Hey ${name || 'du'}, willkommen bei WhatsAnima`,
+    unlock: (avatars) => `Erstelle dein Konto, um freizuschalten: ${avatars}.`,
+    nameLabel: 'Wie darf ich dich nennen?',
+    namePlaceholder: 'Vorname oder Spitzname',
+    emailLabel: 'E-Mail',
+    passwordLabel: 'Passwort',
+    passwordPlaceholder: 'Mindestens 8 Zeichen',
+    confirmPasswordLabel: 'Passwort bestätigen',
+    confirmPasswordPlaceholder: 'Passwort wiederholen',
+    createAccount: 'Konto erstellen',
+    creating: 'Konto wird erstellt…',
+    passwordsMismatch: 'Passwörter stimmen nicht überein.',
+    passwordTooShort: 'Passwort muss mindestens 8 Zeichen haben.',
+    emailRequired: 'Bitte E-Mail und Passwort eingeben.',
+    nameRequired: 'Bitte sag uns, wie wir dich nennen sollen.',
+    alreadyRegistered: 'Diese E-Mail ist bereits registriert. Bitte logge dich ein oder nutze eine andere E-Mail.',
+    inviteUnavailable: 'Einladung nicht verfügbar',
+    inviteCannotBeUsed: 'Diese Einladung kann gerade nicht verwendet werden.',
+    verificationTitle: 'E-Mail-Bestätigung erforderlich',
+    verificationBody: 'Prüfe deine E-Mail und klicke auf den Bestätigungslink.',
+    invalidLink: 'Dieser Einladungslink ist ungültig.',
+    alreadyUsed: 'Dieser Einladungslink wurde bereits verwendet.',
+    expired: 'Dieser Einladungslink ist abgelaufen. Bitte fordere einen neuen an.',
+  },
+}
+
+function pickLocale(value: string | null | undefined): Locale {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (normalized.startsWith('es')) return 'es'
+  if (normalized.startsWith('de')) return 'de'
+  return 'en'
+}
 
 function isExpired(invitation: InvitationRecord | null): boolean {
   if (!invitation?.expires_at) return false
@@ -26,6 +137,7 @@ export default function InviteAccept() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -34,6 +146,9 @@ export default function InviteAccept() {
 
   const [accepted, setAccepted] = useState(false)
   const acceptedRef = useRef(false)
+
+  const locale = useMemo<Locale>(() => pickLocale(invitation?.language), [invitation?.language])
+  const copy = COPY[locale]
 
   const primaryAvatarName = useMemo(
     () => (invitation?.allowed_avatars?.[0] || '').trim(),
@@ -50,18 +165,16 @@ export default function InviteAccept() {
     void (async () => {
       const data = await getOnboardingInvitation(inviteCode)
       setInvitation(data)
+      const local = data ? COPY[pickLocale(data.language)] : COPY.en
       if (!data) {
-        setError('Dieser Einladungslink ist ungültig.')
+        setError(local.invalidLink)
       } else if (data.status !== 'pending') {
-        setError(
-          data.status === 'accepted'
-            ? 'Dieser Einladungslink wurde bereits verwendet.'
-            : 'Dieser Einladungslink kann nicht mehr verwendet werden.',
-        )
+        setError(data.status === 'accepted' ? local.alreadyUsed : local.inviteCannotBeUsed)
       } else if (isExpired(data)) {
-        setError('Dieser Einladungslink ist abgelaufen. Bitte fordere einen neuen an.')
+        setError(local.expired)
       } else {
         setEmail(data.invitee_email || '')
+        setName((data.invitee_name || '').trim())
       }
       setLoading(false)
     })()
@@ -86,21 +199,27 @@ export default function InviteAccept() {
   async function handleSignup(event: FormEvent) {
     event.preventDefault()
     if (!email.trim() || !password.trim()) {
-      setError('Please provide email and password.')
+      setError(copy.emailRequired)
+      return
+    }
+    if (!name.trim()) {
+      setError(copy.nameRequired)
       return
     }
     if (password.length < 8) {
-      setError('Password must be at least 8 characters.')
+      setError(copy.passwordTooShort)
       return
     }
     if (password !== confirmPassword) {
-      setError('Passwords do not match.')
+      setError(copy.passwordsMismatch)
       return
     }
 
     setError(null)
     setSubmitting(true)
     localStorage.setItem(PENDING_KEY, JSON.stringify({ inviteCode }))
+
+    const trimmedName = name.trim()
 
     const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
       email: email.trim(),
@@ -109,7 +228,8 @@ export default function InviteAccept() {
         emailRedirectTo: getCanonicalAppUrl(`/auth/callback?next=${encodeURIComponent('/onboarding')}`),
         data: {
           invite_code: inviteCode,
-          invitee_name: invitation?.invitee_name || '',
+          invitee_name: trimmedName,
+          first_name: trimmedName,
           language: invitation?.language || 'en',
         },
       },
@@ -118,7 +238,7 @@ export default function InviteAccept() {
     if (signUpError) {
       const normalized = String(signUpError.message || '').toLowerCase()
       if (normalized.includes('already registered') || normalized.includes('already been registered') || normalized.includes('user already')) {
-        setError('Diese E-Mail ist bereits registriert. Bitte logge dich ein oder nutze eine andere E-Mail.')
+        setError(copy.alreadyRegistered)
       } else {
         setError(signUpError.message)
       }
@@ -133,11 +253,12 @@ export default function InviteAccept() {
           inviteCode,
           userId,
           userEmail: email.trim(),
+          inviteeName: trimmedName,
         })
         acceptedRef.current = true
         setAccepted(true)
       } catch (acceptError) {
-        setError(acceptError instanceof Error ? acceptError.message : 'Einladung konnte nicht aktiviert werden.')
+        setError(acceptError instanceof Error ? acceptError.message : 'Could not activate invitation.')
         setSubmitting(false)
         return
       }
@@ -167,11 +288,8 @@ export default function InviteAccept() {
       <div className="brand-scene min-h-screen text-white">
         <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-xl items-center justify-center px-6 py-10">
           <div className="brand-panel w-full rounded-[30px] p-8 text-center">
-            <h1 className="text-2xl font-bold">Einladung nicht verfügbar</h1>
-            <p className="mt-3 text-sm text-white/70">{error || 'This invitation cannot be used right now.'}</p>
-            <Link to="/login" className="mt-6 inline-block text-sm text-[#58e3c7] hover:text-[#00a884]">
-              Zurück zum Login
-            </Link>
+            <h1 className="text-2xl font-bold">{copy.inviteUnavailable}</h1>
+            <p className="mt-3 text-sm text-white/70">{error || copy.inviteCannotBeUsed}</p>
           </div>
         </div>
       </div>
@@ -185,15 +303,27 @@ export default function InviteAccept() {
           {!showVerificationScreen ? (
             <>
               <h1 className="text-3xl font-bold tracking-tight">
-                Hey {invitation.invitee_name || 'there'}, welcome to WhatsAnima
+                {copy.welcome(invitation.invitee_name || '')}
               </h1>
               <p className="mt-3 text-sm text-white/70">
-                Create your account to unlock: {invitation.allowed_avatars.join(', ')}.
+                {copy.unlock(invitation.allowed_avatars.join(', '))}
               </p>
 
               <form onSubmit={handleSignup} className="mt-8 space-y-4">
                 <div>
-                  <label className="mb-2 block text-sm text-white/80">Email</label>
+                  <label className="mb-2 block text-sm text-white/80">{copy.nameLabel}</label>
+                  <input
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                    required
+                    type="text"
+                    className="brand-inset w-full rounded-2xl px-4 py-3 text-white outline-none focus:border-[#00a884]"
+                    placeholder={copy.namePlaceholder}
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm text-white/80">{copy.emailLabel}</label>
                   <input
                     value={email}
                     onChange={(event) => setEmail(event.target.value)}
@@ -205,26 +335,26 @@ export default function InviteAccept() {
                 </div>
 
                 <div>
-                  <label className="mb-2 block text-sm text-white/80">Password</label>
+                  <label className="mb-2 block text-sm text-white/80">{copy.passwordLabel}</label>
                   <input
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
                     required
                     type="password"
                     className="brand-inset w-full rounded-2xl px-4 py-3 text-white outline-none focus:border-[#00a884]"
-                    placeholder="At least 8 characters"
+                    placeholder={copy.passwordPlaceholder}
                   />
                 </div>
 
                 <div>
-                  <label className="mb-2 block text-sm text-white/80">Confirm password</label>
+                  <label className="mb-2 block text-sm text-white/80">{copy.confirmPasswordLabel}</label>
                   <input
                     value={confirmPassword}
                     onChange={(event) => setConfirmPassword(event.target.value)}
                     required
                     type="password"
                     className="brand-inset w-full rounded-2xl px-4 py-3 text-white outline-none focus:border-[#00a884]"
-                    placeholder="Repeat your password"
+                    placeholder={copy.confirmPasswordPlaceholder}
                   />
                 </div>
 
@@ -237,26 +367,16 @@ export default function InviteAccept() {
                   disabled={submitting}
                   className="w-full rounded-2xl bg-[#00a884] px-4 py-3 font-semibold text-[#08111a] transition hover:brightness-110 disabled:opacity-60"
                 >
-                  {submitting ? 'Account wird erstellt…' : 'Create Account'}
+                  {submitting ? copy.creating : copy.createAccount}
                 </button>
               </form>
             </>
           ) : (
             <>
-              <h1 className="text-3xl font-bold tracking-tight">E-Mail-Bestätigung erforderlich</h1>
-              <p className="mt-3 text-sm text-white/70">
-                Wir haben dir eine E-Mail geschickt. Bitte bestätige deine E-Mail Adresse, um fortzufahren.
-              </p>
-              <Link
-                to="/login"
-                className="mt-8 inline-flex w-full items-center justify-center rounded-2xl bg-[#00a884] px-4 py-3 font-semibold text-[#08111a] transition hover:brightness-110"
-              >
-                Zurück zum Login
-              </Link>
+              <h1 className="text-3xl font-bold tracking-tight">{copy.verificationTitle}</h1>
+              <p className="mt-3 text-sm text-white/70">{copy.verificationBody}</p>
               {accepted || primaryAvatarName ? (
-                <p className="mt-3 text-center text-xs text-white/50">
-                  Einladung aktiviert für: {primaryAvatarName || 'deine Avatare'}
-                </p>
+                <p className="mt-6 text-center text-xs text-white/50">{primaryAvatarName}</p>
               ) : null}
             </>
           )}
