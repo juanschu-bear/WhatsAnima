@@ -2871,16 +2871,22 @@ export default function VideoCall() {
                     viewMode === 'speaker' ? (
                       <div className="relative h-full w-full p-3 sm:p-4">
                         <div className="flex h-full w-full items-center justify-center">
-                          <div className="h-full w-full">
-                          <LivekitVideoTile
-                            track={livekitRemoteVideo}
-                            isLocal={false}
-                            label={livekitRemoteName || personaName}
-                            isActive={livekitActiveKinds.includes('agent')}
-                            cameraEnabled
-                            videoFit="cover"
-                            zoom={remoteZoom}
-                          />
+                          <div
+                            className="w-full sm:h-full sm:w-auto"
+                            style={{
+                              aspectRatio: String(Math.max(livekitRemoteAspect, 3 / 4)),
+                              maxHeight: '100%',
+                              maxWidth: '100%',
+                            }}
+                          >
+                            <LivekitVideoTile
+                              track={livekitRemoteVideo}
+                              isLocal={false}
+                              label={formatDisplayName(livekitRemoteName || personaName)}
+                              isActive={livekitActiveKinds.includes('agent')}
+                              cameraEnabled
+                              onNativeSize={handleRemoteNativeSize}
+                            />
                           </div>
                         </div>
                         <div
@@ -2898,13 +2904,11 @@ export default function VideoCall() {
                         </div>
                       </div>
                     ) : (
-                      <div className="flex h-full w-full items-center justify-center gap-3 p-3 sm:gap-4 sm:p-4">
+                      <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-3 sm:flex-row sm:gap-4 sm:p-4">
                         <div
-                          className="h-full shrink-0"
+                          className="w-full max-w-full max-h-full sm:h-full sm:w-auto sm:max-w-[48%] sm:shrink-0"
                           style={{
                             aspectRatio: String(Math.max(livekitRemoteAspect, 3 / 4)),
-                            maxHeight: '100%',
-                            maxWidth: '48%',
                           }}
                         >
                           <LivekitVideoTile
@@ -2917,11 +2921,9 @@ export default function VideoCall() {
                           />
                         </div>
                         <div
-                          className="h-full shrink-0"
+                          className="w-full max-w-full max-h-full sm:h-full sm:w-auto sm:max-w-[48%] sm:shrink-0"
                           style={{
                             aspectRatio: String(Math.max(livekitLocalAspect, 3 / 4)),
-                            maxHeight: '100%',
-                            maxWidth: '48%',
                           }}
                         >
                           <LivekitVideoTile
