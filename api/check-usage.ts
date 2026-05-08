@@ -27,7 +27,7 @@ interface UsageRow {
 
 async function getOrCreateUsage(supabase: ReturnType<typeof createClient>, userId: string): Promise<UsageRow> {
   // Check if reset is needed
-  const { data: existing } = await supabase
+  const { data: existing } = await (supabase as any)
     .from('wa_usage_limits')
     .select('*')
     .eq('user_id', userId)
@@ -37,7 +37,7 @@ async function getOrCreateUsage(supabase: ReturnType<typeof createClient>, userI
     const row = existing as UsageRow
     // Auto-reset if past reset date
     if (new Date(row.reset_at).getTime() < Date.now()) {
-      const { data: reset } = await supabase
+      const { data: reset } = await (supabase as any)
         .from('wa_usage_limits')
         .update({
           call_minutes_used: 0,
@@ -55,7 +55,7 @@ async function getOrCreateUsage(supabase: ReturnType<typeof createClient>, userI
   }
 
   // Create default limits
-  const { data: created, error } = await supabase
+  const { data: created, error } = await (supabase as any)
     .from('wa_usage_limits')
     .insert({
       user_id: userId,
@@ -72,7 +72,7 @@ async function getOrCreateUsage(supabase: ReturnType<typeof createClient>, userI
 
   if (error) {
     // Race condition: another request created it
-    const { data: retry } = await supabase
+    const { data: retry } = await (supabase as any)
       .from('wa_usage_limits')
       .select('*')
       .eq('user_id', userId)
@@ -118,7 +118,7 @@ export default async function handler(req: any, res: any) {
       })
     }
     // Increment
-    await supabase
+    await (supabase as any)
       .from('wa_usage_limits')
       .update({
         voice_count_used: usage.voice_count_used + 1,
@@ -143,7 +143,7 @@ export default async function handler(req: any, res: any) {
         reset_at: usage.reset_at,
       })
     }
-    await supabase
+    await (supabase as any)
       .from('wa_usage_limits')
       .update({
         video_count_used: usage.video_count_used + 1,

@@ -14,6 +14,7 @@ import { getStoredLocale, t } from '../lib/i18n'
 interface OwnerOption {
   id: string
   display_name: string
+  provider: 'keyframe' | 'tavus'
 }
 
 export default function AvatarSelect() {
@@ -38,12 +39,12 @@ export default function AvatarSelect() {
     setLoading(true)
     setError(null)
     const userEmail = user?.email
-    if (!userEmail) {
+    if (!userEmail && !user?.id) {
       setOwners([])
       setLoading(false)
       return
     }
-    listOwnersForUser(userEmail)
+    listOwnersForUser({ email: userEmail, userId: user?.id })
       .then((data) => setOwners(data as OwnerOption[]))
       .catch((err) => {
         console.error('Failed to load avatars:', err)
@@ -55,7 +56,7 @@ export default function AvatarSelect() {
   useEffect(() => {
     loadOwners()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.email])
+  }, [user?.email, user?.id])
 
   useEffect(() => {
     // Clear transient loading states whenever this route is entered again.
@@ -270,6 +271,9 @@ export default function AvatarSelect() {
                 />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-lg font-semibold text-white">{owner.display_name}</p>
+                  <p className="mt-1 inline-flex rounded-full border border-white/15 bg-white/5 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/70">
+                    {(owner.provider === 'keyframe' || isKeyframeDisplayName(owner.display_name)) ? 'Elite Avatar' : 'Premium Avatar'}
+                  </p>
                   <div className="mt-1 flex items-center gap-2 text-sm text-white/50">
                     <span className="h-2 w-2 rounded-full bg-[#00a884]" />
                     <span>Online</span>
@@ -314,3 +318,7 @@ export default function AvatarSelect() {
     </div>
   )
 }
+  function isKeyframeDisplayName(value: string) {
+    const normalized = value.trim().toLowerCase()
+    return normalized.includes('trace flores') || normalized.includes('jordan cash')
+  }

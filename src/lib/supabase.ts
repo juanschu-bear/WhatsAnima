@@ -25,10 +25,9 @@ function createSupabaseClient(): SupabaseClient {
       storage: localStorage,
       autoRefreshToken: true,
       detectSessionInUrl: true,
-      // PKCE flow: magic link returns a code param instead of hash fragment.
-      // This works reliably in PWA standalone mode because the redirect
-      // goes through a normal URL (not a hash), which iOS can handle.
-      flowType: 'pkce',
+      // Implicit flow avoids PKCE code_verifier coupling across apps/devices,
+      // which is critical for email-confirmation links opened from mail clients.
+      flowType: 'implicit',
     },
   })
 }

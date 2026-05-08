@@ -1,10 +1,11 @@
 import { useRef, useState } from 'react'
-import { createPerceptionLog, sendMessage, checkUsage } from '../lib/api'
+import { createPerceptionLog, sendMessage, checkUsage, requestOutboundCall } from '../lib/api'
 import {
   getFileExtension,
   uploadAudioToStorage,
   callOpmApi, transcribeServerSide,
 } from '../lib/mediaUtils'
+import { buildOutboundCallAck, parseOutboundCallIntent } from '../lib/callIntent'
 
 type RecordingMode = 'idle' | 'recording' | 'stopping'
 type CaptureKind = 'none' | 'voice' | 'video'
@@ -29,7 +30,7 @@ interface ConversationRef {
   id: string
   owner_id: string
   contact_id: string
-  wa_contacts?: { display_name?: string | null } | null
+  wa_contacts?: { display_name?: string | null; email?: string | null } | null
   wa_owners?: { display_name?: string | null } | null
 }
 
@@ -180,7 +181,10 @@ export function useVoiceRecording({
           durationSeconds
         )) as Message
 
-        // Replace optimistic message with real one, keep local blob URL as fallback
+        // Replace optimistic message with real one, keep local blob URL as fallback.
+        // The voice bubble should stop looking "in progress" once the user's
+        // message itself is stored successfully; avatar reply generation is a
+        // separate concern and should not keep the send spinner alive.
         onMessageUpdate(tempId, {
           id: message.id,
           content: finalTranscript,
@@ -210,13 +214,37 @@ export function useVoiceRecording({
         }).catch((logErr) => console.warn('[perception-log]', logErr.message))
         onTranscript(message.id, finalTranscript)
 
+        const outboundCallIntent = parseOutboundCallIntent(finalTranscript, {
+          timezone: (typeof Intl !== 'undefined' && Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC',
+        })
+        if (outboundCallIntent && conversation?.wa_contacts?.email) {
+          try {
+            const outboundCallPromise = requestOutboundCall({
+              conversationId,
+              ownerId: conversation?.owner_id ?? null,
+              contactId: conversation?.contact_id ?? null,
+              contactEmail: String(conversation.wa_contacts.email || '').trim(),
+              requestedByMessageId: message.id,
+              triggerText: finalTranscript,
+              callerDisplayName: conversation?.wa_owners?.display_name ?? 'Avatar',
+              delayMinutes: outboundCallIntent.delayMinutes,
+            })
+            const ackPromise = sendMessage(
+              conversationId,
+              'avatar',
+              'text',
+              buildOutboundCallAck(finalTranscript, outboundCallIntent.delayMinutes),
+            )
+            const [ack] = await Promise.all([ackPromise, outboundCallPromise])
+            onMessageSent(ack as Message)
+            maybeAvatarReact(message.id)
+            return
+          } catch (callRequestError) {
+            console.error('[outbound-call-request][voice]', callRequestError)
+          }
+        }
+
         const retryAvatarReply = async () => {
-          onMessageUpdate(message.id, {
-            _pending: true,
-            _failed: false,
-            _errorMessage: undefined,
-            _retryFn: undefined,
-          })
           try {
             const retried = await sendAvatarReply(finalTranscript, {
               isVoice: true,
@@ -225,24 +253,13 @@ export function useVoiceRecording({
               userMessageId: message.id,
             })
             if (retried) {
-              onMessageUpdate(message.id, {
-                _pending: false,
-                _failed: false,
-                _errorMessage: undefined,
-                _retryFn: undefined,
-              })
               maybeAvatarReact(message.id)
               return
             }
           } catch (retryError) {
             console.error('[voice][avatar-retry]', retryError)
           }
-          onMessageUpdate(message.id, {
-            _pending: false,
-            _failed: true,
-            _errorMessage: 'Avatar response failed. Tap Resend to retry response generation.',
-            _retryFn: retryAvatarReply,
-          })
+          onError('Avatar response failed. Please try again in a moment.')
         }
 
         const voiceReplied = await sendAvatarReply(finalTranscript, {
@@ -252,20 +269,10 @@ export function useVoiceRecording({
           userMessageId: message.id,
         })
         if (voiceReplied) {
-          onMessageUpdate(message.id, {
-            _pending: false,
-            _failed: false,
-            _errorMessage: undefined,
-            _retryFn: undefined,
-          })
           maybeAvatarReact(message.id)
         } else {
-          onMessageUpdate(message.id, {
-            _pending: false,
-            _failed: true,
-            _errorMessage: 'Avatar response failed. Tap Resend to retry response generation.',
-            _retryFn: retryAvatarReply,
-          })
+          onError('Avatar response failed. Please try again in a moment.')
+          void retryAvatarReply()
         }
       } catch (recordingError: any) {
         console.error('[sendVoiceMessage]', recordingError)

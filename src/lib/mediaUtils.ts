@@ -160,6 +160,44 @@ export async function uploadMediaToStorage(
   return null
 }
 
+export async function uploadDocumentToStorage(
+  conversation: ConversationRef,
+  file: Blob & { name?: string; type: string },
+  uploaderUserId?: string | null,
+) {
+  const mimeType = (file.type || '').toLowerCase()
+  if (mimeType !== 'application/pdf') {
+    throw new Error('Only PDF files are supported')
+  }
+
+  const base64 = await blobToBase64(file)
+  const response = await fetch('/api/upload-document', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      media: base64,
+      conversationId: conversation.id,
+      ownerId: conversation.owner_id,
+      mimeType: 'application/pdf',
+      fileName: file.name || `document-${Date.now()}.pdf`,
+      uploaderUserId: uploaderUserId || null,
+    }),
+  })
+
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    throw new Error(data?.error || `upload-document failed (${response.status})`)
+  }
+
+  const doc = data?.document || {}
+  return {
+    documentId: String(doc.id || '').trim(),
+    fileUrl: String(doc.file_url || '').trim(),
+    fileName: String(doc.file_name || file.name || 'shared-document.pdf'),
+    extractionStatus: String(doc.extraction_status || 'pending'),
+  }
+}
+
 export async function getOpmConfig() {
   const response = await fetch('/api/config')
   const data = await response.json().catch(() => ({}))

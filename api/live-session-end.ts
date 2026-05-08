@@ -16,6 +16,8 @@ export default async function handler(req: any, res: any) {
   const ownerId = typeof body.ownerId === 'string' ? body.ownerId.trim() : ''
   const conversationId = typeof body.conversationId === 'string' ? body.conversationId.trim() : ''
   const meetingToken = typeof body.meetingToken === 'string' ? body.meetingToken.trim() : ''
+  const incomingCallId = typeof body.incomingCallId === 'string' ? body.incomingCallId.trim() : ''
+  const userId = typeof body.userId === 'string' ? body.userId.trim() : ''
   const endReason = String(body.reason || body.endReason || 'client_cleanup').trim()
 
   if (!sessionId) {
@@ -115,6 +117,44 @@ export default async function handler(req: any, res: any) {
         .eq('token', meetingToken)
       if (meetingUpdateError) {
         console.error('[live-session-end] failed to clear meeting live room fields', meetingUpdateError)
+      }
+    }
+
+    if (supabase && incomingCallId) {
+      try {
+        const { data: outboundCall } = await supabase
+          .from('wa_outbound_calls')
+          .select('trigger_text, caller_display_name, metadata')
+          .eq('id', incomingCallId)
+          .maybeSingle()
+
+        const metadata =
+          outboundCall?.metadata && typeof outboundCall.metadata === 'object'
+            ? (outboundCall.metadata as Record<string, unknown>)
+            : {}
+        const onboardingUserId = String(metadata.user_id || userId || '').trim()
+        const triggerText = String(outboundCall?.trigger_text || '').trim()
+        const onboardingFlag = Boolean(metadata.onboarding) || triggerText === 'onboarding_first_call'
+        const avatarName = String(
+          outboundCall?.caller_display_name || body.personaName || '',
+        ).trim()
+
+        if (onboardingFlag && onboardingUserId && avatarName) {
+          await supabase
+            .from('wa_user_onboarding')
+            .upsert(
+              {
+                user_id: onboardingUserId,
+                avatar_name: avatarName,
+                onboarding_completed: true,
+                onboarding_session_id: sessionId,
+                completed_at: new Date().toISOString(),
+              },
+              { onConflict: 'user_id,avatar_name' },
+            )
+        }
+      } catch (onboardingError) {
+        console.error('[live-session-end] onboarding completion update failed', onboardingError)
       }
     }
 

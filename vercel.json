@@ -3,6 +3,14 @@
     {
       "path": "/api/cron/health-ping",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/temporal-trigger",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/temporal-patterns",
+      "schedule": "0 */1 * * *"
     }
   ],
   "functions": {
@@ -15,6 +23,8 @@
     "api/transcribe.ts": { "maxDuration": 60 },
     "api/health-check.ts": { "maxDuration": 30 },
     "api/cron/health-ping.ts": { "maxDuration": 30 },
+    "api/cron/temporal-trigger.ts": { "maxDuration": 60 },
+    "api/cron/temporal-patterns.ts": { "maxDuration": 60 },
     "api/status-data.ts": { "maxDuration": 15 },
     "api/avatar-reply.ts": { "maxDuration": 60 }
   },

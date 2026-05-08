@@ -7,17 +7,21 @@ import Login from './pages/Login'
 import Signup from './pages/Signup'
 import Dashboard from './pages/Dashboard'
 import Invite from './pages/Invite'
+import InviteAccept from './pages/InviteAccept'
+import Onboarding from './pages/Onboarding'
 import Chat from './pages/Chat'
 import AvatarSelect from './pages/AvatarSelect'
 import Settings from './pages/Settings'
 import Status from './pages/Status'
 import AuthCallback from './pages/AuthCallback'
+import AuthResetPassword from './pages/AuthResetPassword'
 import VideoCall from './pages/VideoCall'
 import Perception from './pages/Perception'
 import MeetingLobby from './pages/MeetingLobby'
 import MeetingHost from './pages/MeetingHost'
 import OPMPerceptionPanelPreviewScreen from './screens/OPMPerceptionPanelPreviewScreen'
 import EcosystemConsole from './pages/EcosystemConsole'
+import IncomingCallOverlay from './components/IncomingCallOverlay'
 
 export default function App() {
   return (
@@ -25,9 +29,18 @@ export default function App() {
       <AuthProvider>
         <Routes>
           <Route path="/auth/callback" element={<AuthCallback />} />
+          <Route path="/auth/reset-password" element={<AuthResetPassword />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
-          <Route path="/invite/:token" element={<Invite />} />
+          <Route path="/invite/:inviteCode" element={<InviteAccept />} />
+          <Route
+            path="/onboarding"
+            element={
+              <ProtectedRoute>
+                <Onboarding />
+              </ProtectedRoute>
+            }
+          />
           <Route path="/status" element={<Status />} />
           <Route path="/meeting/:token" element={<MeetingLobby />} />
           <Route path="/chat/:conversationId" element={<Chat />} />
@@ -63,6 +76,14 @@ export default function App() {
             }
           />
           <Route
+            path="/invite"
+            element={
+              <OwnerRoute>
+                <Invite />
+              </OwnerRoute>
+            }
+          />
+          <Route
             path="/perception"
             element={
               <ProtectedRoute>
@@ -87,6 +108,7 @@ export default function App() {
             }
           />
         </Routes>
+        <IncomingCallOverlay />
       </AuthProvider>
     </BrowserRouter>
   )

@@ -12,24 +12,32 @@ export default function AuthCallback() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    const resolveNext = async (fallback: string) => {
+      const { data } = await supabase.auth.getUser()
+      const inviteCode = String(data.user?.user_metadata?.invite_code || '').trim()
+      return inviteCode ? '/onboarding' : fallback
+    }
+
     const url = new URL(window.location.href)
     const code = url.searchParams.get('code')
     const next = url.searchParams.get('next') || '/'
 
     if (code) {
-      supabase.auth.exchangeCodeForSession(code).then(({ error: authError }) => {
+      supabase.auth.exchangeCodeForSession(code).then(async ({ error: authError }) => {
         if (authError) {
           console.error('[AuthCallback] Code exchange failed:', authError.message)
           setError(authError.message)
           return
         }
-        navigate(next, { replace: true })
+        const target = url.searchParams.get('next') ? next : await resolveNext('/')
+        navigate(target, { replace: true })
       })
     } else {
       // No code — maybe a hash-based redirect (legacy). Let Supabase handle it.
-      supabase.auth.getSession().then(({ data: { session } }) => {
+      supabase.auth.getSession().then(async ({ data: { session } }) => {
         if (session) {
-          navigate(next, { replace: true })
+          const target = url.searchParams.get('next') ? next : await resolveNext('/')
+          navigate(target, { replace: true })
         } else {
           navigate('/login', { replace: true })
         }

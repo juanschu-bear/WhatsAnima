@@ -27,7 +27,7 @@ export default async function handler(req: any, res: any) {
     return res.status(400).json({ error: 'userId and minutes (number) are required' })
   }
 
-  const { data: usage } = await supabase
+  const { data: usage } = await (supabase as any)
     .from('wa_usage_limits')
     .select('id, call_minutes_used, call_minutes_limit, reset_at')
     .eq('user_id', userId)
@@ -42,7 +42,7 @@ export default async function handler(req: any, res: any) {
   let currentUsed = row.call_minutes_used
   if (new Date(row.reset_at).getTime() < Date.now()) {
     currentUsed = 0
-    await supabase
+    await (supabase as any)
       .from('wa_usage_limits')
       .update({
         call_minutes_used: 0,
@@ -57,7 +57,7 @@ export default async function handler(req: any, res: any) {
   const newUsed = currentUsed + minutes
   const limitReached = newUsed >= row.call_minutes_limit
 
-  await supabase
+  await (supabase as any)
     .from('wa_usage_limits')
     .update({
       call_minutes_used: newUsed,

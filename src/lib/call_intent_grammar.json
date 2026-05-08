@@ -1,0 +1,360 @@
+{
+  "version": "1.0.0",
+  "description": "WhatsAnima Call Intent Grammar — Multilingual intent recognition for avatar call triggers",
+  "updated": "2026-05-06",
+
+  "intent_types": {
+    "call_now": {
+      "description": "User wants the avatar to call them immediately",
+      "action": "trigger_outbound_call",
+      "delay_seconds": 0
+    },
+    "call_delayed": {
+      "description": "User wants the avatar to call them after a delay",
+      "action": "schedule_outbound_call",
+      "delay_seconds": "parsed_from_message"
+    },
+    "call_suggested": {
+      "description": "Avatar proactively suggests switching to a call",
+      "action": "suggest_call_to_user",
+      "delay_seconds": 0
+    },
+    "call_scheduled": {
+      "description": "User wants a call at a specific time (e.g. 'call me at 3pm')",
+      "action": "schedule_outbound_call_at",
+      "delay_seconds": "parsed_from_message"
+    }
+  },
+
+  "languages": {
+    "de": {
+      "code": "de",
+      "label": "Deutsch",
+      "call_verbs": [
+        "anrufen", "ruf", "rufe", "rufst", "anruf",
+        "call", "ring", "klingel",
+        "telefonier", "videocall", "video call"
+      ],
+      "call_nouns": [
+        "Anruf", "Call", "Videocall", "Gespräch", "Telefonat"
+      ],
+      "me_pronouns": [
+        "mich", "mir", "bei mir"
+      ],
+      "now_indicators": [
+        "jetzt", "sofort", "gleich", "direkt", "nun", "mal eben",
+        "gerade", "schnell", "kurz", "bitte jetzt"
+      ],
+      "delay_indicators": [
+        "in", "nach", "später", "warte", "nachher", "danach",
+        "nochmal", "gegen", "um"
+      ],
+      "time_units": {
+        "Sekunde": 1, "Sekunden": 1, "Sek": 1,
+        "Minute": 60, "Minuten": 60, "Min": 60,
+        "Stunde": 3600, "Stunden": 3600, "Std": 3600,
+        "halbe Stunde": 1800, "Viertelstunde": 900
+      },
+      "number_words": {
+        "eins": 1, "eine": 1, "einer": 1, "ein": 1,
+        "zwei": 2, "drei": 3, "vier": 4, "fünf": 5,
+        "sechs": 6, "sieben": 7, "acht": 8, "neun": 9,
+        "zehn": 10, "elf": 11, "zwölf": 12,
+        "fünfzehn": 15, "zwanzig": 20, "dreißig": 30,
+        "vierzig": 40, "fünfzig": 50,
+        "halb": 0.5, "halbe": 0.5, "viertel": 0.25,
+        "paar": 3, "ein paar": 3
+      },
+      "example_phrases": {
+        "call_now": [
+          "Ruf mich an",
+          "Ruf mich jetzt an",
+          "Kannst du mich anrufen?",
+          "Hey bro, kannst du mich jetzt anrufen?",
+          "Ruf mich mal eben an",
+          "Ich will mit dir telefonieren",
+          "Lass uns lieber per Anruf quatschen",
+          "Mach mal nen Videocall",
+          "Ruf mich bitte an",
+          "Call mich mal kurz",
+          "Können wir nicht lieber telefonieren?",
+          "Ruf an",
+          "Lass uns reden, ruf mich an"
+        ],
+        "call_delayed": [
+          "Ruf mich in 10 Minuten an",
+          "Ruf mich in zehn Minuten an",
+          "Kannst du mich in einer halben Stunde anrufen?",
+          "Ruf mich in 5 Min an",
+          "Ruf mich später nochmal an",
+          "Ruf mich in einer Stunde an",
+          "In 15 Minuten bitte anrufen",
+          "Ruf mich in ein paar Minuten an"
+        ]
+      },
+      "avatar_suggest_triggers": [
+        "Das ist ein komplexes Thema, lass uns das lieber per Anruf besprechen",
+        "Ich glaube, wir sollten lieber telefonieren — soll ich dich anrufen?",
+        "Das erkläre ich dir besser im Gespräch. Darf ich dich kurz anrufen?",
+        "Ich merke, das Thema braucht mehr Tiefe. Soll ich dich anrufen?"
+      ]
+    },
+
+    "en": {
+      "code": "en",
+      "label": "English",
+      "call_verbs": [
+        "call", "ring", "phone", "dial", "buzz",
+        "videocall", "video call", "facetime", "hop on a call"
+      ],
+      "call_nouns": [
+        "call", "video call", "chat", "conversation", "ring"
+      ],
+      "me_pronouns": [
+        "me", "my phone", "my number"
+      ],
+      "now_indicators": [
+        "now", "right now", "asap", "immediately", "quick",
+        "real quick", "rn", "straight away", "right away"
+      ],
+      "delay_indicators": [
+        "in", "after", "later", "wait", "give me",
+        "around", "at", "by"
+      ],
+      "time_units": {
+        "second": 1, "seconds": 1, "sec": 1, "secs": 1,
+        "minute": 60, "minutes": 60, "min": 60, "mins": 60,
+        "hour": 3600, "hours": 3600, "hr": 3600, "hrs": 3600,
+        "half hour": 1800, "half an hour": 1800, "quarter hour": 900
+      },
+      "number_words": {
+        "one": 1, "a": 1, "an": 1,
+        "two": 2, "three": 3, "four": 4, "five": 5,
+        "six": 6, "seven": 7, "eight": 8, "nine": 9,
+        "ten": 10, "eleven": 11, "twelve": 12,
+        "fifteen": 15, "twenty": 20, "thirty": 30,
+        "forty": 40, "fifty": 50,
+        "half": 0.5, "quarter": 0.25,
+        "few": 3, "a few": 3, "couple": 2, "a couple": 2
+      },
+      "example_phrases": {
+        "call_now": [
+          "Call me",
+          "Call me now",
+          "Can you call me?",
+          "Hey bro, can you call me right now?",
+          "Give me a call",
+          "Let's hop on a call",
+          "I'd rather talk on a call",
+          "Let's do a video call",
+          "Ring me up",
+          "Buzz me real quick",
+          "Can we talk instead of texting?",
+          "I wanna talk to you, call me",
+          "Let's switch to a call"
+        ],
+        "call_delayed": [
+          "Call me in 10 minutes",
+          "Call me in ten minutes",
+          "Can you call me in half an hour?",
+          "Call me in 5 min",
+          "Call me later",
+          "Call me in an hour",
+          "Give me 15 minutes then call me",
+          "Call me in a few minutes",
+          "Ring me in a couple of minutes"
+        ]
+      },
+      "avatar_suggest_triggers": [
+        "This is getting complex, let me call you so we can talk it through",
+        "I think we should hop on a call — want me to ring you?",
+        "This is better explained in a conversation. Can I call you?",
+        "I can tell this topic needs more depth. Should I call you?"
+      ]
+    },
+
+    "es": {
+      "code": "es",
+      "label": "Español",
+      "call_verbs": [
+        "llamar", "llámame", "llama", "llamas", "llamame",
+        "marcar", "telefonear", "videollamada", "video llamada"
+      ],
+      "call_nouns": [
+        "llamada", "videollamada", "conversación", "charla"
+      ],
+      "me_pronouns": [
+        "me", "a mí"
+      ],
+      "now_indicators": [
+        "ahora", "ya", "ahorita", "de una", "inmediatamente",
+        "rápido", "ya mismo", "ahora mismo", "porfa ya"
+      ],
+      "delay_indicators": [
+        "en", "después", "luego", "más tarde", "dentro de",
+        "espera", "a las", "por la"
+      ],
+      "time_units": {
+        "segundo": 1, "segundos": 1, "seg": 1,
+        "minuto": 60, "minutos": 60, "min": 60,
+        "hora": 3600, "horas": 3600,
+        "media hora": 1800, "cuarto de hora": 900
+      },
+      "number_words": {
+        "un": 1, "uno": 1, "una": 1,
+        "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5,
+        "seis": 6, "siete": 7, "ocho": 8, "nueve": 9,
+        "diez": 10, "once": 11, "doce": 12,
+        "quince": 15, "veinte": 20, "treinta": 30,
+        "cuarenta": 40, "cincuenta": 50,
+        "media": 0.5, "medio": 0.5, "cuarto": 0.25
+      },
+      "example_phrases": {
+        "call_now": [
+          "Llámame",
+          "Llámame ahora",
+          "¿Puedes llamarme?",
+          "Hey bro, ¿me puedes llamar?",
+          "Hazme una llamada",
+          "Mejor hablemos por llamada",
+          "Hagamos una videollamada",
+          "Márcame",
+          "Quiero hablar contigo, llámame",
+          "¿Podemos hablar en vez de escribir?"
+        ],
+        "call_delayed": [
+          "Llámame en 10 minutos",
+          "Llámame en diez minutos",
+          "¿Puedes llamarme en media hora?",
+          "Llámame en 5 min",
+          "Llámame más tarde",
+          "Llámame en una hora",
+          "Dame 15 minutos y me llamas",
+          "Llámame en un ratito"
+        ]
+      },
+      "avatar_suggest_triggers": [
+        "Esto se está poniendo complejo, mejor te llamo y lo hablamos",
+        "Creo que deberíamos hablar por llamada — ¿te llamo?",
+        "Esto te lo explico mejor hablando. ¿Te puedo llamar?",
+        "Noto que este tema necesita más profundidad. ¿Te llamo?"
+      ]
+    }
+  },
+
+  "detection_rules": {
+    "priority_order": ["call_delayed", "call_scheduled", "call_now"],
+    "minimum_confidence": 0.6,
+    "rules": [
+      {
+        "id": "explicit_call_verb_plus_me",
+        "description": "A call verb + me pronoun in any form",
+        "pattern": "contains(call_verbs) AND contains(me_pronouns)",
+        "confidence": 0.95,
+        "intent": "call_now"
+      },
+      {
+        "id": "explicit_call_verb_alone",
+        "description": "A call verb alone without me (e.g. 'ruf an', 'call')",
+        "pattern": "contains(call_verbs)",
+        "confidence": 0.7,
+        "intent": "call_now"
+      },
+      {
+        "id": "lets_talk_pattern",
+        "description": "Suggesting switching from text to call",
+        "pattern": "contains(['lieber', 'rather', 'mejor', 'statt', 'instead', 'vez de']) AND contains(call_nouns OR call_verbs)",
+        "confidence": 0.85,
+        "intent": "call_now"
+      },
+      {
+        "id": "delayed_with_number",
+        "description": "Call verb + delay indicator + number + time unit",
+        "pattern": "contains(call_verbs) AND contains(delay_indicators) AND contains(number_or_digit) AND contains(time_units)",
+        "confidence": 0.95,
+        "intent": "call_delayed"
+      },
+      {
+        "id": "delayed_with_word_number",
+        "description": "Call verb + delay indicator + word number + time unit",
+        "pattern": "contains(call_verbs) AND contains(delay_indicators) AND contains(number_words) AND contains(time_units)",
+        "confidence": 0.95,
+        "intent": "call_delayed"
+      },
+      {
+        "id": "delayed_vague",
+        "description": "Call verb + vague time (later, nachher, más tarde)",
+        "pattern": "contains(call_verbs) AND contains(['später', 'later', 'más tarde', 'nachher', 'luego'])",
+        "confidence": 0.8,
+        "intent": "call_delayed",
+        "default_delay_seconds": 300
+      },
+      {
+        "id": "question_form_call",
+        "description": "Question asking if avatar can call (können/can/puedes + call verb)",
+        "pattern": "contains(['kannst', 'können', 'könntest', 'can', 'could', 'would', 'puedes', 'podrías', 'quieres']) AND contains(call_verbs)",
+        "confidence": 0.9,
+        "intent": "call_now"
+      }
+    ]
+  },
+
+  "avatar_proactive_call_conditions": {
+    "description": "Conditions under which the avatar should suggest switching to a call",
+    "triggers": [
+      {
+        "condition": "message_count_in_topic > 8",
+        "description": "Long back-and-forth on one topic suggests a call would be faster"
+      },
+      {
+        "condition": "user_emotion_intensity > 0.7",
+        "description": "High emotional intensity detected via OPM suggests voice would be better"
+      },
+      {
+        "condition": "topic_complexity_high AND user_questions > 3",
+        "description": "Complex topic with many questions — better in real-time"
+      },
+      {
+        "condition": "user_says_confused OR user_says_overwhelmed",
+        "description": "User expresses confusion or feeling overwhelmed"
+      }
+    ],
+    "cooldown_minutes": 30,
+    "max_suggestions_per_session": 2
+  },
+
+  "delay_parser": {
+    "description": "How to parse delay from user message",
+    "steps": [
+      "1. Find delay_indicator in message",
+      "2. Find number (digit or number_word) after delay_indicator",
+      "3. Find time_unit after number",
+      "4. Calculate: delay_seconds = number * time_unit_seconds",
+      "5. If number_word is fractional (halb/half/media), multiply accordingly",
+      "6. If no number found but 'later/später/luego' present, default to 300s (5 min)",
+      "7. If 'couple/paar' found, use 2-3 as number",
+      "8. Cap maximum delay at 86400 seconds (24 hours)"
+    ]
+  },
+
+  "response_templates": {
+    "de": {
+      "call_now_confirm": "Alles klar, ich rufe dich jetzt an.",
+      "call_delayed_confirm": "Verstanden, ich rufe dich in {delay_human} an.",
+      "call_suggest": "Hey, ich merke, das Thema ist komplex. Soll ich dich kurz anrufen? Dann können wir das besser besprechen.",
+      "call_failed": "Ich konnte die Verbindung leider nicht aufbauen. Versuch es nochmal oder schreib mir einfach weiter."
+    },
+    "en": {
+      "call_now_confirm": "Got it, calling you now.",
+      "call_delayed_confirm": "Alright, I'll call you in {delay_human}.",
+      "call_suggest": "Hey, I can tell this topic needs more depth. Want me to call you? It'll be faster to talk it through.",
+      "call_failed": "Couldn't connect the call. Try again or we can keep chatting here."
+    },
+    "es": {
+      "call_now_confirm": "Dale, te llamo ahora.",
+      "call_delayed_confirm": "Entendido, te llamo en {delay_human}.",
+      "call_suggest": "Oye, noto que este tema necesita más profundidad. ¿Te llamo? Será más rápido hablarlo.",
+      "call_failed": "No pude conectar la llamada. Inténtalo de nuevo o seguimos por chat."
+    }
+  }
+}

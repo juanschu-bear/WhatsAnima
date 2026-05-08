@@ -1,5 +1,7 @@
 import crypto from 'node:crypto'
 import { createClient } from '@supabase/supabase-js'
+import { syncChannelState } from './_lib/channelConsistency.js'
+import { normalizeCallSummaryText } from './_lib/callSummary.js'
 
 type ChatHistoryMessage = {
   role: 'user' | 'assistant'
@@ -7,7 +9,7 @@ type ChatHistoryMessage = {
   msgType: string
 }
 
-type MessageType = 'text' | 'voice' | 'video' | 'image' | 'flashcard' | 'quiz' | 'lesson' | 'fillin' | 'call_summary' | 'system'
+type MessageType = 'text' | 'voice' | 'video' | 'image' | 'document' | 'flashcard' | 'quiz' | 'lesson' | 'fillin' | 'call_summary' | 'system'
 
 const DEFAULT_JORDAN_OWNER_ID = '77ad10a6-1d73-4201-9e81-e6be996d130a'
 
@@ -40,6 +42,87 @@ function sanitizeContent(raw: unknown): string {
   const text = typeof raw === 'string' ? raw.trim() : ''
   if (!text) return ''
   return text.replace(/```generate_image\s*\n?[\s\S]*?\n?```/g, '').trim()
+}
+
+async function buildDocumentContextForMessage(
+  supabase: ReturnType<typeof createClient>,
+  conversationId: string,
+  query: string,
+) {
+  const { data: docs } = await supabase
+    .from('wa_documents')
+    .select('id, file_name')
+    .eq('conversation_id', conversationId)
+    .eq('extraction_status', 'ready')
+    .order('created_at', { ascending: false })
+    .limit(4)
+
+  const docIds = (docs || []).map((row: any) => String(row.id || '').trim()).filter(Boolean)
+  if (docIds.length === 0) return { text: '', documentIds: [] as string[] }
+
+  const { data: chunks } = await supabase
+    .from('wa_document_chunks')
+    .select('document_id, chunk_index, content')
+    .in('document_id', docIds)
+    .limit(240)
+
+  const tokenize = (text: string) =>
+    text
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter((item) => item.length >= 3)
+
+  const queryTokens = new Set(tokenize(query))
+  const ranked = (chunks || [])
+    .map((chunk: any) => {
+      const content = String(chunk.content || '')
+      const score = tokenize(content).reduce((sum, token) => sum + (queryTokens.has(token) ? 1 : 0), 0)
+      return { ...chunk, content, score }
+    })
+    .sort((a: any, b: any) => {
+      if (b.score !== a.score) return b.score - a.score
+      return Number(a.chunk_index || 0) - Number(b.chunk_index || 0)
+    })
+    .slice(0, 4)
+
+  const nameById = new Map<string, string>()
+  for (const doc of docs || []) {
+    nameById.set(String(doc.id || '').trim(), String(doc.file_name || 'Document').trim())
+  }
+
+  const lines: string[] = []
+  for (const chunk of ranked) {
+    const title = nameById.get(String(chunk.document_id || '').trim()) || 'Document'
+    lines.push(`[${title}] ${String(chunk.content || '').slice(0, 700)}`)
+  }
+
+  if (lines.length === 0) return { text: '', documentIds: docIds }
+  return {
+    text: `[SHARED DOCUMENT CONTEXT]\n${lines.join('\n\n')}\n\nUse these excerpts when relevant and reference them naturally.`,
+    documentIds: docIds,
+  }
+}
+
+export function mapHistoryRowsToChatHistory(rows: any[], userMessageId?: string | null): ChatHistoryMessage[] {
+  return (rows || [])
+    .filter((message: any) => !userMessageId || String(message.id) !== String(userMessageId))
+    .slice()
+    .reverse()
+    .map((message: any): ChatHistoryMessage => ({
+      role: (message.sender === 'contact' ? 'user' : 'assistant') as 'user' | 'assistant',
+      content:
+        String(message.type || '') === 'call_summary'
+          ? `Call summary: ${normalizeCallSummaryText(message.content)}`
+          : String(message.type || '') === 'document'
+            ? `[DOCUMENT] ${String(message.content || '').trim()} ${String(message.media_url || '').trim()}`.trim()
+          : String(message.content || '').trim(),
+      msgType: String(message.type || 'text'),
+    }))
+    .filter((message: ChatHistoryMessage) => message.content.length > 0)
+    .slice(-10)
 }
 
 function getAllowedCfoOwnerIds(): Set<string> {
@@ -93,19 +176,19 @@ async function mirrorFinancialConversationToCfo(params: {
   if (!looksFinancialMessage(userMessage)) return
 
   if (userMessageId) {
-    const { data: existing } = await supabase
+    const { data: existing } = await (supabase as any)
       .from('cfo_transactions')
       .select('id')
       .eq('owner_id', ownerId)
       .eq('message_id', userMessageId)
       .limit(1)
       .maybeSingle()
-    if (existing?.id) return
+    if ((existing as any)?.id) return
   }
 
   const parsed = parseAmountAndCurrency(userMessage)
   const shortNote = userMessage.slice(0, 500)
-  await supabase.from('cfo_transactions').insert({
+  await (supabase as any).from('cfo_transactions').insert({
     owner_id: ownerId,
     contact_id: contactId,
     conversation_id: conversationId,
@@ -136,7 +219,7 @@ async function mirrorFinancialConversationToCfo(params: {
   })
 
   if (ownerUserId) {
-    await supabase.from('ad_cfo_events').insert({
+    const cfoEventInsert = await (supabase as any).from('ad_cfo_events').insert({
       user_id: ownerUserId,
       event_type: 'whatsanima_financial_turn',
       source: 'whatsanima.avatar-reply',
@@ -150,7 +233,10 @@ async function mirrorFinancialConversationToCfo(params: {
         amount: parsed.amount,
         currency: parsed.currency,
       },
-    }).catch(() => undefined)
+    })
+    if (cfoEventInsert?.error) {
+      console.warn('[avatar-reply] ad_cfo_events insert failed:', cfoEventInsert.error.message)
+    }
   }
 }
 
@@ -169,11 +255,13 @@ export default async function handler(req: any, res: any) {
     conversationId,
     userMessage,
     userMessageId,
+    timezone,
     options,
   }: {
     conversationId?: string
     userMessage?: string
     userMessageId?: string
+    timezone?: string
     options?: {
       useVoice?: boolean
       imageUrl?: string
@@ -239,26 +327,31 @@ export default async function handler(req: any, res: any) {
 
     const { data: historyRows } = await supabase
       .from('wa_messages')
-      .select('sender, type, content, created_at')
+      .select('id, sender, type, content, media_url, created_at')
       .eq('conversation_id', conversationId)
-      .neq('type', 'call_summary')
       .order('created_at', { ascending: false })
-      .limit(10)
+      .limit(24)
 
-    const history: ChatHistoryMessage[] = (historyRows || [])
-      .slice()
-      .reverse()
-      .map((message: any) => ({
-        role: message.sender === 'contact' ? 'user' : 'assistant',
-        content: String(message.content || '').trim(),
-        msgType: String(message.type || 'text'),
-      }))
-      .filter((message) => message.content.length > 0)
+    const history: ChatHistoryMessage[] = mapHistoryRowsToChatHistory(historyRows || [], userMessageId || null)
 
     const origin = getOrigin(req)
     if (!origin) {
       return res.status(500).json({ error: 'Unable to resolve API origin' })
     }
+
+    await syncChannelState({
+      supabase,
+      conversationId,
+      channel: options?.isVoice ? 'voice' : options?.isVideo ? 'video' : 'chat',
+      timezone: String(timezone || 'UTC'),
+      messageText: userMessage,
+    })
+
+    const documentContext = await buildDocumentContextForMessage(
+      supabase,
+      conversationId,
+      userMessage,
+    )
 
     const chatResponse = await fetch(`${origin}/api/chat`, {
       method: 'POST',
@@ -268,6 +361,8 @@ export default async function handler(req: any, res: any) {
         conversationId,
         ownerId,
         ownerName: ownerRow?.display_name || null,
+        metadata: { timezone: String(timezone || 'UTC') },
+        timezone: String(timezone || 'UTC'),
         history,
         image_url: options?.imageUrl,
         isImage: Boolean(options?.isImage),
@@ -275,6 +370,8 @@ export default async function handler(req: any, res: any) {
         isVoice: Boolean(options?.isVoice),
         perception: options?.perception ?? null,
         userMessageId: userMessageId || null,
+        documentContext: documentContext.text || null,
+        documentIds: documentContext.documentIds,
       }),
     })
 

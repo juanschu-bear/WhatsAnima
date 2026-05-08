@@ -39,6 +39,12 @@ export default function Home() {
 
     // Check role and route accordingly
     async function routeByRole() {
+      const inviteCode = String(user?.user_metadata?.invite_code || '').trim()
+      if (inviteCode) {
+        navigate('/onboarding', { replace: true })
+        return
+      }
+
       // Check if owner
       const { data: ownerData } = await supabase
         .from('wa_owners')

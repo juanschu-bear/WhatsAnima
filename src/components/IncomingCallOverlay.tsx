@@ -1,0 +1,254 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
+import { useAuth } from '../contexts/AuthContext'
+import { type OutboundCallRecord, pollOutboundCall, respondToOutboundCall } from '../lib/api'
+import { playNotificationSound, showLocalNotification } from '../lib/notifications'
+
+const LAST_CONTACT_EMAIL_KEY = 'wa_last_contact_email'
+const INCOMING_CALL_CONTEXT_PREFIX = 'wa_incoming_call_context:'
+const INCOMING_CALL_PREWARM_PREFIX = 'wa_incoming_call_prewarm:'
+
+function normalizeOutboundLanguage(value: unknown): 'en' | 'de' | 'es' {
+  const v = String(value || '').trim().toLowerCase()
+  if (v === 'de' || v === 'deu' || v === 'german') return 'de'
+  if (v === 'es' || v === 'spa' || v === 'spanish') return 'es'
+  return 'en'
+}
+
+function resolveUserTimezone(): string {
+  return (typeof Intl !== 'undefined' && Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC'
+}
+
+export default function IncomingCallOverlay() {
+  const { user, loading } = useAuth()
+  const navigate = useNavigate()
+  const location = useLocation()
+  const [call, setCall] = useState<OutboundCallRecord | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [fallbackEmail, setFallbackEmail] = useState('')
+  const seenCallRef = useRef<string | null>(null)
+  const prewarmedCallIdsRef = useRef<Set<string>>(new Set())
+  const failureCountRef = useRef(0)
+  const pausePollingUntilRef = useRef(0)
+
+  useEffect(() => {
+    try {
+      const cached = String(localStorage.getItem(LAST_CONTACT_EMAIL_KEY) || '').trim().toLowerCase()
+      if (cached) setFallbackEmail(cached)
+    } catch {
+      // Ignore localStorage access errors.
+    }
+  }, [])
+
+  const contactEmail = String(fallbackEmail || '').trim().toLowerCase()
+  const authEmail = String(user?.email || '').trim().toLowerCase()
+  const pollEmails = [contactEmail, authEmail].filter((value, index, all) => value && all.indexOf(value) === index)
+  const isOnCallScreen = location.pathname.startsWith('/video-call/')
+
+  async function prewarmIncomingSession(call: OutboundCallRecord) {
+    if (!call.id || prewarmedCallIdsRef.current.has(call.id)) return
+    prewarmedCallIdsRef.current.add(call.id)
+    try {
+      const metadataPrewarmed =
+        call?.metadata && typeof call.metadata === 'object'
+          ? (call.metadata as Record<string, unknown>).prewarmed_session
+          : null
+      const prewarmedFromMetadata =
+        metadataPrewarmed && typeof metadataPrewarmed === 'object'
+          ? (metadataPrewarmed as Record<string, unknown>)
+          : null
+      if (prewarmedFromMetadata?.session_id && prewarmedFromMetadata?.join_url) {
+        sessionStorage.setItem(
+          `${INCOMING_CALL_PREWARM_PREFIX}${call.id}`,
+          JSON.stringify(prewarmedFromMetadata),
+        )
+        return
+      }
+
+      const response = await fetch('/api/video-call', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          persona_name: call.caller_display_name || 'Avatar',
+          persona: call.caller_display_name || 'Avatar',
+          language: normalizeOutboundLanguage(
+            (call.metadata as Record<string, unknown> | null | undefined)?.language,
+          ),
+          timezone: String(
+            (call.metadata as Record<string, unknown> | null | undefined)?.timezone || resolveUserTimezone(),
+          ),
+          conversation_id: call.conversation_id,
+          owner_id: call.owner_id || null,
+          contact_id: call.contact_id || null,
+          incoming_call_id: call.id,
+        }),
+      })
+      if (!response.ok) return
+      const payload = await response.json().catch(() => ({}))
+      if (payload?.session_id && payload?.join_url) {
+        sessionStorage.setItem(`${INCOMING_CALL_PREWARM_PREFIX}${call.id}`, JSON.stringify(payload))
+      }
+    } catch {
+      // Prewarm is best-effort only.
+    }
+  }
+
+  useEffect(() => {
+    if (loading || pollEmails.length === 0 || isOnCallScreen) return
+    let active = true
+
+    const refresh = async () => {
+      if (Date.now() < pausePollingUntilRef.current) return
+      try {
+        let payload: { call: OutboundCallRecord | null } | null = null
+        for (const email of pollEmails) {
+          payload = await pollOutboundCall(email)
+          if (payload.call) break
+        }
+        if (!payload) return
+        failureCountRef.current = 0
+        if (!active) return
+        const nextCall = payload.call
+        setCall(nextCall)
+
+        if (nextCall && seenCallRef.current !== nextCall.id) {
+          seenCallRef.current = nextCall.id
+          void prewarmIncomingSession(nextCall)
+          if (document.visibilityState === 'visible') {
+            playNotificationSound('pulse')
+          } else {
+            showLocalNotification(
+              `${nextCall.caller_display_name || 'Your avatar'} is calling`,
+              'Tap to answer the incoming video call.',
+              nextCall.conversation_id,
+            )
+          }
+        }
+      } catch (error) {
+        failureCountRef.current += 1
+        const failures = failureCountRef.current
+        // Back off on repeated poll failures to avoid console spam and error loops.
+        if (failures >= 3) {
+          const backoffMs = Math.min(60_000, 5_000 * 2 ** Math.min(failures - 3, 4))
+          pausePollingUntilRef.current = Date.now() + backoffMs
+        }
+        if (failures <= 2 || failures % 6 === 0) {
+          console.warn('[IncomingCallOverlay] poll failed', error)
+        }
+      }
+    }
+
+    void refresh()
+    const timer = window.setInterval(() => {
+      void refresh()
+    }, 5000)
+
+    return () => {
+      active = false
+      window.clearInterval(timer)
+    }
+  }, [pollEmails, loading, isOnCallScreen])
+
+  useEffect(() => {
+    if (!call) return
+    let active = true
+    const ring = () => {
+      if (!active) return
+      if (document.visibilityState === 'visible') {
+        playNotificationSound('pulse')
+        if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+          navigator.vibrate?.([140, 100, 160])
+        }
+      }
+    }
+    ring()
+    const timer = window.setInterval(ring, 2200)
+    return () => {
+      active = false
+      window.clearInterval(timer)
+    }
+  }, [call?.id])
+
+  const callerName = useMemo(() => call?.caller_display_name || 'Your avatar', [call])
+
+  async function respond(action: 'accept' | 'decline') {
+    if (!call || busy) return
+    setBusy(true)
+    try {
+      const payload = await respondToOutboundCall(call.id, action)
+      setCall(null)
+      if (action === 'accept') {
+        try {
+          const context = {
+            trigger_text: call.trigger_text || '',
+            language: normalizeOutboundLanguage(
+              (call.metadata as Record<string, unknown> | null | undefined)?.language,
+            ),
+            requested_at: call.requested_at || '',
+            conversation_id: call.conversation_id || '',
+            caller_display_name: call.caller_display_name || '',
+          }
+          sessionStorage.setItem(
+            `${INCOMING_CALL_CONTEXT_PREFIX}${call.id}`,
+            JSON.stringify(context),
+          )
+          if (payload.prewarmedSession?.session_id && payload.prewarmedSession?.join_url) {
+            sessionStorage.setItem(
+              `${INCOMING_CALL_PREWARM_PREFIX}${call.id}`,
+              JSON.stringify(payload.prewarmedSession),
+            )
+          }
+        } catch {
+          // Ignore storage failures; call still proceeds.
+        }
+        const relative = payload.joinUrl.replace(/^https?:\/\/[^/]+/i, '')
+        navigate(relative)
+      }
+    } catch (error) {
+      console.error('[IncomingCallOverlay] response failed', error)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (!call || isOnCallScreen) return null
+
+  return (
+    <div className="pointer-events-none fixed inset-0 z-[120] flex items-end justify-center bg-[radial-gradient(circle_at_top,rgba(83,239,217,0.14),transparent_38%),rgba(2,6,12,0.55)] p-4 sm:items-center">
+      <div className="pointer-events-auto w-full max-w-md rounded-[28px] border border-[#78f0de]/24 bg-[linear-gradient(180deg,rgba(11,20,31,0.99),rgba(7,14,22,0.99))] p-5 shadow-[0_25px_80px_rgba(0,0,0,0.45)] backdrop-blur-2xl ring-1 ring-[#79f5e4]/25 animate-[pulse_2.2s_ease-in-out_infinite]">
+        <div className="flex items-center gap-3">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[rgba(66,214,193,0.18)] text-[#9af8ea]">
+            <svg className="h-6 w-6" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M17 10.5V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-3.5l4 4v-11l-4 4z" />
+            </svg>
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs uppercase tracking-[0.22em] text-[#9af8ea]/70">Incoming Call</p>
+            <h2 className="truncate text-xl font-semibold text-white">{callerName}</h2>
+            <p className="mt-1 text-sm text-white/62">Wants to talk with you now.</p>
+            <p className="mt-2 text-[11px] uppercase tracking-[0.2em] text-[#9af8ea]/80">Ringing...</p>
+          </div>
+        </div>
+
+        <div className="mt-5 flex gap-3">
+          <button
+            type="button"
+            onClick={() => void respond('decline')}
+            disabled={busy}
+            className="flex-1 rounded-full border border-white/12 bg-white/[0.04] px-5 py-3 text-sm font-medium text-white/78 transition hover:bg-white/[0.08] disabled:opacity-50"
+          >
+            Decline
+          </button>
+          <button
+            type="button"
+            onClick={() => void respond('accept')}
+            disabled={busy}
+            className="flex-1 rounded-full bg-[linear-gradient(135deg,#56dfc8,#5faeff)] px-5 py-3 text-sm font-semibold text-[#04131d] shadow-[0_10px_30px_rgba(95,174,255,0.28)] transition hover:brightness-105 disabled:opacity-50"
+          >
+            Answer
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}

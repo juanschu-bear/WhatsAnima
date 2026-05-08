@@ -95,7 +95,7 @@ async function mirrorToAnimaDrive(params: {
     throw new Error(`anima-drive storage upload failed: ${storageErr.message}`)
   }
 
-  const { error: docErr } = await supabase.from('ad_documents').insert({
+  const { error: docErr } = await (supabase as any).from('ad_documents').insert({
     id: documentId,
     user_id: ownerId,
     filename: `${displayName}.${ext}`.slice(0, 255),
@@ -115,7 +115,7 @@ async function mirrorToAnimaDrive(params: {
     throw new Error(`anima-drive ad_documents insert failed: ${docErr.message}`)
   }
 
-  const { error: exErr } = await supabase.from('ad_extractions').insert({
+  const { error: exErr } = await (supabase as any).from('ad_extractions').insert({
     document_id: documentId,
     document_type: 'financial',
     summary:
@@ -143,7 +143,7 @@ async function mirrorToAnimaDrive(params: {
     throw new Error(`anima-drive ad_extractions insert failed: ${exErr.message}`)
   }
 
-  await supabase.from('ad_activities').insert([
+  await (supabase as any).from('ad_activities').insert([
     {
       user_id: ownerId,
       document_id: documentId,
