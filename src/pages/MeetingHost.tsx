@@ -5,17 +5,8 @@ import { createOwnerIfNeeded, listAllOwners } from '../lib/api'
 import { resolveAvatarUrl } from '../lib/avatars'
 import { getCanonicalAppUrl } from '../lib/canonicalOrigin'
 
-function normalizeLiveCallApiBase(raw?: string) {
-  const normalized = String(raw || '')
-    .trim()
-    .replace(/\/+$/, '')
-    .replace(/\/api$/, '')
-  if (!normalized) return 'https://boardroom-api.onioko.com'
-  if (normalized === 'https://anima.onioko.com') return 'https://boardroom-api.onioko.com'
-  return normalized
-}
-
-const LIVE_CALL_API_BASE = normalizeLiveCallApiBase(import.meta.env.VITE_LIVE_CALL_API_BASE as string | undefined)
+const LIVE_CALL_API_BASE =
+  (import.meta.env.VITE_LIVE_CALL_API_BASE as string | undefined) || 'https://boardroom-api.onioko.com'
 
 type MeetingSession = {
   token: string
