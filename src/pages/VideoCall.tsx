@@ -2794,10 +2794,11 @@ export default function VideoCall() {
                       <div className="relative h-full w-full p-3 sm:p-4">
                         <div className="flex h-full w-full items-center justify-center">
                           <div
-                            className="w-full"
+                            className="h-full"
                             style={{
-                              aspectRatio: String(livekitRemoteAspect),
-                              maxHeight: 'min(100%, 80vh)',
+                              aspectRatio: String(Math.max(livekitRemoteAspect, 3 / 4)),
+                              maxHeight: '100%',
+                              maxWidth: '100%',
                             }}
                           >
                             <LivekitVideoTile
@@ -2825,15 +2826,14 @@ export default function VideoCall() {
                         </div>
                       </div>
                     ) : (
-                      <div
-                        className="grid h-full w-full items-center justify-center gap-3 p-3 sm:gap-4 sm:p-4"
-                        style={{
-                          gridTemplateColumns: `${livekitRemoteAspect}fr ${livekitLocalAspect}fr`,
-                        }}
-                      >
+                      <div className="flex h-full w-full items-center justify-center gap-3 p-3 sm:gap-4 sm:p-4">
                         <div
-                          className="mx-auto w-full"
-                          style={{ aspectRatio: String(livekitRemoteAspect) }}
+                          className="h-full shrink-0"
+                          style={{
+                            aspectRatio: String(Math.max(livekitRemoteAspect, 3 / 4)),
+                            maxHeight: '100%',
+                            maxWidth: '48%',
+                          }}
                         >
                           <LivekitVideoTile
                             track={livekitRemoteVideo}
@@ -2845,8 +2845,12 @@ export default function VideoCall() {
                           />
                         </div>
                         <div
-                          className="mx-auto w-full"
-                          style={{ aspectRatio: String(livekitLocalAspect) }}
+                          className="h-full shrink-0"
+                          style={{
+                            aspectRatio: String(Math.max(livekitLocalAspect, 3 / 4)),
+                            maxHeight: '100%',
+                            maxWidth: '48%',
+                          }}
                         >
                           <LivekitVideoTile
                             track={livekitLocalVideo}
