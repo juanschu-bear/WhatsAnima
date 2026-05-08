@@ -33,7 +33,7 @@ interface BackendPersona {
 }
 
 const LIVE_CALL_API_BASE =
-  (import.meta.env.VITE_LIVE_CALL_API_BASE as string | undefined) || 'https://boardroom-api.onioko.com'
+  (import.meta.env.VITE_LIVE_CALL_API_BASE as string | undefined) || 'https://anima.onioko.com'
 const FALLBACK_REPLICA_ID = 'r987f6e6f73c'
 const JUAN_LOCKED_REPLICA_ID = 'rf5414018e80'
 const HEARTBEAT_INTERVAL_MS = 15_000
@@ -139,29 +139,6 @@ function buildUserName(user: ReturnType<typeof useAuth>['user'], conversation: C
     user?.email ||
     'WhatsAnima User'
   )
-}
-
-function formatCallDuration(seconds: number): string {
-  const safeSeconds = Math.max(0, Math.floor(seconds))
-  const hours = Math.floor(safeSeconds / 3600)
-  const minutes = Math.floor((safeSeconds % 3600) / 60)
-  const secs = safeSeconds % 60
-  if (hours > 0) {
-    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
-  }
-  return `${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
-}
-
-function serializeLivekitTranscript(blocks: LivekitTranscriptBlock[]): string {
-  if (!Array.isArray(blocks) || blocks.length === 0) return ''
-  const lines: string[] = []
-  for (const block of blocks) {
-    const text = block.segments.map((segment) => segment.text.trim()).filter(Boolean).join(' ').trim()
-    if (!text) continue
-    const speaker = block.displayName?.trim() || (block.kind === 'agent' ? 'Avatar' : 'User')
-    lines.push(`${speaker}: ${text}`)
-  }
-  return lines.join('\n').slice(0, 120_000)
 }
 
 function resolveTavusConversationId(joinUrl: string | null | undefined): string {
@@ -436,26 +413,38 @@ function sortParticipants(participants: any[]) {
   return [...participants].sort((a, b) => Number(Boolean(b?.local)) - Number(Boolean(a?.local)))
 }
 
+// Strip trailing model-name parentheticals like "(Haiku)", "(Sonnet)", "(Opus)"
+// for UI display only. Preserves intentional suffixes like "(Elite)".
+function formatDisplayName(name: string | null | undefined): string {
+  if (!name) return ''
+  return name.replace(/\s*\((?:haiku|sonnet|opus|claude[^)]*)\)\s*$/i, '').trim()
+}
+
+function getGridColumns(count: number) {
+  if (count <= 1) return 1
+  if (count === 2) return 2
+  if (count === 3) return 3
+  if (count === 4) return 2
+  if (count <= 6) return 3
+  if (count <= 9) return 3
+  return 4
+}
+
 function ParticipantTile({
   participant,
   isLocal,
   isActive,
   isCameraEnabled,
-  videoFit = 'cover',
-  zoom = 1,
 }: {
   participant: any
   isLocal: boolean
   isActive: boolean
   isCameraEnabled: boolean
-  videoFit?: 'cover' | 'contain'
-  zoom?: number
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const hasVideoTrack = Boolean(getParticipantTrack(participant, 'video'))
   const showVideo = hasVideoTrack && (!isLocal || isCameraEnabled)
   const label = (isLocal ? 'You' : getParticipantName(participant)) || 'Guest'
-  const videoFitClass = videoFit === 'contain' ? 'object-contain' : 'object-cover'
 
   useEffect(() => {
     const stream = showVideo ? buildParticipantStream(participant, !isLocal) : null
@@ -474,8 +463,8 @@ function ParticipantTile({
           autoPlay
           muted={isLocal}
           playsInline
-          className={`h-full w-full bg-black ${videoFitClass}`}
-          style={{ transform: `${isLocal ? 'scaleX(-1) ' : ''}scale(${zoom})` }}
+          className="h-full w-full object-cover"
+          style={isLocal ? { transform: 'scaleX(-1)' } : undefined}
         />
       ) : (
         <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.08),transparent_45%),linear-gradient(180deg,rgba(14,19,30,0.98),rgba(7,10,18,0.98))] px-4 text-center">
@@ -501,18 +490,12 @@ function LivekitVideoTile({
   label,
   isActive,
   cameraEnabled,
-  videoFit = 'cover',
-  shape = 'tile',
-  zoom = 1,
 }: {
   track: LivekitVideoTrack | null
   isLocal: boolean
   label: string
   isActive: boolean
   cameraEnabled: boolean
-  videoFit?: 'cover' | 'contain'
-  shape?: 'tile' | 'bubble'
-  zoom?: number
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const shouldShow = Boolean(track) && (!isLocal || cameraEnabled)
@@ -526,33 +509,28 @@ function LivekitVideoTile({
     }
   }, [track, shouldShow])
 
-  const roundedClass = shape === 'bubble' ? 'rounded-[24px]' : 'rounded-[22px]'
-  const videoFitClass = videoFit === 'contain' ? 'object-contain' : 'object-cover'
-
   return (
     <div
-      className={`relative h-full w-full overflow-hidden border bg-black/70 shadow-[0_18px_60px_rgba(0,0,0,0.35)] ${roundedClass} ${
+      className={`relative h-full w-full overflow-hidden rounded-[22px] border bg-black/70 shadow-[0_18px_60px_rgba(0,0,0,0.35)] ${
         isActive ? 'border-[#70f0de]/70 ring-2 ring-[#70f0de]/30' : 'border-white/10'
       }`}
     >
       {shouldShow ? (
-        <div className="flex h-full w-full items-center justify-center bg-black">
-          <video
-            ref={videoRef}
-            autoPlay
-            muted={isLocal}
-            playsInline
-            className={`h-full w-full ${videoFitClass}`}
-            style={{ transform: `${isLocal ? 'scaleX(-1) ' : ''}scale(${zoom})` }}
-          />
-        </div>
+        <video
+          ref={videoRef}
+          autoPlay
+          muted={isLocal}
+          playsInline
+          className="h-full w-full object-cover"
+          style={isLocal ? { transform: 'scaleX(-1)' } : undefined}
+        />
       ) : (
         <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.08),transparent_45%),linear-gradient(180deg,rgba(14,19,30,0.98),rgba(7,10,18,0.98))] px-4 text-center">
           <div className="text-sm font-semibold text-white/85">{label}</div>
           <div className="text-xs text-white/55">{isLocal ? 'Camera off' : 'Waiting for video...'}</div>
         </div>
       )}
-      <div className={`absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/72 to-transparent text-white/80 ${shape === 'bubble' ? 'px-3 py-1.5 text-[10px]' : 'px-3 py-2 text-[11px]'}`}>
+      <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/72 to-transparent px-3 py-2 text-[11px] text-white/80">
         <span className="truncate">{label}</span>
         {isActive ? (
           <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#70f0de]">Live</span>
@@ -612,64 +590,6 @@ const LIVEKIT_CHAT_TOPIC = 'lk.chat'
 const LIVEKIT_SEGMENT_ID_ATTR = 'lk.segment_id'
 const LIVEKIT_TRACK_ID_ATTR = 'lk.transcribed_track_id'
 const LIVEKIT_FINAL_ATTR = 'lk.transcription_final'
-const INCOMING_CALL_CONTEXT_PREFIX = 'wa_incoming_call_context:'
-const INCOMING_CALL_PREWARM_PREFIX = 'wa_incoming_call_prewarm:'
-const ONBOARDING_TRIGGER = 'onboarding_first_call'
-const VIDEO_ZOOM_MIN = 0.4
-const VIDEO_ZOOM_MAX = 1.6
-const VIDEO_ZOOM_STEP = 0.05
-const VIDEO_ZOOM_DEFAULT_REMOTE = 1.2
-const VIDEO_ZOOM_DEFAULT_LOCAL = 1.1
-const VIDEO_ZOOM_STORAGE_REMOTE = 'wa_video_zoom_remote'
-const VIDEO_ZOOM_STORAGE_LOCAL = 'wa_video_zoom_local'
-
-function clampVideoZoom(value: number): number {
-  if (!Number.isFinite(value)) return 1
-  return Math.min(VIDEO_ZOOM_MAX, Math.max(VIDEO_ZOOM_MIN, Math.round(value * 100) / 100))
-}
-
-function readZoomPreference(key: string): number {
-  if (typeof window === 'undefined') {
-    return key === VIDEO_ZOOM_STORAGE_REMOTE ? VIDEO_ZOOM_DEFAULT_REMOTE : VIDEO_ZOOM_DEFAULT_LOCAL
-  }
-  try {
-    const value = Number(window.localStorage.getItem(key))
-    if (!Number.isFinite(value)) {
-      return key === VIDEO_ZOOM_STORAGE_REMOTE ? VIDEO_ZOOM_DEFAULT_REMOTE : VIDEO_ZOOM_DEFAULT_LOCAL
-    }
-    return clampVideoZoom(value)
-  } catch {
-    return key === VIDEO_ZOOM_STORAGE_REMOTE ? VIDEO_ZOOM_DEFAULT_REMOTE : VIDEO_ZOOM_DEFAULT_LOCAL
-  }
-}
-
-function detectCallLanguageFromText(text: string): SupportedLanguage {
-  const t = String(text || '').toLowerCase()
-  if (
-    /\bruf mich an\b/.test(t) ||
-    /\brufe mich an\b/.test(t) ||
-    /\banruf\b/.test(t) ||
-    /\brufst du mich an\b/.test(t)
-  ) return 'de'
-  if (
-    /\bllámame\b/i.test(text) ||
-    /\bllamame\b/.test(t) ||
-    /\bllámame en\b/i.test(text) ||
-    /\bl(l)?ama(me)?\b/.test(t)
-  ) return 'es'
-  if (/\bcall me\b/.test(t)) return 'en'
-  return 'en'
-}
-
-function buildOnboardingHandoffContext(language: SupportedLanguage, callerName: string) {
-  if (language === 'de') {
-    return `[ONBOARDING] Dies ist euer erstes Gespräch. Begrüße ${callerName} warm und namentlich, stelle dich kurz vor, erkläre den Zweck des Kennenlern-Calls, frage nach Hintergrund, Zielen und wichtigen Personen im Umfeld, fasse am Ende zusammen und nutze natürliche Sprache ohne technische Begriffe.`
-  }
-  if (language === 'es') {
-    return `[ONBOARDING] Esta es su primera conversación. Saluda cálidamente a ${callerName} por su nombre, preséntate brevemente, explica el propósito de esta llamada inicial, pregunta por su contexto, objetivos y personas importantes, resume al final y evita términos técnicos.`
-  }
-  return `[ONBOARDING] This is your first conversation. Greet ${callerName} warmly by name, introduce yourself briefly, explain the purpose of this first call, ask about background, goals, and important people around them, summarize at the end, and avoid technical terms.`
-}
 
 function isLivekitAgentIdentity(identity: string | null | undefined): boolean {
   const value = (identity || '').trim()
@@ -697,8 +617,6 @@ export default function VideoCall() {
   const [creatorMode, setCreatorMode] = useState(false)
   const [selectedPersona, setSelectedPersona] = useState('MAXIM')
   const [viewMode, setViewMode] = useState<ViewMode>('speaker')
-  const [remoteZoom, setRemoteZoom] = useState<number>(() => readZoomPreference(VIDEO_ZOOM_STORAGE_REMOTE))
-  const [localZoom, setLocalZoom] = useState<number>(() => readZoomPreference(VIDEO_ZOOM_STORAGE_LOCAL))
   const [phase, setPhase] = useState<CallPhase>('setup')
   const [statusText, setStatusText] = useState('Ready to join')
   const [error, setError] = useState<string | null>(null)
@@ -710,16 +628,11 @@ export default function VideoCall() {
   const [recordingId, setRecordingId] = useState<string | null>(null)
   const [recordingUrl, setRecordingUrl] = useState<string | null>(null)
   const [recordingError, setRecordingError] = useState<string | null>(null)
-  const [callElapsedSeconds, setCallElapsedSeconds] = useState(0)
-  const [isNarrowViewport, setIsNarrowViewport] = useState(false)
   const [joinUrl, setJoinUrl] = useState<string | null>(null)
   const [participants, setParticipants] = useState<any[]>([])
   const [activeSpeakerId, setActiveSpeakerId] = useState<string | null>(null)
   const [meetingHostControl, setMeetingHostControl] = useState(false)
   const [meetingSelfName, setMeetingSelfName] = useState('')
-  const [hasRingingIncomingCall, setHasRingingIncomingCall] = useState(false)
-  const [incomingCallTriggerText, setIncomingCallTriggerText] = useState('')
-  const [incomingCallLanguage, setIncomingCallLanguage] = useState<SupportedLanguage | null>(null)
 
   const callObjectRef = useRef<ReturnType<typeof DailyIframe.createCallObject> | null>(null)
   const livekitRoomRef = useRef<Room | null>(null)
@@ -749,7 +662,6 @@ export default function VideoCall() {
   const lastRavenContextAtRef = useRef<number>(0)
   const callStartAtRef = useRef<number | null>(null)
   const callSummarySentRef = useRef(false)
-  const transcriptBufferRef = useRef<string[]>([])
   const participantsRef = useRef<any[]>([])
   const lastUserSpeechEndAtRef = useRef<number | null>(null)
   const lastLatencyLoggedAtRef = useRef<number | null>(null)
@@ -761,69 +673,21 @@ export default function VideoCall() {
   const endingSessionRef = useRef(false)
   const hiddenTimeoutRef = useRef<number | null>(null)
   const meetingAutoStartRef = useRef(false)
-  const startCallInFlightRef = useRef(false)
   const personaOverrideEnabled = searchParams.get('personaOverride') === '1'
   const audioRecorderRef = useRef<MediaRecorder | null>(null)
   const audioStreamRef = useRef<MediaStream | null>(null)
   const opmSpeakerNameRef = useRef<string>('')
   const participantsInjectedRef = useRef(false)
-  const callHandoffInjectedRef = useRef(false)
   const languageContextInjectedRef = useRef(false)
   const meetingToken = String(searchParams.get('meeting_token') || '').trim()
-  const incomingCallId = String(searchParams.get('incomingCallId') || '').trim()
   const hasMeetingContext =
     meetingToken.length > 0 &&
     typeof window !== 'undefined' &&
     Boolean(window.sessionStorage.getItem(`wa_meeting_context:${meetingToken}`))
-  const shouldSkipLanguageSelection =
-    Boolean(meetingToken) || hasMeetingContext || Boolean(incomingCallId) || hasRingingIncomingCall
+  const shouldSkipLanguageSelection = Boolean(meetingToken) || hasMeetingContext
   const isMeetingMode = meetingToken.length > 0
   const isMeetingGuest = isMeetingMode && !meetingHostControl
   const forcedSessionId = String(searchParams.get('session_id') || '').trim()
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const media = window.matchMedia('(max-width: 639px)')
-    const apply = () => setIsNarrowViewport(media.matches)
-    apply()
-    media.addEventListener('change', apply)
-    return () => {
-      media.removeEventListener('change', apply)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    try {
-      window.localStorage.setItem(VIDEO_ZOOM_STORAGE_REMOTE, String(remoteZoom))
-    } catch {
-      // ignore storage failures
-    }
-  }, [remoteZoom])
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    try {
-      window.localStorage.setItem(VIDEO_ZOOM_STORAGE_LOCAL, String(localZoom))
-    } catch {
-      // ignore storage failures
-    }
-  }, [localZoom])
-
-  useEffect(() => {
-    if (!incomingCallId) return
-    try {
-      const raw = sessionStorage.getItem(`${INCOMING_CALL_CONTEXT_PREFIX}${incomingCallId}`)
-      if (!raw) return
-      const parsed = JSON.parse(raw) as { trigger_text?: string; language?: string }
-      const triggerText = String(parsed?.trigger_text || '').trim()
-      if (triggerText) setIncomingCallTriggerText(triggerText)
-      const parsedLanguage = parsed?.language ? normalizeLanguageCode(parsed.language) : null
-      setIncomingCallLanguage(parsedLanguage || (triggerText ? detectCallLanguageFromText(triggerText) : null))
-    } catch {
-      // Ignore parse/storage errors.
-    }
-  }, [incomingCallId])
 
   useEffect(() => {
     sessionIdRef.current = sessionId
@@ -836,39 +700,6 @@ export default function VideoCall() {
   useEffect(() => {
     creatorModeRef.current = creatorMode
   }, [creatorMode])
-
-  useEffect(() => {
-    if (!isLivekit) return
-    console.log('[LiveKit-PERF]', {
-      step: livekitRemoteVideo ? 'remote_video_state_set' : 'remote_video_state_cleared',
-      sessionId: sessionIdRef.current,
-      hasTrack: Boolean(livekitRemoteVideo),
-      trackSid: livekitRemoteVideo?.sid || null,
-      ts: Date.now(),
-    })
-  }, [isLivekit, livekitRemoteVideo])
-
-  useEffect(() => {
-    if (phase !== 'joining' && phase !== 'connected') {
-      setCallElapsedSeconds(0)
-      return
-    }
-
-    const updateElapsed = () => {
-      const startedAt = callStartAtRef.current
-      if (!startedAt) {
-        setCallElapsedSeconds(0)
-        return
-      }
-      setCallElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000))
-    }
-
-    updateElapsed()
-    const interval = window.setInterval(updateElapsed, 1000)
-    return () => {
-      window.clearInterval(interval)
-    }
-  }, [phase, sessionId])
 
   const getLocalAudioTrack = () => {
     const callObject = callObjectRef.current
@@ -972,13 +803,6 @@ export default function VideoCall() {
   const forwardTranscript = async (payload: { text: string; speaker?: string | null; timestamp?: number }) => {
     const sessionId = sessionIdRef.current
     if (!sessionId) return
-    const trimmed = String(payload.text || '').trim()
-    if (trimmed) {
-      const current = transcriptBufferRef.current
-      const last = current[current.length - 1]
-      if (last !== trimmed) current.push(trimmed)
-      if (current.length > 100) current.splice(0, current.length - 100)
-    }
     const body = {
       session_id: sessionId,
       transcript: payload.text,
@@ -1105,28 +929,6 @@ export default function VideoCall() {
     callObject.sendAppMessage(payload, '*')
     participantsInjectedRef.current = true
     console.log('[OPM-CONTEXT] participants pre-injected', { text: contextText })
-
-    if (!callHandoffInjectedRef.current && incomingCallTriggerText.trim()) {
-      const languageCode = normalizeLanguageCode(languageRef.current)
-      const callerDisplayName = buildUserName(user, conversation).trim().split(' ')[0] || 'the user'
-      const isOnboarding = incomingCallTriggerText.trim() === ONBOARDING_TRIGGER
-      const handoffContext = isOnboarding
-        ? buildOnboardingHandoffContext(languageCode, callerDisplayName)
-        : languageCode === 'de'
-          ? `[CALL HANDOFF] Direkt vor diesem Call hat der User im Chat geschrieben: "${incomingCallTriggerText}". Eröffne den Call damit natürlich und knüpfe direkt daran an.`
-          : languageCode === 'es'
-            ? `[CALL HANDOFF] Justo antes de esta llamada, el usuario escribió en el chat: "${incomingCallTriggerText}". Abre la llamada de forma natural y conecta directamente con ese motivo.`
-            : `[CALL HANDOFF] Right before this call, the user wrote in chat: "${incomingCallTriggerText}". Open naturally by acknowledging this reason and continue from there.`
-      const handoffPayload = {
-        message_type: 'conversation',
-        event_type: 'conversation.append_context',
-        conversation_id: conversationIdForContext,
-        properties: { context: handoffContext },
-      }
-      callObject.sendAppMessage(handoffPayload, '*')
-      callHandoffInjectedRef.current = true
-      console.log('[OPM-CONTEXT] call handoff injected', { trigger: incomingCallTriggerText })
-    }
   }
 
   // DISABLED: Filler responses — kept for future use
@@ -1187,8 +989,6 @@ export default function VideoCall() {
       ownerId: conversation?.owner_id ?? conversation?.wa_owners?.id ?? null,
       personaName: personaOverrideEnabled ? selectedPersona : conversation?.wa_owners?.display_name || 'MAXIM',
       replicaId: conversation?.wa_owners?.tavus_replica_id?.trim() || FALLBACK_REPLICA_ID,
-      incomingCallId: incomingCallId || null,
-      userId: user?.id || null,
       language: normalizeLanguageCode(languageRef.current),
       reason,
     })
@@ -1219,8 +1019,6 @@ export default function VideoCall() {
           ownerId: conversation?.owner_id ?? conversation?.wa_owners?.id ?? null,
           personaName: personaOverrideEnabled ? selectedPersona : conversation?.wa_owners?.display_name || 'MAXIM',
           replicaId: conversation?.wa_owners?.tavus_replica_id?.trim() || FALLBACK_REPLICA_ID,
-          incomingCallId: incomingCallId || null,
-          userId: user?.id || null,
           language: normalizeLanguageCode(languageRef.current),
           reason,
         }),
@@ -1403,76 +1201,21 @@ export default function VideoCall() {
   }, [conversation?.wa_owners?.display_name, personaOverrideEnabled])
 
   useEffect(() => {
-    if (incomingCallId) {
-      setHasRingingIncomingCall(true)
-      return
-    }
-    if (!conversation) return
-    const resolvedConversationId = resolveConversationId(conversationId, conversation)
-    if (!resolvedConversationId) return
-
-    let cancelled = false
-    ;(async () => {
-      const emailCandidates = [
-        String(conversation.wa_contacts?.email || '').trim().toLowerCase(),
-        String(user?.email || '').trim().toLowerCase(),
-      ].filter((value, index, all) => value && all.indexOf(value) === index)
-
-      for (const email of emailCandidates) {
-        try {
-          const response = await fetch(`/api/outbound-call-poll?email=${encodeURIComponent(email)}`, {
-            cache: 'no-store',
-          })
-          const payload = await response.json().catch(() => ({}))
-          const call = payload?.call as { conversation_id?: string; status?: string } | null
-          if (
-            !cancelled &&
-            call &&
-            call.status === 'ringing' &&
-            String(call.conversation_id || '').trim() === resolvedConversationId
-          ) {
-            setHasRingingIncomingCall(true)
-            return
-          }
-        } catch {
-          // Ignore poll errors here; standard poll loop handles retries.
-        }
-      }
-      if (!cancelled) setHasRingingIncomingCall(false)
-    })()
-
-    return () => {
-      cancelled = true
-    }
-  }, [incomingCallId, conversation, conversationId, user?.email])
-
-  useEffect(() => {
     if (!shouldSkipLanguageSelection) return
     if (meetingAutoStartRef.current) return
     if (loadingConversation || loadingPersonas || !conversation) return
     if (phase !== 'setup' || error) return
 
     meetingAutoStartRef.current = true
-    const autoLanguage = incomingCallLanguage || 'en'
-    languageRef.current = autoLanguage
-    setLanguage(autoLanguage)
+    languageRef.current = 'en'
+    setLanguage('en')
     void startCall()
-  }, [conversation, error, incomingCallLanguage, loadingConversation, loadingPersonas, phase, shouldSkipLanguageSelection])
+  }, [conversation, error, loadingConversation, loadingPersonas, phase, shouldSkipLanguageSelection])
 
-  const teardownLivekit = async (reason = 'unknown') => {
+  const teardownLivekit = () => {
     const room = livekitRoomRef.current
     livekitRoomRef.current = null
     if (room) {
-      try {
-        await room.localParticipant.setCameraEnabled(false)
-      } catch {
-        // ignore
-      }
-      try {
-        await room.localParticipant.setMicrophoneEnabled(false)
-      } catch {
-        // ignore
-      }
       try {
         room.unregisterTextStreamHandler(LIVEKIT_TRANSCRIPTION_TOPIC)
       } catch {
@@ -1483,12 +1226,7 @@ export default function VideoCall() {
       } catch {
         // ignore
       }
-      try {
-        await room.disconnect()
-        console.log('[LiveKit] disconnected cleanly', { reason })
-      } catch (error) {
-        console.warn('[LiveKit] disconnect failed', { reason, error })
-      }
+      void room.disconnect().catch(() => undefined)
     }
     livekitRemoteNameRef.current = ''
     livekitLocalNameRef.current = ''
@@ -1511,7 +1249,7 @@ export default function VideoCall() {
       }
       stopOpmAudioCapture()
       void endBackendSession('component_unmount')
-      void teardownLivekit('component_unmount')
+      teardownLivekit()
       const callObject = callObjectRef.current
       callObjectRef.current = null
       if (!callObject) return
@@ -1530,16 +1268,6 @@ export default function VideoCall() {
   const thumbnailParticipants = activeSpeakerParticipant
     ? visibleParticipants.filter((participant) => participant !== activeSpeakerParticipant)
     : []
-  const remoteZoomPercent = Math.round(remoteZoom * 100)
-  const localZoomPercent = Math.round(localZoom * 100)
-
-  const adjustRemoteZoom = (delta: number) => {
-    setRemoteZoom((current) => clampVideoZoom(current + delta))
-  }
-
-  const adjustLocalZoom = (delta: number) => {
-    setLocalZoom((current) => clampVideoZoom(current + delta))
-  }
 
   useEffect(() => {
     const total = participants.length
@@ -1785,21 +1513,13 @@ export default function VideoCall() {
       ended_at: new Date(endedAtMs).toISOString(),
       duration_sec: durationSec,
       participants: participantNames,
-      summary_text: (() => {
-        const transcript = serializeLivekitTranscript(livekitTranscriptBlocks)
-        const bufferedTranscript = transcriptBufferRef.current.join('\n').trim()
-        const source = transcript || bufferedTranscript
-        if (!source) return ''
-        const excerpt = source.slice(0, 1200).trim()
-        return excerpt ? `Transcript excerpt: ${excerpt}` : ''
-      })(),
     }
 
     try {
       await sendMessage(
         conversationId,
         'avatar',
-        'call_summary',
+        'text',
         `[Call summary] ${JSON.stringify(summaryPayload)}`
       )
     } catch (error) {
@@ -1814,7 +1534,7 @@ export default function VideoCall() {
     setStatusText('Ending call...')
     setPhase((current) => (current === 'error' ? current : 'starting'))
     stopOpmAudioCapture()
-    await teardownLivekit('leave_button')
+    teardownLivekit()
     setIsLivekit(false)
 
     const stopRecordingPromise = recordingActive ? toggleRecording(true) : Promise.resolve()
@@ -1844,77 +1564,65 @@ export default function VideoCall() {
 
   async function startCall() {
     if (!conversation) return
-    if (startCallInFlightRef.current) {
-      console.warn('[VideoCall] startCall skipped (already in flight)', { phase })
+
+    // Check call usage limits
+    const usageCheck = await checkUsage(null, 'call')
+    if (!usageCheck.allowed) {
+      setPhase('error')
+      setStatusText('Call limit reached')
+      setError(`Live call limit reached (${usageCheck.used}/${usageCheck.limit} minutes). Resets ${usageCheck.reset_at ? new Date(usageCheck.reset_at).toLocaleDateString() : 'next month'}.`)
       return
     }
-    if (phase !== 'setup' && phase !== 'error') {
-      console.warn('[VideoCall] startCall skipped (invalid phase)', { phase })
+
+    const resolvedConversationId = resolveConversationId(conversationId, conversation)
+    if (!resolvedConversationId) {
+      setPhase('error')
+      setStatusText('Connection failed')
+      setError('Missing conversation ID. Reopen the call from the chat camera icon.')
       return
     }
-    startCallInFlightRef.current = true
+    const owner = conversation.wa_owners
+    const personaName = personaOverrideEnabled ? selectedPersona : owner.display_name || selectedPersona
+    const ownerEmail = String((owner as { email?: string | null })?.email || '').trim().toLowerCase()
+    const ownerDisplayName = String(owner.display_name || '').trim().toLowerCase()
+    const lockJuanPersona = isJuanPersonaLockedTarget(ownerDisplayName, ownerEmail)
+    const replicaId = lockJuanPersona
+      ? JUAN_LOCKED_REPLICA_ID
+      : (owner.tavus_replica_id?.trim() || FALLBACK_REPLICA_ID)
+    const enableGlueForExtendedJuan =
+      ownerEmail === 'mwg.jmschubert@gmail.com' || ownerDisplayName === 'juan schubert (extended)'
+
+    const existingCall = callObjectRef.current
+    if (existingCall) {
+      await existingCall.leave().catch(() => undefined)
+      existingCall.destroy()
+      callObjectRef.current = null
+    }
+
+    setError(null)
+    setSessionId(null)
+    setParticipants([])
+    setActiveSpeakerId(null)
+    joinedRef.current = false
+    guardrailContextSentRef.current = false
+    lastOpmContextRef.current = null
+    lastOpmContextAtRef.current = 0
+    lastRavenContextRef.current = null
+    lastRavenContextAtRef.current = 0
+    callStartAtRef.current = null
+    callSummarySentRef.current = false
+    participantsInjectedRef.current = false
+    languageContextInjectedRef.current = false
+    participantsRef.current = []
+    lastUserSpeechEndAtRef.current = null
+    lastLatencyLoggedAtRef.current = null
+    lastActiveSpeakerIdRef.current = null
+    toolCallCooldownRef.current = {}
+    setPhase('starting')
+    setStatusText(isMeetingGuest ? 'Joining live meeting...' : 'Connecting...')
 
     try {
-      // Check call usage limits
-      const usageCheck = await checkUsage(null, 'call')
-      if (!usageCheck.allowed) {
-        setPhase('error')
-        setStatusText('Call limit reached')
-        setError(`Live call limit reached (${usageCheck.used}/${usageCheck.limit} minutes). Resets ${usageCheck.reset_at ? new Date(usageCheck.reset_at).toLocaleDateString() : 'next month'}.`)
-        return
-      }
-
-      const resolvedConversationId = resolveConversationId(conversationId, conversation)
-      if (!resolvedConversationId) {
-        setPhase('error')
-        setStatusText('Connection failed')
-        setError('Missing conversation ID. Reopen the call from the chat camera icon.')
-        return
-      }
-      const owner = conversation.wa_owners
-      const personaName = personaOverrideEnabled ? selectedPersona : owner.display_name || selectedPersona
-      const ownerEmail = String((owner as { email?: string | null })?.email || '').trim().toLowerCase()
-      const ownerDisplayName = String(owner.display_name || '').trim().toLowerCase()
-      const lockJuanPersona = isJuanPersonaLockedTarget(ownerDisplayName, ownerEmail)
-      const replicaId = lockJuanPersona
-        ? JUAN_LOCKED_REPLICA_ID
-        : (owner.tavus_replica_id?.trim() || FALLBACK_REPLICA_ID)
-      const enableGlueForExtendedJuan =
-        ownerEmail === 'mwg.jmschubert@gmail.com' || ownerDisplayName === 'juan schubert (extended)'
-
-      const existingCall = callObjectRef.current
-      if (existingCall) {
-        await existingCall.leave().catch(() => undefined)
-        existingCall.destroy()
-        callObjectRef.current = null
-      }
-
-      setError(null)
-      setSessionId(null)
-      setParticipants([])
-      setActiveSpeakerId(null)
-      joinedRef.current = false
-      guardrailContextSentRef.current = false
-      lastOpmContextRef.current = null
-      lastOpmContextAtRef.current = 0
-      lastRavenContextRef.current = null
-      lastRavenContextAtRef.current = 0
-      callStartAtRef.current = null
-      callSummarySentRef.current = false
-      participantsInjectedRef.current = false
-      callHandoffInjectedRef.current = false
-      languageContextInjectedRef.current = false
-      participantsRef.current = []
-      transcriptBufferRef.current = []
-      lastUserSpeechEndAtRef.current = null
-      lastLatencyLoggedAtRef.current = null
-      lastActiveSpeakerIdRef.current = null
-      toolCallCooldownRef.current = {}
-      setPhase('starting')
-      setStatusText(isMeetingGuest ? 'Joining live meeting...' : 'Connecting...')
-
       const languageCode = normalizeLanguageCode(languageRef.current)
-      const timezone = (typeof Intl !== 'undefined' && Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC'
       const isUnlimitedDurationUser = UNLIMITED_DURATION_EMAILS.has(String(user?.email || '').toLowerCase())
       const dailyUserName = (
         isMeetingMode
@@ -1926,7 +1634,6 @@ export default function VideoCall() {
         persona: personaName,
         replica_id: replicaId,
         language: languageCode,
-        timezone,
         glue_enabled: enableGlueForExtendedJuan,
         ...(isUnlimitedDurationUser ? {} : { max_call_duration: 120 }),
         user_name: buildUserName(user, conversation),
@@ -1934,72 +1641,34 @@ export default function VideoCall() {
         owner_id: owner.id || conversation.owner_id || null,
         contact_id: conversation.contact_id || null,
         contact_name: conversation.wa_contacts?.display_name || null,
-        user_id: user?.id || null,
-        incoming_call_id: incomingCallId || null,
         meeting_token: meetingToken || undefined,
         meeting_guest_join_only: isMeetingGuest,
       }
       opmSpeakerNameRef.current = dailyUserName
       console.log('[VideoCall] startSession request', requestBody)
-      let payload: {
+      const response = await fetch('/api/video-call', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...requestBody,
+          backendBaseUrl: LIVE_CALL_API_BASE,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error(`Session start failed (${response.status})`)
+      }
+
+      const payload = await response.json() as {
         session_id?: string
         join_url?: string
         status?: string
         persona?: string
         replica_id?: string
-      } | null = null
-      let usedPrewarmedSession = false
-
-      if (incomingCallId) {
-        try {
-          const raw = sessionStorage.getItem(`${INCOMING_CALL_PREWARM_PREFIX}${incomingCallId}`)
-          if (raw) {
-            const prewarmed = JSON.parse(raw) as {
-              session_id?: string
-              join_url?: string
-              status?: string
-              persona?: string
-              replica_id?: string
-            }
-            if (prewarmed?.session_id && prewarmed?.join_url) {
-              payload = prewarmed
-              usedPrewarmedSession = true
-              console.log('[VideoCall] using prewarmed incoming session', {
-                incomingCallId,
-                sessionId: prewarmed.session_id,
-              })
-            }
-          }
-        } catch {
-          // Ignore cache parse errors; normal start flow will run.
-        }
-      }
-
-      if (!payload) {
-        const response = await fetch('/api/video-call', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            ...requestBody,
-            backendBaseUrl: LIVE_CALL_API_BASE,
-          }),
-        })
-
-        if (!response.ok) {
-          throw new Error(`Session start failed (${response.status})`)
-        }
-
-        payload = await response.json() as {
-          session_id?: string
-          join_url?: string
-          status?: string
-          persona?: string
-          replica_id?: string
-        }
       }
       console.log('[VideoCall] startSession response', payload)
 
-      if (!payload?.join_url || !payload?.session_id) {
+      if (!payload.join_url || !payload.session_id) {
         throw new Error('Backend did not return a join URL.')
       }
 
@@ -2022,21 +1691,11 @@ export default function VideoCall() {
       endingSessionRef.current = false
       setStatusText(isMeetingGuest ? 'Joining room...' : 'Avatar joining...')
       setPhase('joining')
-      if (!isMeetingGuest && !usedPrewarmedSession) {
+      if (!isMeetingGuest) {
         await notifySessionStart(payload.session_id, payload.join_url, personaName, replicaId)
       }
 
       if (isLivekitJoin) {
-        const livekitPerfStart = performance.now()
-        const logLivekitStep = (step: string, extra: Record<string, unknown> = {}) => {
-          console.log('[LiveKit-PERF]', {
-            step,
-            ms: Math.round(performance.now() - livekitPerfStart),
-            sessionId: payload?.session_id || null,
-            ...extra,
-          })
-        }
-        logLivekitStep('join_url_received')
         setIsLivekit(true)
         const prejoinLocalName = buildUserName(user, conversation)
         livekitRemoteNameRef.current = personaName
@@ -2053,61 +1712,12 @@ export default function VideoCall() {
         console.log('[VideoCall] LiveKit connect', { wsUrl, roomName })
 
         const room = new Room()
-        logLivekitStep('room_instance_created')
         livekitRoomRef.current = room
 
         const resolveDisplayNameForKind = (kind: LivekitSpeakerKind): string =>
           kind === 'agent'
             ? livekitRemoteNameRef.current || personaName || 'Avatar'
             : livekitLocalNameRef.current || 'You'
-
-        const adoptRemoteTracks = (participant: RemoteParticipant, reason: string): boolean => {
-          let hasVideo = false
-          let hasAudio = false
-          for (const publication of participant.trackPublications.values()) {
-            const track = publication.track
-            if (!track) continue
-            if (!hasVideo && track.kind === Track.Kind.Video) {
-              setLivekitRemoteVideo(track as RemoteVideoTrack)
-              hasVideo = true
-            } else if (!hasAudio && track.kind === Track.Kind.Audio) {
-              setLivekitRemoteAudio(track as RemoteAudioTrack)
-              hasAudio = true
-            }
-          }
-          if (!hasVideo && !hasAudio) return false
-          livekitRemoteIdentityRef.current = participant.identity
-          const resolvedRemoteName = readLivekitRoomDisplayName(room.metadata) || personaName || participant.identity
-          if (resolvedRemoteName && resolvedRemoteName !== livekitRemoteNameRef.current) {
-            livekitRemoteNameRef.current = resolvedRemoteName
-            setLivekitRemoteName(resolvedRemoteName)
-          }
-          logLivekitStep('remote_tracks_adopted', {
-            reason,
-            participant: participant.identity,
-            hasVideo,
-            hasAudio,
-          })
-          return true
-        }
-
-        const recoverRemoteTracks = (reason: string): boolean => {
-          const participants = Array.from(room.remoteParticipants.values())
-          const preferred =
-            participants.find((p) => isLivekitAgentParticipant(p)) ||
-            participants.find((p) => {
-              for (const pub of p.trackPublications.values()) {
-                if (pub.track?.kind === Track.Kind.Video) return true
-              }
-              return false
-            }) ||
-            participants[0] ||
-            null
-          if (!preferred) return false
-          return adoptRemoteTracks(preferred, reason)
-        }
-
-        let remoteRecoveryTimer: number | null = null
 
         const lastActiveSpeakerRef: { current: { kind: LivekitSpeakerKind; at: number } | null } = { current: null }
 
@@ -2251,10 +1861,6 @@ export default function VideoCall() {
             const isAgent = isLivekitAgentParticipant(participant)
             if (track.kind === Track.Kind.Video) {
               if (isAgent) {
-                logLivekitStep('remote_video_track_subscribed', {
-                  participant: participant.identity,
-                  participantKind: participant.kind,
-                })
                 setLivekitRemoteVideo(track as RemoteVideoTrack)
                 livekitRemoteIdentityRef.current = participant.identity
                 const resolvedRemoteName =
@@ -2263,14 +1869,10 @@ export default function VideoCall() {
                   livekitRemoteNameRef.current = resolvedRemoteName
                   setLivekitRemoteName(resolvedRemoteName)
                 }
-              } else {
-                adoptRemoteTracks(participant, 'track_subscribed_non_agent_fallback')
               }
             } else if (track.kind === Track.Kind.Audio) {
               if (isAgent) {
                 setLivekitRemoteAudio(track as RemoteAudioTrack)
-              } else {
-                adoptRemoteTracks(participant, 'audio_subscribed_non_agent_fallback')
               }
             }
           },
@@ -2434,29 +2036,12 @@ export default function VideoCall() {
           }
         })
 
-        room.on(RoomEvent.ParticipantConnected, (participant: RemoteParticipant) => {
-          recoverRemoteTracks(`participant_connected:${participant.identity}`)
-        })
-
-        room.on(
-          RoomEvent.TrackPublished,
-          (_publication: RemoteTrackPublication, participant: RemoteParticipant) => {
-            recoverRemoteTracks(`track_published:${participant.identity}`)
-          },
-        )
-
         room.on(RoomEvent.Disconnected, () => {
           console.log('[LiveKit] disconnected')
           joinedRef.current = false
-          if (remoteRecoveryTimer) {
-            window.clearInterval(remoteRecoveryTimer)
-            remoteRecoveryTimer = null
-          }
         })
 
-        logLivekitStep('room_connect_start', { wsUrl, roomName: roomName || null })
         await room.connect(wsUrl, token)
-        logLivekitStep('room_connect_done')
         livekitLocalIdentityRef.current = room.localParticipant.identity || null
 
         const jwtLocalName = (room.localParticipant.name || '').trim()
@@ -2471,38 +2056,9 @@ export default function VideoCall() {
           setLivekitRemoteName(metadataRemoteName)
         }
 
-        recoverRemoteTracks('post_connect_scan')
-        const recoveryDeadline = Date.now() + 30_000
-        remoteRecoveryTimer = window.setInterval(() => {
-          if (livekitRoomRef.current !== room) {
-            if (remoteRecoveryTimer) {
-              window.clearInterval(remoteRecoveryTimer)
-              remoteRecoveryTimer = null
-            }
-            return
-          }
-          const hasRemoteVideoTrack = Array.from(room.remoteParticipants.values()).some((participant) =>
-            Array.from(participant.trackPublications.values()).some((publication) => publication.track?.kind === Track.Kind.Video),
-          )
-          if (hasRemoteVideoTrack) {
-            recoverRemoteTracks('interval_recovery')
-            if (remoteRecoveryTimer) {
-              window.clearInterval(remoteRecoveryTimer)
-              remoteRecoveryTimer = null
-            }
-            return
-          }
-          if (Date.now() > recoveryDeadline && remoteRecoveryTimer) {
-            window.clearInterval(remoteRecoveryTimer)
-            remoteRecoveryTimer = null
-          }
-        }, 1000)
-
         try {
-          logLivekitStep('local_tracks_publish_start', { mic: isMicEnabled, cam: isCameraEnabled })
           await room.localParticipant.setMicrophoneEnabled(isMicEnabled)
           await room.localParticipant.setCameraEnabled(isCameraEnabled)
-          logLivekitStep('local_tracks_publish_done')
           const cameraPub = room.localParticipant.getTrackPublication(Track.Source.Camera)
           if (cameraPub?.track?.kind === Track.Kind.Video) {
             setLivekitLocalVideo(cameraPub.track as LocalVideoTrack)
@@ -2511,35 +2067,9 @@ export default function VideoCall() {
           console.warn('[LiveKit] failed to publish local tracks', publishError)
         }
 
-        window.setTimeout(() => {
-          if (!livekitRemoteVideo) {
-            recoverRemoteTracks('delayed_recovery_8s')
-          }
-        }, 8000)
-
-        if (incomingCallTriggerText.trim()) {
-          try {
-            const languageCode = normalizeLanguageCode(languageRef.current)
-            const callerDisplayName = buildUserName(user, conversation).trim().split(' ')[0] || 'the user'
-            const isOnboarding = incomingCallTriggerText.trim() === ONBOARDING_TRIGGER
-            const kickoffText = isOnboarding
-              ? buildOnboardingHandoffContext(languageCode, callerDisplayName)
-              : languageCode === 'de'
-                ? `System-Handoff: Du hast diesen Anruf aufgrund der letzten Chat-Nachricht initiiert: "${incomingCallTriggerText}". Starte jetzt mit einer kurzen Begrüßung und erkenne diesen Anlass explizit an.`
-                : languageCode === 'es'
-                  ? `System handoff: Iniciaste esta llamada por el último mensaje del chat: "${incomingCallTriggerText}". Empieza ahora con un saludo breve y reconoce explícitamente este motivo.`
-                  : `System handoff: You initiated this call because of the latest chat message: "${incomingCallTriggerText}". Start now with a short greeting and explicitly acknowledge this reason.`
-            await room.localParticipant.sendText(kickoffText, { topic: LIVEKIT_CHAT_TOPIC })
-            console.log('[LiveKit] call handoff kickoff sent')
-          } catch (kickoffError) {
-            console.warn('[LiveKit] call handoff kickoff failed', kickoffError)
-          }
-        }
-
         joinedRef.current = true
         setPhase('connected')
         setStatusText('Connected')
-        logLivekitStep('phase_connected')
         return
       }
 
@@ -2873,14 +2403,6 @@ export default function VideoCall() {
       const handleVoiceCommandEvent = (event: any) => {
         const message = extractConversationText(event)
         if (!message) return
-        const line = message.text.trim()
-        if (line) {
-          const buffer = transcriptBufferRef.current
-          const tagged = `${message.role === 'assistant' ? 'Avatar' : 'User'}: ${line}`
-          const last = buffer[buffer.length - 1]
-          if (last !== tagged) buffer.push(tagged)
-          if (buffer.length > 140) buffer.splice(0, buffer.length - 140)
-        }
 
         const text = message.text.toLowerCase()
         const mentionsCreator = /creator[-\s]?mode|creator[-\s]?modus/.test(text)
@@ -2906,7 +2428,6 @@ export default function VideoCall() {
       callObject.on('joined-meeting', (event: any) => {
         handleParticipantChange('joined-meeting', event)
         injectLanguageContext(callObject)
-        injectParticipantsContext(callObject)
         void startOpmAudioCapture()
       })
       callObject.on('app-message', (event: any) => {
@@ -3044,8 +2565,6 @@ export default function VideoCall() {
           ? startError.message
           : 'Unable to start the live call right now.',
       )
-    } finally {
-      startCallInFlightRef.current = false
     }
   }
 
@@ -3117,16 +2636,11 @@ export default function VideoCall() {
   }
 
   async function toggleRecording(forceStop = false) {
+    if (!isMeetingMode) return
     const activeSessionId = sessionIdRef.current
-    if (!activeSessionId) return
+    if (!activeSessionId || !meetingToken) return
 
     const action: 'start' | 'stop' = forceStop || recordingActive ? 'stop' : 'start'
-    const startedAt = callStartAtRef.current
-    const now = Date.now()
-    const durationSeconds = startedAt ? Math.max(1, Math.floor((now - startedAt) / 1000)) : null
-    const transcript = serializeLivekitTranscript(livekitTranscriptBlocks)
-    const avatarName = personaName || conversation?.wa_owners?.display_name || null
-    const userName = buildUserName(user, conversation)
     setRecordingBusy(true)
     setRecordingError(null)
     try {
@@ -3136,19 +2650,9 @@ export default function VideoCall() {
         body: JSON.stringify({
           action,
           session_id: activeSessionId,
-          ...(meetingToken ? { meeting_token: meetingToken } : {}),
+          meeting_token: meetingToken,
           join_url: joinUrl || undefined,
           recording_id: recordingId || undefined,
-          conversation_id: conversationId || null,
-          owner_id: conversation?.owner_id || conversation?.wa_owners?.id || null,
-          contact_id: conversation?.contact_id || null,
-          user_id: user?.id || null,
-          avatar_name: avatarName,
-          user_name: userName || null,
-          started_at: startedAt ? new Date(startedAt).toISOString() : null,
-          ended_at: action === 'stop' ? new Date(now).toISOString() : null,
-          call_duration_seconds: action === 'stop' ? durationSeconds : null,
-          transcript: action === 'stop' ? transcript : null,
           backendBaseUrl: LIVE_CALL_API_BASE,
         }),
       })
@@ -3201,6 +2705,8 @@ export default function VideoCall() {
   const replicaId = owner.tavus_replica_id?.trim() || FALLBACK_REPLICA_ID
   const selectedPersonaDetails = personas.find((persona) => persona.name === selectedPersona) ?? null
   const selectedLanguage = LANGUAGES.find((item) => item.code === language)
+  const sideBySideColumns = getGridColumns(visibleParticipants.length)
+
   return (
     <div className="relative h-[100dvh] min-h-[100dvh] overflow-hidden bg-[radial-gradient(circle_at_top,rgba(0,195,170,0.16),transparent_30%),radial-gradient(circle_at_85%_20%,rgba(53,127,255,0.16),transparent_24%),linear-gradient(180deg,#03060b_0%,#07111a_48%,#02050a_100%)] text-white supports-[-webkit-touch-callout:none]:min-h-[-webkit-fill-available]">
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:44px_44px] opacity-30" />
@@ -3221,7 +2727,7 @@ export default function VideoCall() {
           <div className="text-center">
             <p className="text-xs uppercase tracking-[0.3em] text-white/45">Live video call</p>
             <h1 className="mt-1 text-base font-semibold tracking-[-0.02em] text-white sm:text-lg">
-              {personaName}
+              {formatDisplayName(personaName)}
             </h1>
           </div>
 
@@ -3239,59 +2745,49 @@ export default function VideoCall() {
           <div className="relative flex min-h-0 flex-1 overflow-hidden rounded-[28px] border border-white/8 bg-[linear-gradient(180deg,rgba(9,18,28,0.94),rgba(4,10,18,0.96))] shadow-[0_40px_120px_rgba(0,0,0,0.45)] sm:rounded-[32px]">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(112,240,222,0.13),transparent_32%)]" />
 
-            <div className="relative flex h-full w-full items-center justify-center p-2 sm:p-3">
-              <div className={`relative w-full ${isNarrowViewport ? 'h-full' : 'max-h-full max-w-[1720px] aspect-video'}`}>
+            <div className="relative flex h-full w-full items-center justify-center">
+              <div className="relative h-full w-full">
                 <div className="absolute inset-0">
                   {isLivekit ? (
                     viewMode === 'speaker' ? (
-                      <div className="relative h-full w-full p-2 sm:p-3">
-                        <div className="flex h-full w-full items-center justify-center">
-                          <div className="aspect-video h-auto max-h-full w-full">
+                      <div className="relative h-full w-full p-3 sm:p-4">
+                        <div className="h-full w-full">
                           <LivekitVideoTile
                             track={livekitRemoteVideo}
                             isLocal={false}
-                            label={livekitRemoteName || personaName}
+                            label={formatDisplayName(livekitRemoteName || personaName)}
                             isActive={livekitActiveKinds.includes('agent')}
                             cameraEnabled
-                            videoFit="cover"
-                            zoom={remoteZoom}
                           />
-                          </div>
                         </div>
-                        <div className="absolute bottom-4 right-4 h-36 w-64 sm:bottom-6 sm:right-6 sm:h-40 sm:w-72">
+                        <div className="absolute bottom-4 right-4 aspect-video w-32 sm:bottom-6 sm:right-6 sm:w-48">
                           <LivekitVideoTile
                             track={livekitLocalVideo}
                             isLocal
                             label={livekitLocalName || 'You'}
                             isActive={livekitActiveKinds.includes('user')}
                             cameraEnabled={isCameraEnabled}
-                            videoFit="cover"
-                            zoom={localZoom}
                           />
                         </div>
                       </div>
                     ) : (
-                      <div className="flex h-full w-full items-stretch gap-0 p-0">
-                        <div className="h-full min-w-0 flex-1">
+                      <div className="flex h-full w-full items-center justify-center gap-3 p-3 sm:gap-4 sm:p-4">
+                        <div className="aspect-video w-full max-w-[calc(50%-0.375rem)] sm:max-w-[calc(50%-0.5rem)]">
                           <LivekitVideoTile
                             track={livekitRemoteVideo}
                             isLocal={false}
-                            label={livekitRemoteName || personaName}
+                            label={formatDisplayName(livekitRemoteName || personaName)}
                             isActive={livekitActiveKinds.includes('agent')}
                             cameraEnabled
-                            videoFit="cover"
-                            zoom={remoteZoom}
                           />
                         </div>
-                        <div className="h-full min-w-0 flex-1">
+                        <div className="aspect-video w-full max-w-[calc(50%-0.375rem)] sm:max-w-[calc(50%-0.5rem)]">
                           <LivekitVideoTile
                             track={livekitLocalVideo}
                             isLocal
                             label={livekitLocalName || 'You'}
                             isActive={livekitActiveKinds.includes('user')}
                             cameraEnabled={isCameraEnabled}
-                            videoFit="cover"
-                            zoom={localZoom}
                           />
                         </div>
                       </div>
@@ -3307,7 +2803,7 @@ export default function VideoCall() {
                         <span className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full border-4 border-[#08111a] bg-[#70f0de]" />
                       </div>
                       <p className="mt-3 text-xl font-semibold tracking-[-0.03em] text-white sm:mt-6 sm:text-3xl">
-                        {personaName}
+                        {formatDisplayName(personaName)}
                       </p>
                       <p className="mt-1.5 text-sm leading-6 text-white/62 sm:mt-3 sm:text-base">
                         {phase === 'setup'
@@ -3383,46 +2879,41 @@ export default function VideoCall() {
                       ) : null}
                     </div>
                   ) : viewMode === 'speaker' ? (
-                    <div className="relative h-full w-full p-2 sm:p-3">
-                      <div className="flex h-full w-full items-center justify-center">
-                        <div className="aspect-video h-auto max-h-full w-full">
+                    <div className="relative h-full w-full p-3 sm:p-4">
+                      <div className="h-full w-full">
                         {activeSpeakerParticipant ? (
                           <ParticipantTile
                             participant={activeSpeakerParticipant}
                             isLocal={Boolean(activeSpeakerParticipant?.local)}
                             isActive
                             isCameraEnabled={isCameraEnabled}
-                            videoFit="cover"
-                            zoom={Boolean(activeSpeakerParticipant?.local) ? localZoom : remoteZoom}
                           />
                         ) : null}
-                        </div>
                       </div>
                       {thumbnailParticipants.length > 0 ? (
-                        <div className="absolute bottom-4 right-4 h-32 w-56 sm:bottom-6 sm:right-6 sm:h-40 sm:w-72">
+                        <div className="absolute bottom-4 right-4 aspect-video w-32 sm:bottom-6 sm:right-6 sm:w-48">
                           <ParticipantTile
                             participant={thumbnailParticipants[0]}
                             isLocal={Boolean(thumbnailParticipants[0]?.local)}
                             isActive={false}
                             isCameraEnabled={isCameraEnabled}
-                            zoom={Boolean(thumbnailParticipants[0]?.local) ? localZoom : remoteZoom}
                           />
                         </div>
                       ) : null}
                     </div>
                   ) : (
-                    <div className="flex h-full w-full items-stretch gap-0 p-0">
+                    <div
+                      className="grid h-full w-full gap-3 p-3 sm:gap-4 sm:p-4"
+                      style={{ gridTemplateColumns: `repeat(${sideBySideColumns}, minmax(0, 1fr))` }}
+                    >
                       {visibleParticipants.map((participant, index) => (
-                        <div key={getParticipantId(participant) || `grid-${index}`} className="h-full min-w-0 flex-1">
-                          <ParticipantTile
-                            participant={participant}
-                            isLocal={Boolean(participant?.local)}
-                            isActive={getParticipantId(participant) === activeSpeakerId}
-                            isCameraEnabled={isCameraEnabled}
-                            videoFit="cover"
-                            zoom={Boolean(participant?.local) ? localZoom : remoteZoom}
-                          />
-                        </div>
+                        <ParticipantTile
+                          key={getParticipantId(participant) || `grid-${index}`}
+                          participant={participant}
+                          isLocal={Boolean(participant?.local)}
+                          isActive={getParticipantId(participant) === activeSpeakerId}
+                          isCameraEnabled={isCameraEnabled}
+                        />
                       ))}
                     </div>
                   )}
@@ -3495,9 +2986,6 @@ export default function VideoCall() {
               <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-center px-3 pt-4 sm:px-4 sm:pt-5">
                 <div className="flex items-center gap-2 rounded-full border border-white/10 bg-black/28 px-3 py-2 text-[11px] font-medium tracking-[0.22em] text-white/78 backdrop-blur-xl sm:px-4 sm:text-xs">
                   <span>{statusText}</span>
-                  {(phase === 'joining' || phase === 'connected') && callStartAtRef.current ? (
-                    <span className="tracking-[0.12em] text-white/72">· {formatCallDuration(callElapsedSeconds)}</span>
-                  ) : null}
                   {recordingActive ? (
                     <span className="inline-flex items-center gap-1 rounded-full border border-red-400/30 bg-red-500/18 px-2 py-0.5 text-[10px] tracking-[0.14em] text-red-100">
                       <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-300" />
@@ -3542,64 +3030,6 @@ export default function VideoCall() {
                 className={`rounded-full px-3 py-2 text-xs font-medium transition ${viewMode === 'side-by-side' ? 'bg-white text-[#06101a]' : 'text-white/72 hover:text-white'}`}
               >
                 Side by side
-              </button>
-            </div>
-          </div>
-
-          <div className="mt-2 flex flex-wrap items-center justify-center gap-2 px-1 text-[11px] sm:text-xs">
-            <div className="flex items-center gap-1 rounded-full border border-white/10 bg-white/6 px-2 py-1.5">
-              <span className="px-1 text-white/70">Avatar</span>
-              <button
-                type="button"
-                onClick={() => adjustRemoteZoom(-VIDEO_ZOOM_STEP)}
-                className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/12 bg-white/6 text-white/85 transition hover:bg-white/12"
-                aria-label="Zoom out avatar video"
-              >
-                -
-              </button>
-              <span className="min-w-[3.25rem] text-center tabular-nums text-white/85">{remoteZoomPercent}%</span>
-              <button
-                type="button"
-                onClick={() => adjustRemoteZoom(VIDEO_ZOOM_STEP)}
-                className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/12 bg-white/6 text-white/85 transition hover:bg-white/12"
-                aria-label="Zoom in avatar video"
-              >
-                +
-              </button>
-              <button
-                type="button"
-                onClick={() => setRemoteZoom(VIDEO_ZOOM_DEFAULT_REMOTE)}
-                className="rounded-full border border-white/12 bg-white/6 px-2 py-1 text-white/75 transition hover:bg-white/12 hover:text-white"
-              >
-                Reset
-              </button>
-            </div>
-
-            <div className="flex items-center gap-1 rounded-full border border-white/10 bg-white/6 px-2 py-1.5">
-              <span className="px-1 text-white/70">Ich</span>
-              <button
-                type="button"
-                onClick={() => adjustLocalZoom(-VIDEO_ZOOM_STEP)}
-                className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/12 bg-white/6 text-white/85 transition hover:bg-white/12"
-                aria-label="Zoom out my video"
-              >
-                -
-              </button>
-              <span className="min-w-[3.25rem] text-center tabular-nums text-white/85">{localZoomPercent}%</span>
-              <button
-                type="button"
-                onClick={() => adjustLocalZoom(VIDEO_ZOOM_STEP)}
-                className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/12 bg-white/6 text-white/85 transition hover:bg-white/12"
-                aria-label="Zoom in my video"
-              >
-                +
-              </button>
-              <button
-                type="button"
-                onClick={() => setLocalZoom(VIDEO_ZOOM_DEFAULT_LOCAL)}
-                className="rounded-full border border-white/12 bg-white/6 px-2 py-1 text-white/75 transition hover:bg-white/12 hover:text-white"
-              >
-                Reset
               </button>
             </div>
           </div>
@@ -3683,18 +3113,20 @@ export default function VideoCall() {
               </button>
             )}
 
-            <button
-              type="button"
-              onClick={() => void toggleRecording(false)}
-              disabled={recordingBusy || phase !== 'connected'}
-              className={`flex h-14 min-w-[6.5rem] touch-manipulation items-center justify-center rounded-full border px-4 text-sm font-semibold transition ${
-                recordingActive
-                  ? 'border-red-400/30 bg-red-500/18 text-red-100 hover:bg-red-500/24'
-                  : 'border-white/12 bg-white/6 text-white hover:bg-white/10'
-              } disabled:opacity-60`}
-            >
-              {recordingBusy ? '...' : recordingActive ? 'Stop Rec' : 'Record'}
-            </button>
+            {isMeetingMode ? (
+              <button
+                type="button"
+                onClick={() => void toggleRecording(false)}
+                disabled={recordingBusy || phase !== 'connected'}
+                className={`flex h-14 min-w-[6.5rem] touch-manipulation items-center justify-center rounded-full border px-4 text-sm font-semibold transition ${
+                  recordingActive
+                    ? 'border-red-400/30 bg-red-500/18 text-red-100 hover:bg-red-500/24'
+                    : 'border-white/12 bg-white/6 text-white hover:bg-white/10'
+                } disabled:opacity-60`}
+              >
+                {recordingBusy ? '...' : recordingActive ? 'Stop Rec' : 'Record'}
+              </button>
+            ) : null}
 
             <button
               type="button"
