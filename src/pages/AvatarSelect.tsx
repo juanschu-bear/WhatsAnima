@@ -14,6 +14,7 @@ import { getStoredLocale, t } from '../lib/i18n'
 interface OwnerOption {
   id: string
   display_name: string
+  provider: 'keyframe' | 'tavus'
 }
 
 export default function AvatarSelect() {
@@ -270,6 +271,9 @@ export default function AvatarSelect() {
                 />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-lg font-semibold text-white">{owner.display_name}</p>
+                  <p className="mt-1 inline-flex rounded-full border border-white/15 bg-white/5 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/70">
+                    {owner.provider === 'keyframe' ? 'Elite Avatar' : 'Premium Avatar'}
+                  </p>
                   <div className="mt-1 flex items-center gap-2 text-sm text-white/50">
                     <span className="h-2 w-2 rounded-full bg-[#00a884]" />
                     <span>Online</span>

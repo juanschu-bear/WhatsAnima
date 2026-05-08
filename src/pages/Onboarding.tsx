@@ -13,6 +13,7 @@ import { supabase } from '../lib/supabase'
 type OnboardingAvatar = {
   ownerId: string
   avatarName: string
+  provider: 'keyframe' | 'tavus'
 }
 
 export default function Onboarding() {
@@ -68,19 +69,31 @@ export default function Onboarding() {
         if (ownerIds.length > 0) {
           const { data: owners, error: ownerError } = await supabase
             .from('wa_owners')
-            .select('id, display_name')
+            .select('id, display_name, settings, tavus_replica_id')
             .in('id', ownerIds)
             .is('deleted_at', null)
 
           if (ownerError) throw ownerError
-          ownerRows = (owners || []) as Array<{ id: string; display_name: string | null }>
+          ownerRows = (owners || []) as Array<{ id: string; display_name: string | null; settings?: unknown; tavus_replica_id?: string | null }>
         }
 
         const ownerNameById = new Map<string, string>()
+        const ownerProviderById = new Map<string, 'keyframe' | 'tavus'>()
         for (const owner of ownerRows) {
           const ownerId = String(owner.id || '').trim()
           const ownerName = String(owner.display_name || '').trim()
           if (ownerId && ownerName) ownerNameById.set(ownerId, ownerName)
+          const settings = owner.settings && typeof owner.settings === 'object' ? owner.settings as Record<string, unknown> : null
+          const personaSlug = typeof settings?.persona_slug === 'string' ? settings.persona_slug.trim() : ''
+          const normalizedName = ownerName.toLowerCase()
+          const provider: 'keyframe' | 'tavus' = personaSlug
+            ? 'keyframe'
+            : (String(owner.tavus_replica_id || '').trim()
+              ? 'tavus'
+              : (normalizedName === 'trace flores' || normalizedName === 'trace flores (haiku)' || normalizedName === 'jordan cash' || normalizedName === 'jordan cash (haiku)')
+                ? 'keyframe'
+                : 'tavus')
+          if (ownerId) ownerProviderById.set(ownerId, provider)
         }
 
         const normalized: OnboardingAvatar[] = []
@@ -90,10 +103,11 @@ export default function Onboarding() {
           const fallbackName = String(row.avatar_name || '').trim()
           const avatarName = ownerNameById.get(ownerId) || fallbackName
           if (!ownerId || !avatarName) continue
+          const provider = ownerProviderById.get(ownerId) || ((avatarName.trim().toLowerCase() === 'trace flores' || avatarName.trim().toLowerCase() === 'trace flores (haiku)' || avatarName.trim().toLowerCase() === 'jordan cash' || avatarName.trim().toLowerCase() === 'jordan cash (haiku)') ? 'keyframe' : 'tavus')
           const key = `${ownerId}::${avatarName}`
           if (seen.has(key)) continue
           seen.add(key)
-          normalized.push({ ownerId, avatarName })
+          normalized.push({ ownerId, avatarName, provider })
         }
 
         if (!cancelled) {
@@ -219,6 +233,9 @@ export default function Onboarding() {
                     className="h-20 w-20 rounded-full object-cover ring-2 ring-white/10"
                   />
                   <h2 className="mt-4 text-lg font-semibold text-white">{avatar.avatarName}</h2>
+                  <p className="mt-1 inline-flex rounded-full border border-white/15 bg-white/5 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/70">
+                    {avatar.provider === 'keyframe' ? 'Elite Avatar' : 'Premium Avatar'}
+                  </p>
                   <p className="mt-1 text-xs text-white/55">
                     {isPrimary ? 'Empfohlener Start für dein Kennenlernen' : 'Bereit für deinen Chat'}
                   </p>

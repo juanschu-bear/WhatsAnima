@@ -101,6 +101,7 @@ export interface OwnerListItem {
   id: string
   display_name: string
   avatar_url: string | null
+  provider: 'keyframe' | 'tavus'
 }
 
 export interface InvitationRecord {
@@ -128,6 +129,28 @@ type ListOwnersForUserArgs =
 // Primary source: wa_user_avatar_access (invited access control).
 // Legacy fallback: wa_contacts linkage by email.
 export async function listOwnersForUser(input: ListOwnersForUserArgs): Promise<OwnerListItem[]> {
+  function resolveProvider(row: { settings?: unknown; tavus_replica_id?: unknown; display_name?: unknown }): 'keyframe' | 'tavus' {
+    const settings = row.settings && typeof row.settings === 'object' ? row.settings as Record<string, unknown> : null
+    const personaSlug = typeof settings?.persona_slug === 'string' ? settings.persona_slug.trim() : ''
+    if (personaSlug) return 'keyframe'
+    const tavusReplica = String(row.tavus_replica_id || '').trim()
+    if (tavusReplica) return 'tavus'
+    const normalizedName = String(row.display_name || '').trim().toLowerCase()
+    if (normalizedName === 'trace flores' || normalizedName === 'trace flores (haiku)' || normalizedName === 'jordan cash' || normalizedName === 'jordan cash (haiku)') {
+      return 'keyframe'
+    }
+    return 'tavus'
+  }
+
+  function normalizeOwners(rows: any[] | null | undefined): OwnerListItem[] {
+    return (rows || []).map((row) => ({
+      id: String(row.id || '').trim(),
+      display_name: String(row.display_name || '').trim(),
+      avatar_url: row.avatar_url ? String(row.avatar_url) : null,
+      provider: resolveProvider(row),
+    })).filter((row) => row.id && row.display_name) as OwnerListItem[]
+  }
+
   const email = (typeof input === 'string' ? input : input.email || '').trim()
   const userId = (typeof input === 'string' ? '' : input.userId || '').trim()
 
@@ -150,23 +173,23 @@ export async function listOwnersForUser(input: ListOwnersForUserArgs): Promise<O
     if (ownerIds.length > 0) {
       const { data, error } = await supabase
         .from('wa_owners')
-        .select('id, display_name, avatar_url')
+        .select('id, display_name, avatar_url, settings, tavus_replica_id')
         .in('id', ownerIds)
         .is('deleted_at', null)
         .order('display_name', { ascending: true })
       if (error) throw error
-      return (data ?? []) as OwnerListItem[]
+      return normalizeOwners(data)
     }
 
     if (avatarNames.length > 0) {
       const { data, error } = await supabase
         .from('wa_owners')
-        .select('id, display_name, avatar_url')
+        .select('id, display_name, avatar_url, settings, tavus_replica_id')
         .in('display_name', avatarNames)
         .is('deleted_at', null)
         .order('display_name', { ascending: true })
       if (error) throw error
-      return (data ?? []) as OwnerListItem[]
+      return normalizeOwners(data)
     }
   }
 
@@ -185,12 +208,12 @@ export async function listOwnersForUser(input: ListOwnersForUserArgs): Promise<O
 
   const { data, error } = await supabase
     .from('wa_owners')
-    .select('id, display_name, avatar_url')
+    .select('id, display_name, avatar_url, settings, tavus_replica_id')
     .in('id', ownerIds)
     .is('deleted_at', null)
     .order('display_name', { ascending: true })
   if (error) throw error
-  return (data ?? []) as OwnerListItem[]
+  return normalizeOwners(data)
 }
 
 export async function findOrCreateConversation(ownerId: string, contactId: string) {
