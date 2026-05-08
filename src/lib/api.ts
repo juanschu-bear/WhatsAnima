@@ -129,16 +129,18 @@ type ListOwnersForUserArgs =
 // Primary source: wa_user_avatar_access (invited access control).
 // Legacy fallback: wa_contacts linkage by email.
 export async function listOwnersForUser(input: ListOwnersForUserArgs): Promise<OwnerListItem[]> {
+  function isKeyframeDisplayName(value: unknown): boolean {
+    const normalized = String(value || '').trim().toLowerCase()
+    return normalized.includes('trace flores') || normalized.includes('jordan cash')
+  }
+
   function resolveProvider(row: { settings?: unknown; tavus_replica_id?: unknown; display_name?: unknown }): 'keyframe' | 'tavus' {
+    if (isKeyframeDisplayName(row.display_name)) return 'keyframe'
     const settings = row.settings && typeof row.settings === 'object' ? row.settings as Record<string, unknown> : null
     const personaSlug = typeof settings?.persona_slug === 'string' ? settings.persona_slug.trim() : ''
     if (personaSlug) return 'keyframe'
     const tavusReplica = String(row.tavus_replica_id || '').trim()
     if (tavusReplica) return 'tavus'
-    const normalizedName = String(row.display_name || '').trim().toLowerCase()
-    if (normalizedName === 'trace flores' || normalizedName === 'trace flores (haiku)' || normalizedName === 'jordan cash' || normalizedName === 'jordan cash (haiku)') {
-      return 'keyframe'
-    }
     return 'tavus'
   }
 

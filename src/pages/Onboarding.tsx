@@ -86,13 +86,13 @@ export default function Onboarding() {
           const settings = owner.settings && typeof owner.settings === 'object' ? owner.settings as Record<string, unknown> : null
           const personaSlug = typeof settings?.persona_slug === 'string' ? settings.persona_slug.trim() : ''
           const normalizedName = ownerName.toLowerCase()
-          const provider: 'keyframe' | 'tavus' = personaSlug
+          const provider: 'keyframe' | 'tavus' = isKeyframeDisplayName(normalizedName)
             ? 'keyframe'
-            : (String(owner.tavus_replica_id || '').trim()
+            : (personaSlug
+              ? 'keyframe'
+              : (String(owner.tavus_replica_id || '').trim()
               ? 'tavus'
-              : (normalizedName === 'trace flores' || normalizedName === 'trace flores (haiku)' || normalizedName === 'jordan cash' || normalizedName === 'jordan cash (haiku)')
-                ? 'keyframe'
-                : 'tavus')
+                : 'tavus'))
           if (ownerId) ownerProviderById.set(ownerId, provider)
         }
 
@@ -103,7 +103,7 @@ export default function Onboarding() {
           const fallbackName = String(row.avatar_name || '').trim()
           const avatarName = ownerNameById.get(ownerId) || fallbackName
           if (!ownerId || !avatarName) continue
-          const provider = ownerProviderById.get(ownerId) || ((avatarName.trim().toLowerCase() === 'trace flores' || avatarName.trim().toLowerCase() === 'trace flores (haiku)' || avatarName.trim().toLowerCase() === 'jordan cash' || avatarName.trim().toLowerCase() === 'jordan cash (haiku)') ? 'keyframe' : 'tavus')
+          const provider = ownerProviderById.get(ownerId) || (isKeyframeDisplayName(avatarName) ? 'keyframe' : 'tavus')
           const key = `${ownerId}::${avatarName}`
           if (seen.has(key)) continue
           seen.add(key)
@@ -278,3 +278,7 @@ export default function Onboarding() {
     </div>
   )
 }
+  function isKeyframeDisplayName(value: string) {
+    const normalized = value.trim().toLowerCase()
+    return normalized.includes('trace flores') || normalized.includes('jordan cash')
+  }
