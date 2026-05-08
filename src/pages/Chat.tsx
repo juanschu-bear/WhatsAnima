@@ -2331,6 +2331,8 @@ export default function Chat() {
         .filter((message) => message.content.length > 0)
 
       setAvatarStatus('writing')
+      const { data: authData } = await supabase.auth.getUser()
+      const authUser = authData?.user ?? null
       const chatResponse = await fetch('/api/chat', {
         method: 'POST',
         headers: {
@@ -2341,10 +2343,10 @@ export default function Chat() {
           conversationId,
           ownerId: conversation?.owner_id || conversation?.wa_owners?.id || null,
           ownerName: conversation?.wa_owners?.display_name || null,
-          userId: user?.id || null,
-          inviteCode: String(user?.user_metadata?.invite_code || '').trim() || null,
-          inviteeName: String(user?.user_metadata?.invitee_name || '').trim() || null,
-          inviteLanguage: String(user?.user_metadata?.language || '').trim() || null,
+          userId: authUser?.id || null,
+          inviteCode: String(authUser?.user_metadata?.invite_code || '').trim() || null,
+          inviteeName: String(authUser?.user_metadata?.invitee_name || '').trim() || null,
+          inviteLanguage: String(authUser?.user_metadata?.language || '').trim() || null,
           metadata: { timezone },
           timezone,
           history,
