@@ -14,7 +14,7 @@ import type {
   TranscriptionSegment,
   TextStreamInfo,
 } from 'livekit-client'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { resolveAvatarUrl } from '../lib/avatars'
@@ -497,12 +497,14 @@ function LivekitVideoTile({
   label,
   isActive,
   cameraEnabled,
+  onNativeSize,
 }: {
   track: LivekitVideoTrack | null
   isLocal: boolean
   label: string
   isActive: boolean
   cameraEnabled: boolean
+  onNativeSize?: (width: number, height: number) => void
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const shouldShow = Boolean(track) && (!isLocal || cameraEnabled)
@@ -515,6 +517,26 @@ function LivekitVideoTile({
       track.detach(element)
     }
   }, [track, shouldShow])
+
+  useEffect(() => {
+    const element = videoRef.current
+    if (!element || !shouldShow) return
+    const report = () => {
+      if (!element.videoWidth || !element.videoHeight) return
+      // eslint-disable-next-line no-console
+      console.log(
+        `[VideoCall][livekit][${isLocal ? 'local' : 'remote'}] native=${element.videoWidth}x${element.videoHeight} aspect=${(element.videoWidth / element.videoHeight).toFixed(3)} label="${label}"`,
+      )
+      onNativeSize?.(element.videoWidth, element.videoHeight)
+    }
+    element.addEventListener('loadedmetadata', report)
+    element.addEventListener('resize', report)
+    if (element.readyState >= 1) report()
+    return () => {
+      element.removeEventListener('loadedmetadata', report)
+      element.removeEventListener('resize', report)
+    }
+  }, [shouldShow, isLocal, label, onNativeSize])
 
   return (
     <div
@@ -530,13 +552,6 @@ function LivekitVideoTile({
           playsInline
           className="h-full w-full object-cover"
           style={isLocal ? { transform: 'scaleX(-1)' } : undefined}
-          onLoadedMetadata={(event) => {
-            const v = event.currentTarget
-            // eslint-disable-next-line no-console
-            console.log(
-              `[VideoCall][livekit][${isLocal ? 'local' : 'remote'}] native=${v.videoWidth}x${v.videoHeight} aspect=${(v.videoWidth / Math.max(v.videoHeight, 1)).toFixed(3)} label="${label}"`,
-            )
-          }}
         />
       ) : (
         <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.08),transparent_45%),linear-gradient(180deg,rgba(14,19,30,0.98),rgba(7,10,18,0.98))] px-4 text-center">
@@ -658,6 +673,18 @@ export default function VideoCall() {
   const livekitLocalIdentityRef = useRef<string | null>(null)
   const [livekitRemoteName, setLivekitRemoteName] = useState<string>('')
   const [livekitLocalName, setLivekitLocalName] = useState<string>('')
+  // Native source aspect ratios (width / height). Default to 16:9 until a
+  // <video> reports its real dimensions via loadedmetadata/resize. Containers
+  // are sized from these so object-cover never crops a square avatar to a
+  // 16:9 box (heavy face zoom) and never leaves bars on a 16:9 webcam.
+  const [livekitRemoteAspect, setLivekitRemoteAspect] = useState<number>(16 / 9)
+  const [livekitLocalAspect, setLivekitLocalAspect] = useState<number>(16 / 9)
+  const handleRemoteNativeSize = useCallback((w: number, h: number) => {
+    if (w > 0 && h > 0) setLivekitRemoteAspect(w / h)
+  }, [])
+  const handleLocalNativeSize = useCallback((w: number, h: number) => {
+    if (w > 0 && h > 0) setLivekitLocalAspect(w / h)
+  }, [])
   const [livekitActiveKinds, setLivekitActiveKinds] = useState<LivekitSpeakerKind[]>([])
   const [livekitTranscriptBlocks, setLivekitTranscriptBlocks] = useState<LivekitTranscriptBlock[]>([])
   const [showTranscript, setShowTranscript] = useState(false)
@@ -2765,43 +2792,69 @@ export default function VideoCall() {
                   {isLivekit ? (
                     viewMode === 'speaker' ? (
                       <div className="relative h-full w-full p-3 sm:p-4">
-                        <div className="h-full w-full">
-                          <LivekitVideoTile
-                            track={livekitRemoteVideo}
-                            isLocal={false}
-                            label={formatDisplayName(livekitRemoteName || personaName)}
-                            isActive={livekitActiveKinds.includes('agent')}
-                            cameraEnabled
-                          />
+                        <div className="flex h-full w-full items-center justify-center">
+                          <div
+                            className="w-full"
+                            style={{
+                              aspectRatio: String(livekitRemoteAspect),
+                              maxHeight: 'min(100%, 80vh)',
+                            }}
+                          >
+                            <LivekitVideoTile
+                              track={livekitRemoteVideo}
+                              isLocal={false}
+                              label={formatDisplayName(livekitRemoteName || personaName)}
+                              isActive={livekitActiveKinds.includes('agent')}
+                              cameraEnabled
+                              onNativeSize={handleRemoteNativeSize}
+                            />
+                          </div>
                         </div>
-                        <div className="absolute bottom-4 right-4 aspect-video w-32 sm:bottom-6 sm:right-6 sm:w-48">
+                        <div
+                          className="absolute bottom-4 right-4 w-32 sm:bottom-6 sm:right-6 sm:w-48"
+                          style={{ aspectRatio: String(livekitLocalAspect) }}
+                        >
                           <LivekitVideoTile
                             track={livekitLocalVideo}
                             isLocal
                             label={livekitLocalName || 'You'}
                             isActive={livekitActiveKinds.includes('user')}
                             cameraEnabled={isCameraEnabled}
+                            onNativeSize={handleLocalNativeSize}
                           />
                         </div>
                       </div>
                     ) : (
-                      <div className="flex h-full w-full items-center justify-center gap-3 p-3 sm:gap-4 sm:p-4">
-                        <div className="aspect-video w-full max-w-[calc(50%-0.375rem)] sm:max-w-[calc(50%-0.5rem)]">
+                      <div
+                        className="grid h-full w-full items-center justify-center gap-3 p-3 sm:gap-4 sm:p-4"
+                        style={{
+                          gridTemplateColumns: `${livekitRemoteAspect}fr ${livekitLocalAspect}fr`,
+                        }}
+                      >
+                        <div
+                          className="mx-auto w-full"
+                          style={{ aspectRatio: String(livekitRemoteAspect) }}
+                        >
                           <LivekitVideoTile
                             track={livekitRemoteVideo}
                             isLocal={false}
                             label={formatDisplayName(livekitRemoteName || personaName)}
                             isActive={livekitActiveKinds.includes('agent')}
                             cameraEnabled
+                            onNativeSize={handleRemoteNativeSize}
                           />
                         </div>
-                        <div className="aspect-video w-full max-w-[calc(50%-0.375rem)] sm:max-w-[calc(50%-0.5rem)]">
+                        <div
+                          className="mx-auto w-full"
+                          style={{ aspectRatio: String(livekitLocalAspect) }}
+                        >
                           <LivekitVideoTile
                             track={livekitLocalVideo}
                             isLocal
                             label={livekitLocalName || 'You'}
                             isActive={livekitActiveKinds.includes('user')}
                             cameraEnabled={isCameraEnabled}
+                            onNativeSize={handleLocalNativeSize}
                           />
                         </div>
                       </div>
