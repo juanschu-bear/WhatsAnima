@@ -465,6 +465,13 @@ function ParticipantTile({
           playsInline
           className="h-full w-full object-cover"
           style={isLocal ? { transform: 'scaleX(-1)' } : undefined}
+          onLoadedMetadata={(event) => {
+            const v = event.currentTarget
+            // eslint-disable-next-line no-console
+            console.log(
+              `[VideoCall][daily][${isLocal ? 'local' : 'remote'}] native=${v.videoWidth}x${v.videoHeight} aspect=${(v.videoWidth / Math.max(v.videoHeight, 1)).toFixed(3)} label="${label}"`,
+            )
+          }}
         />
       ) : (
         <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.08),transparent_45%),linear-gradient(180deg,rgba(14,19,30,0.98),rgba(7,10,18,0.98))] px-4 text-center">
@@ -523,6 +530,13 @@ function LivekitVideoTile({
           playsInline
           className="h-full w-full object-cover"
           style={isLocal ? { transform: 'scaleX(-1)' } : undefined}
+          onLoadedMetadata={(event) => {
+            const v = event.currentTarget
+            // eslint-disable-next-line no-console
+            console.log(
+              `[VideoCall][livekit][${isLocal ? 'local' : 'remote'}] native=${v.videoWidth}x${v.videoHeight} aspect=${(v.videoWidth / Math.max(v.videoHeight, 1)).toFixed(3)} label="${label}"`,
+            )
+          }}
         />
       ) : (
         <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.08),transparent_45%),linear-gradient(180deg,rgba(14,19,30,0.98),rgba(7,10,18,0.98))] px-4 text-center">
