@@ -65,7 +65,7 @@ export default function Onboarding() {
           new Set((accessRows ?? []).map((row) => String(row.owner_id || '').trim()).filter(Boolean)),
         )
 
-        let ownerRows: Array<{ id: string; display_name: string | null }> = []
+        let ownerRows: Array<{ id: string; display_name: string | null; settings?: unknown; tavus_replica_id?: string | null }> = []
         if (ownerIds.length > 0) {
           const { data: owners, error: ownerError } = await supabase
             .from('wa_owners')
