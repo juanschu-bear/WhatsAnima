@@ -2,11 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   acceptOnboardingInvitation,
-  createContactForOwner,
-  findContactByEmailForOwner,
-  findOrCreateConversation,
   getOnboardingInvitation,
-  requestOutboundCall,
   type InvitationRecord,
 } from '../lib/api'
 import { supabase } from '../lib/supabase'
@@ -14,10 +10,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { getCanonicalAppUrl } from '../lib/canonicalOrigin'
 
 const PENDING_KEY = 'wa_pending_onboarding_invite'
-
-type PendingInviteState = {
-  inviteCode: string
-}
+const SIGNUP_DONE_KEY_PREFIX = 'wa_onboarding_signup_done:'
 
 function isExpired(invitation: InvitationRecord | null): boolean {
   if (!invitation?.expires_at) return false
@@ -37,11 +30,10 @@ export default function InviteAccept() {
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [verificationNotice, setVerificationNotice] = useState(false)
+  const [showVerificationScreen, setShowVerificationScreen] = useState(false)
 
   const [accepted, setAccepted] = useState(false)
-  const [startingCall, setStartingCall] = useState(false)
-  const autoStartRef = useRef(false)
+  const acceptedRef = useRef(false)
 
   const primaryAvatarName = useMemo(
     () => (invitation?.allowed_avatars?.[0] || '').trim(),
@@ -59,11 +51,15 @@ export default function InviteAccept() {
       const data = await getOnboardingInvitation(inviteCode)
       setInvitation(data)
       if (!data) {
-        setError('This invitation link is invalid.')
+        setError('Dieser Einladungslink ist ungültig.')
       } else if (data.status !== 'pending') {
-        setError('This invitation is no longer pending.')
+        setError(
+          data.status === 'accepted'
+            ? 'Dieser Einladungslink wurde bereits verwendet.'
+            : 'Dieser Einladungslink kann nicht mehr verwendet werden.',
+        )
       } else if (isExpired(data)) {
-        setError('This invitation has expired.')
+        setError('Dieser Einladungslink ist abgelaufen. Bitte fordere einen neuen an.')
       } else {
         setEmail(data.invitee_email || '')
       }
@@ -72,26 +68,20 @@ export default function InviteAccept() {
   }, [inviteCode])
 
   useEffect(() => {
-    if (!user?.id || !invitation || accepted) return
+    if (!inviteCode) return
+    try {
+      const persisted = sessionStorage.getItem(`${SIGNUP_DONE_KEY_PREFIX}${inviteCode}`)
+      if (persisted === '1') setShowVerificationScreen(true)
+    } catch {
+      // ignore storage errors
+    }
+  }, [inviteCode])
 
-    const raw = localStorage.getItem(PENDING_KEY)
-    const pending = raw ? (JSON.parse(raw) as PendingInviteState) : null
-    if (!pending || pending.inviteCode !== inviteCode) return
-
-    void (async () => {
-      try {
-        await acceptOnboardingInvitation({
-          inviteCode,
-          userId: user.id,
-          userEmail: user.email || null,
-        })
-        setAccepted(true)
-        localStorage.removeItem(PENDING_KEY)
-      } catch (acceptError) {
-        setError(acceptError instanceof Error ? acceptError.message : 'Could not activate invitation.')
-      }
-    })()
-  }, [accepted, inviteCode, invitation, user?.email, user?.id])
+  useEffect(() => {
+    if (user?.email_confirmed_at) {
+      navigate('/onboarding', { replace: true })
+    }
+  }, [navigate, user?.email_confirmed_at])
 
   async function handleSignup(event: FormEvent) {
     event.preventDefault()
@@ -112,81 +102,57 @@ export default function InviteAccept() {
     setSubmitting(true)
     localStorage.setItem(PENDING_KEY, JSON.stringify({ inviteCode }))
 
-    const { error: signUpError } = await supabase.auth.signUp({
+    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
       email: email.trim(),
       password: password.trim(),
       options: {
-        emailRedirectTo: getCanonicalAppUrl(`/auth/callback?next=${encodeURIComponent(`/invite/${inviteCode}`)}`),
+        emailRedirectTo: getCanonicalAppUrl(`/auth/callback?next=${encodeURIComponent('/onboarding')}`),
+        data: {
+          invite_code: inviteCode,
+          invitee_name: invitation?.invitee_name || '',
+          language: invitation?.language || 'en',
+        },
       },
     })
 
-    setSubmitting(false)
     if (signUpError) {
-      setError(signUpError.message)
+      const normalized = String(signUpError.message || '').toLowerCase()
+      if (normalized.includes('already registered') || normalized.includes('already been registered') || normalized.includes('user already')) {
+        setError('Diese E-Mail ist bereits registriert. Bitte logge dich ein oder nutze eine andere E-Mail.')
+      } else {
+        setError(signUpError.message)
+      }
+      setSubmitting(false)
       return
     }
 
-    setVerificationNotice(true)
-  }
-
-  async function startOnboardingCall() {
-    if (!user?.id || !user.email || !invitation || !primaryAvatarName || startingCall) return
-    setStartingCall(true)
-
-    try {
-      const { data: owner } = await supabase
-        .from('wa_owners')
-        .select('id, display_name')
-        .eq('display_name', primaryAvatarName)
-        .is('deleted_at', null)
-        .limit(1)
-        .maybeSingle()
-
-      if (!owner?.id) {
-        throw new Error(`Avatar owner not found for ${primaryAvatarName}`)
+    const userId = String(signUpData?.user?.id || '').trim()
+    if (userId && !acceptedRef.current) {
+      try {
+        await acceptOnboardingInvitation({
+          inviteCode,
+          userId,
+          userEmail: email.trim(),
+        })
+        acceptedRef.current = true
+        setAccepted(true)
+      } catch (acceptError) {
+        setError(acceptError instanceof Error ? acceptError.message : 'Einladung konnte nicht aktiviert werden.')
+        setSubmitting(false)
+        return
       }
+    }
 
-      const firstName = String(user.user_metadata?.first_name || '').trim() || invitation.invitee_name || 'User'
-      const lastName = String(user.user_metadata?.last_name || '').trim() || 'Invitee'
-      const existingContact = await findContactByEmailForOwner(owner.id, user.email)
-      const contact =
-        existingContact ||
-        (await createContactForOwner({
-          ownerId: owner.id,
-          firstName,
-          lastName,
-          email: user.email,
-        }))
-
-      const conversationId = await findOrCreateConversation(owner.id, contact.id)
-
-      await requestOutboundCall({
-        conversationId,
-        ownerId: owner.id,
-        contactId: contact.id,
-        userId: user.id,
-        contactEmail: user.email,
-        triggerText: 'onboarding_first_call',
-        language: invitation.language,
-        callerDisplayName: primaryAvatarName,
-      })
-
-      navigate(`/video-call/${conversationId}`)
-    } catch (callError) {
-      setError(callError instanceof Error ? callError.message : 'Could not start onboarding call.')
-      setStartingCall(false)
+    setSubmitting(false)
+    setShowVerificationScreen(true)
+    setPassword('')
+    setConfirmPassword('')
+    try {
+      sessionStorage.setItem(`${SIGNUP_DONE_KEY_PREFIX}${inviteCode}`, '1')
+    } catch {
+      // ignore storage errors
     }
   }
-
-  useEffect(() => {
-    const emailVerified = Boolean(user?.email_confirmed_at)
-    if (!accepted || !emailVerified || autoStartRef.current) return
-    autoStartRef.current = true
-    const timer = window.setTimeout(() => {
-      void startOnboardingCall()
-    }, 3000)
-    return () => window.clearTimeout(timer)
-  }, [accepted, user?.email_confirmed_at])
 
   if (loading) {
     return (
@@ -201,10 +167,10 @@ export default function InviteAccept() {
       <div className="brand-scene min-h-screen text-white">
         <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-xl items-center justify-center px-6 py-10">
           <div className="brand-panel w-full rounded-[30px] p-8 text-center">
-            <h1 className="text-2xl font-bold">Invite Unavailable</h1>
+            <h1 className="text-2xl font-bold">Einladung nicht verfügbar</h1>
             <p className="mt-3 text-sm text-white/70">{error || 'This invitation cannot be used right now.'}</p>
             <Link to="/login" className="mt-6 inline-block text-sm text-[#58e3c7] hover:text-[#00a884]">
-              Back to login
+              Zurück zum Login
             </Link>
           </div>
         </div>
@@ -212,14 +178,11 @@ export default function InviteAccept() {
     )
   }
 
-  const emailVerified = Boolean(user?.email_confirmed_at)
-  const welcomeReady = accepted && emailVerified
-
   return (
     <div className="brand-scene min-h-screen text-white">
       <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-xl items-center justify-center px-6 py-10">
         <div className="brand-panel w-full rounded-[30px] p-8 sm:p-10">
-          {!welcomeReady ? (
+          {!showVerificationScreen ? (
             <>
               <h1 className="text-3xl font-bold tracking-tight">
                 Hey {invitation.invitee_name || 'there'}, welcome to WhatsAnima
@@ -265,12 +228,6 @@ export default function InviteAccept() {
                   />
                 </div>
 
-                {verificationNotice ? (
-                  <p className="rounded-2xl border border-[#00a884]/35 bg-[#00a884]/10 px-4 py-3 text-sm text-[#89f6e2]">
-                    Check your email to verify your account.
-                  </p>
-                ) : null}
-
                 {error ? (
                   <p className="rounded-2xl border border-red-400/20 bg-red-500/15 px-4 py-3 text-sm text-red-200">{error}</p>
                 ) : null}
@@ -280,24 +237,27 @@ export default function InviteAccept() {
                   disabled={submitting}
                   className="w-full rounded-2xl bg-[#00a884] px-4 py-3 font-semibold text-[#08111a] transition hover:brightness-110 disabled:opacity-60"
                 >
-                  {submitting ? 'Creating account…' : 'Create Account'}
+                  {submitting ? 'Account wird erstellt…' : 'Create Account'}
                 </button>
               </form>
             </>
           ) : (
             <>
-              <h1 className="text-3xl font-bold tracking-tight">Your account is ready</h1>
+              <h1 className="text-3xl font-bold tracking-tight">E-Mail-Bestätigung erforderlich</h1>
               <p className="mt-3 text-sm text-white/70">
-                {primaryAvatarName || 'Your avatar'} would like to get to know you.
+                Wir haben dir eine E-Mail geschickt. Bitte bestätige deine E-Mail Adresse, um fortzufahren.
               </p>
-              <button
-                type="button"
-                onClick={() => void startOnboardingCall()}
-                disabled={startingCall}
-                className="mt-8 w-full rounded-2xl bg-[#00a884] px-4 py-3 font-semibold text-[#08111a] transition hover:brightness-110 disabled:opacity-60"
+              <Link
+                to="/login"
+                className="mt-8 inline-flex w-full items-center justify-center rounded-2xl bg-[#00a884] px-4 py-3 font-semibold text-[#08111a] transition hover:brightness-110"
               >
-                {startingCall ? 'Starting call…' : 'Start Call'}
-              </button>
+                Zurück zum Login
+              </Link>
+              {accepted || primaryAvatarName ? (
+                <p className="mt-3 text-center text-xs text-white/50">
+                  Einladung aktiviert für: {primaryAvatarName || 'deine Avatare'}
+                </p>
+              ) : null}
             </>
           )}
         </div>

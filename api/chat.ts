@@ -87,6 +87,7 @@ export const MESSAGE_TYPE_AWARENESS =
 - [VOICE] means the user sent a voice message that was transcribed. You may have perception data about tone/emotion from the audio analysis system, but only reference what the perception context explicitly provides.
 - [VIDEO] means the user sent a video message. You may have perception data from the video analysis.
 - [IMAGE] means the user shared an image.
+- [DOCUMENT] means the user shared a document (typically PDF). You may reference the injected document context when relevant.
 - CRITICAL: Never confuse message types. If the current message is [TEXT], do NOT reference audio qualities like volume, tone of voice, speaking speed, or intensity — those do not exist in text. If caught making claims about sensory data that doesn't exist for the message type, you lose credibility.
 - When responding to a text message that references a previous voice/video message, clearly distinguish between what you observed in the earlier media and what is in the current text.`
 
@@ -941,10 +942,102 @@ async function buildCfoContext(
   return '\n\n' + lines.join('\n')
 }
 
+async function buildDocumentContext(
+  client: Client,
+  conversationId: string | undefined,
+  queryText: string,
+  explicitDocumentIds?: string[] | null,
+): Promise<string> {
+  if (!conversationId) return ''
+  const docIds = Array.isArray(explicitDocumentIds)
+    ? explicitDocumentIds.map((id) => String(id || '').trim()).filter(Boolean)
+    : []
+
+  let documentIdRows: string[] = docIds
+  if (documentIdRows.length === 0) {
+    const docsResult = await client.query(
+      `select id
+       from public.wa_documents
+       where conversation_id = $1
+         and extraction_status = 'ready'
+       order by created_at desc
+       limit 5`,
+      [conversationId],
+    ).catch(() => ({ rows: [] as any[] }))
+    documentIdRows = docsResult.rows.map((row: any) => String(row.id || '').trim()).filter(Boolean)
+  }
+  if (documentIdRows.length === 0) return ''
+
+  const chunksResult = await client.query(
+    `select document_id, chunk_index, content
+     from public.wa_document_chunks
+     where conversation_id = $1
+       and document_id = any($2::uuid[])
+     limit 400`,
+    [conversationId, documentIdRows],
+  ).catch(() => ({ rows: [] as any[] }))
+  if (!chunksResult.rows.length) return ''
+
+  const docsResult = await client.query(
+    `select id, file_name
+     from public.wa_documents
+     where id = any($1::uuid[])`,
+    [documentIdRows],
+  ).catch(() => ({ rows: [] as any[] }))
+  const nameById = new Map<string, string>()
+  for (const row of docsResult.rows || []) {
+    nameById.set(String(row.id || '').trim(), String(row.file_name || 'Document').trim())
+  }
+
+  const tokenize = (text: string) =>
+    text
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter((item) => item.length >= 3)
+  const queryTokens = new Set(tokenize(queryText))
+
+  const ranked = chunksResult.rows
+    .map((row: any) => {
+      const content = String(row.content || '')
+      const score = tokenize(content).reduce((sum, token) => sum + (queryTokens.has(token) ? 1 : 0), 0)
+      return {
+        document_id: String(row.document_id || '').trim(),
+        chunk_index: Number(row.chunk_index || 0),
+        content,
+        score,
+      }
+    })
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score
+      return a.chunk_index - b.chunk_index
+    })
+    .slice(0, 4)
+
+  if (!ranked.length) return ''
+
+  const lines: string[] = ['[SHARED DOCUMENT CONTEXT]']
+  for (const item of ranked) {
+    const title = nameById.get(item.document_id) || 'Document'
+    lines.push(`- ${title} (section ${item.chunk_index + 1}): ${item.content.slice(0, 750)}`)
+  }
+  lines.push('Use this document context when relevant. Cite the document name or section naturally.')
+
+  return `\n\n${lines.join('\n')}`
+}
+
 export async function loadOwnerPromptAndMemory(
   conversationId: string | undefined,
   ownerIdHint?: string | null,
-  ownerNameHint?: string | null
+  ownerNameHint?: string | null,
+  onboarding?: {
+    userId?: string | null
+    inviteCode?: string | null
+    inviteeName?: string | null
+    inviteLanguage?: string | null
+  } | null,
 ): Promise<{ ownerPrompt: string; memory: string; stylePrompt: string; behavioralMemory: string; cfoContext: string; ownerId: string | null; ownerName: string; llmProvider: string | null; voiceId: string | null; contactId: string | null }> {
   const databaseUrl = getDatabaseUrl()
   if (!databaseUrl) return { ownerPrompt: DEFAULT_SYSTEM_PROMPT, memory: '', stylePrompt: '', behavioralMemory: '', cfoContext: '', ownerId: null, ownerName: 'Avatar', llmProvider: null, voiceId: null, contactId: null }
@@ -1112,6 +1205,40 @@ export async function loadOwnerPromptAndMemory(
       }
       callLines.push('\nThese are from your live conversations. Reference them naturally — you spoke with this person face to face.')
       memory += '\n\n' + callLines.join('\n')
+    }
+
+    const onboardingUserId = String(onboarding?.userId || '').trim()
+    if (onboardingUserId && ownerName) {
+      try {
+        const onboardingResult = await client.query(
+          `select onboarding_completed
+           from public.wa_user_onboarding
+           where user_id = $1 and avatar_name = $2
+           limit 1`,
+          [onboardingUserId, ownerName],
+        )
+        const onboardingCompleted = Boolean(onboardingResult.rows[0]?.onboarding_completed)
+        if (!onboardingCompleted) {
+          const invitee = String(onboarding?.inviteeName || '').trim() || 'the user'
+          const inviteCode = String(onboarding?.inviteCode || '').trim()
+          const language = String(onboarding?.inviteLanguage || '').trim().toLowerCase()
+          const languageLabel = language.startsWith('de')
+            ? 'German'
+            : language.startsWith('es')
+              ? 'Spanish'
+              : 'English'
+          const onboardingLines = [
+            '[ONBOARDING MODE — first conversation with this person]',
+            `This is likely your first conversation with ${invitee}.${inviteCode ? ` Invite code: ${inviteCode}.` : ''}`,
+            `Speak in ${languageLabel}.`,
+            'Greet warmly, introduce yourself briefly, ask about background/goals/important people/topics, then summarize what you learned.',
+            'Do NOT mention technical terms such as system, memory, MOMO, pipeline, or OPM.',
+          ]
+          memory += '\n\n' + onboardingLines.join('\n')
+        }
+      } catch (onboardingError) {
+        console.warn('[chat] onboarding lookup failed', onboardingError)
+      }
     }
 
     // Build behavioral memory from OPM/Canon persistent data
@@ -1636,6 +1763,7 @@ export function buildSystemPrompt(
   stylePrompt: string,
   behavioralMemory: string,
   temporalContext: string,
+  documentContext: string,
   cfoContext: string,
   perception: any,
   ownerId?: string | null,
@@ -1744,7 +1872,7 @@ Vary your energy dynamically within a single response:
 - If the user sets a commitment or deadline, confirm it shortly and propose a follow-up checkpoint.
 - Never say you do not know the time, you always have the current-time context above.`
 
-  return `${knowledgePrefix}${IDENTITY_OVERRIDE}\n\n${LANGUAGE_INSTRUCTION}\n\n${currentTimeContext}\n\n${channelConsistencyContext}${TEMPORAL_NEGOTIATION}\n\n${ownerPrompt}${UNIVERSAL_EMOTIONAL_INTELLIGENCE}${UNIVERSAL_COMMUNICATION_STYLE}${UNIVERSAL_VOICE_STYLE}${CHAT_VOICE_EXPRESSIVENESS}\n\n${RESPONSE_FORMAT_MATCHING}\n\n${FORMATTING_INSTRUCTION}\n\n${FLASHCARD_INSTRUCTION}\n\n${IMAGE_GENERATION_INSTRUCTION}\n\n${MESSAGE_TYPE_AWARENESS}${stylePrompt}${memory}${behavioralMemory}${temporalContext}${cfoContext}${youtubeWebSearchInstruction}${buildPerceptionPrompt(perception)}${IDENTITY_REMINDER}`
+  return `${knowledgePrefix}${IDENTITY_OVERRIDE}\n\n${LANGUAGE_INSTRUCTION}\n\n${currentTimeContext}\n\n${channelConsistencyContext}${TEMPORAL_NEGOTIATION}\n\n${ownerPrompt}${UNIVERSAL_EMOTIONAL_INTELLIGENCE}${UNIVERSAL_COMMUNICATION_STYLE}${UNIVERSAL_VOICE_STYLE}${CHAT_VOICE_EXPRESSIVENESS}\n\n${RESPONSE_FORMAT_MATCHING}\n\n${FORMATTING_INSTRUCTION}\n\n${FLASHCARD_INSTRUCTION}\n\n${IMAGE_GENERATION_INSTRUCTION}\n\n${MESSAGE_TYPE_AWARENESS}${stylePrompt}${memory}${behavioralMemory}${temporalContext}${documentContext}${cfoContext}${youtubeWebSearchInstruction}${buildPerceptionPrompt(perception)}${IDENTITY_REMINDER}`
 }
 
 /** Prepare the messages array for the Claude API, including language switch detection. */
@@ -1803,12 +1931,18 @@ export default async function handler(req: any, res: any) {
     conversationId,
     ownerId: ownerIdHint,
     ownerName: ownerNameHint,
+    userId,
+    inviteCode,
+    inviteeName,
+    inviteLanguage,
     history,
     image_url,
     isImage,
     isVideo,
     isVoice,
     perception,
+    documentContext: explicitDocumentContext,
+    documentIds: explicitDocumentIds,
     userMessageId,
     timezone,
     metadata,
@@ -1817,12 +1951,18 @@ export default async function handler(req: any, res: any) {
     conversationId?: string
     ownerId?: string | null
     ownerName?: string | null
+    userId?: string | null
+    inviteCode?: string | null
+    inviteeName?: string | null
+    inviteLanguage?: string | null
     history?: ChatMessage[]
     image_url?: string
     isImage?: boolean
     isVideo?: boolean
     isVoice?: boolean
     perception?: any
+    documentContext?: string | null
+    documentIds?: string[] | null
     userMessageId?: string
     timezone?: string
     metadata?: { timezone?: string } | null
@@ -1926,7 +2066,17 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json({ content: buildDirectTimeReply(message, requestTimezone) })
     }
 
-    const { ownerPrompt, memory, stylePrompt, behavioralMemory, cfoContext, ownerId, ownerName, llmProvider, voiceId, contactId } = await loadOwnerPromptAndMemory(conversationId, ownerIdHint, ownerNameHint)
+    const { ownerPrompt, memory, stylePrompt, behavioralMemory, cfoContext, ownerId, ownerName, llmProvider, voiceId, contactId } = await loadOwnerPromptAndMemory(
+      conversationId,
+      ownerIdHint,
+      ownerNameHint,
+      {
+        userId,
+        inviteCode,
+        inviteeName,
+        inviteLanguage,
+      },
+    )
     const normalizedOwnerIdHint = typeof ownerIdHint === 'string' && ownerIdHint.trim().length > 0
       ? ownerIdHint.trim()
       : null
@@ -2041,9 +2191,9 @@ export default async function handler(req: any, res: any) {
       try {
         const { data: callSummaries } = await channelStateSupabase
           .from('wa_messages')
-          .select('content, created_at')
+          .select('content, created_at, type')
           .eq('conversation_id', String(conversationId))
-          .eq('type', 'call_summary')
+          .or('type.eq.call_summary,content.ilike.[Call summary]%')
           .order('created_at', { ascending: false })
           .limit(3)
         const summaryLines = (callSummaries || [])
@@ -2090,12 +2240,18 @@ export default async function handler(req: any, res: any) {
       ? `\n\n${temporalLines.join('\n')}${temporalPatternPrompt}`
       : ''
 
+    const documentContext =
+      typeof explicitDocumentContext === 'string' && explicitDocumentContext.trim().length > 0
+        ? `\n\n${explicitDocumentContext.trim()}`
+        : ''
+
     const systemPrompt = buildSystemPrompt(
       ownerPrompt,
       memory,
       stylePrompt,
       behavioralMemory,
       temporalContext,
+      documentContext,
       cfoContext,
       perception,
       effectiveOwnerId,

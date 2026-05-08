@@ -148,6 +148,7 @@ export default async function handler(req: any, res: any) {
   const conversationId = String(body.conversation_id || body.conversationId || '').trim()
   const ownerId = String(body.owner_id || body.ownerId || '').trim()
   const contactId = String(body.contact_id || body.contactId || '').trim()
+  const userId = String(body.user_id || body.userId || '').trim()
   const contactName = String(body.contact_name || body.contactName || '').trim()
   const timezone = normalizeTemporalTimezone(String(body.timezone || 'UTC').trim() || 'UTC')
   const incomingCallId = String(body.incoming_call_id || body.incomingCallId || '').trim()
@@ -169,6 +170,7 @@ export default async function handler(req: any, res: any) {
     conversation_id: conversationIdForRequest,
     owner_id: ownerId || null,
     contact_id: contactId || null,
+    user_id: userId || null,
     contact_name: contactName || null,
     incoming_call_id: incomingCallId || null,
   }
@@ -416,6 +418,24 @@ export default async function handler(req: any, res: any) {
             memoryLines.push(...documentLines)
             memoryLines.push('Refer to this document content naturally during the call when relevant.')
           }
+        }
+      }
+
+      if (!requestBody.onboarding_mode && userId && requestedPersonaName) {
+        const { data: onboardingRow } = await supabase
+          .from('wa_user_onboarding')
+          .select('onboarding_completed')
+          .eq('user_id', userId)
+          .eq('avatar_name', requestedPersonaName)
+          .maybeSingle()
+        const onboardingCompleted = Boolean(onboardingRow?.onboarding_completed)
+        if (!onboardingCompleted) {
+          memoryLines.push(
+            'Onboarding mode: this appears to be the first call with this person. Greet warmly, get to know their background/goals/topics, summarize at the end, and avoid technical language.',
+          )
+          requestBody.onboarding_mode = true
+          requestBody.onboarding_trigger_text = 'first_contact_auto'
+          requestBody.onboarding_user_id = userId
         }
       }
       if (Array.isArray(temporalEvents) && temporalEvents.length > 0) {

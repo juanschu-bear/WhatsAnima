@@ -57,6 +57,7 @@ export default async function handler(req: any, res: any) {
       audioStatus,
       audioRetryCount,
       audioLastError,
+      documentId,
     } = req.body ?? {}
 
     if (!conversationId || !sender || !type) {
@@ -79,6 +80,7 @@ export default async function handler(req: any, res: any) {
         audio_status: audioStatus ?? undefined,
         audio_retry_count: audioRetryCount ?? undefined,
         audio_last_error: audioLastError ?? null,
+        document_id: documentId ?? null,
       })
       .select()
       .single()

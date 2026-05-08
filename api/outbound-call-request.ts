@@ -39,6 +39,9 @@ export default async function handler(req: any, res: any) {
     const userId = String(body.userId || '').trim() || null
     const contactEmail = String(body.contactEmail || '').trim().toLowerCase()
     const requestedByMessageId = String(body.requestedByMessageId || '').trim() || null
+    const documentIds = Array.isArray(body.documentIds)
+      ? body.documentIds.map((value: unknown) => String(value || '').trim()).filter(Boolean).slice(0, 8)
+      : []
     const triggerText = String(body.triggerText || '').trim()
     const requestedLanguage = String(body.language || '').trim().toLowerCase()
     const outboundLanguage = (requestedLanguage || detectCallLanguageFromText(triggerText)) as 'de' | 'en' | 'es'
@@ -73,6 +76,7 @@ export default async function handler(req: any, res: any) {
         timezone,
         user_id: userId,
         onboarding: triggerText === 'onboarding_first_call',
+        document_ids: documentIds,
       },
     }
 

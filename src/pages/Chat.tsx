@@ -14,7 +14,7 @@ import { getConversation, listMessages, listPerceptionLogs, sendMessage, listAll
 import { resolveAvatarUrl } from '../lib/avatars'
 import { t } from '../lib/i18n'
 import {
-  uploadAudioToStorage, uploadMediaToStorage,
+  uploadAudioToStorage, uploadDocumentToStorage, uploadMediaToStorage,
 } from '../lib/mediaUtils'
 import { useReactions, QUICK_EMOJIS } from '../hooks/useReactions'
 import { useReadReceipts } from '../hooks/useReadReceipts'
@@ -36,7 +36,7 @@ import {
   isPushSubscribed,
 } from '../lib/notifications'
 
-type MessageType = 'text' | 'voice' | 'video' | 'image' | 'flashcard' | 'quiz' | 'lesson' | 'fillin' | 'call_summary' | 'system'
+type MessageType = 'text' | 'voice' | 'video' | 'image' | 'document' | 'flashcard' | 'quiz' | 'lesson' | 'fillin' | 'call_summary' | 'system'
 
 interface Message {
   id: string
@@ -60,6 +60,7 @@ interface Message {
   audio_status?: string | null
   audio_retry_count?: number | null
   audio_last_error?: string | null
+  document_id?: string | null
   read_at?: string | null
   _pending?: boolean
   _failed?: boolean
@@ -1329,6 +1330,32 @@ const MediaMessageBubble = memo(function MediaMessageBubble({
     )
   }
 
+  if (message.type === 'document') {
+    return (
+      <div
+        className={`relative overflow-hidden rounded-[20px] border shadow-[0_2px_8px_rgba(0,0,0,0.12)] ${
+          isContact
+            ? 'rounded-tr-[6px] border-[#00a884]/15 bg-[#005c4b]'
+            : 'rounded-tl-[6px] border-white/[0.06] bg-[#1a2332]'
+        }`}
+      >
+        <div className="px-4 py-3">
+          <div className="flex items-center gap-2 text-sm font-medium text-white">
+            <svg className="h-4 w-4 text-[#88ffe4]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+              <path d="M6 2h8l4 4v16H6z" />
+              <path d="M14 2v6h6" />
+              <path d="M9 9h2M9 13h6M9 17h6" />
+            </svg>
+            <a href={message.media_url} target="_blank" rel="noopener noreferrer" className="underline">
+              {message.content?.replace(/^\[PDF\]\s*/i, '').trim() || 'Shared PDF'}
+            </a>
+          </div>
+        </div>
+        <div className="px-4 pb-2 pt-1">{commonMeta}</div>
+      </div>
+    )
+  }
+
   return (
     <div
       className={`relative overflow-hidden rounded-[20px] border shadow-[0_2px_8px_rgba(0,0,0,0.12)] ${
@@ -1631,6 +1658,7 @@ export default function Chat() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const initialScrollDone = useRef(false)
   const imageInputRef = useRef<HTMLInputElement>(null)
+  const documentInputRef = useRef<HTMLInputElement>(null)
   const avatarSrc = (ownerLike: { display_name: string; avatar_url?: string | null }) =>
     ownerLike.avatar_url?.trim() || resolveAvatarUrl(ownerLike.display_name)
 
@@ -1930,6 +1958,14 @@ export default function Chat() {
             imageContent,
             msg.media_url
           )
+          continue
+        }
+
+        const msgAny = msg as any
+        if (msgAny.type === 'document' && msgAny.media_url) {
+          const docBody = msgAny.content && !isPlaceholderContent(msg) ? msgAny.content : '[Document]'
+          const docContent = `${forwardedPrefix}\n${speakerMeta}\n[Document]\n${docBody}`.trim()
+          await sendMessage(convId, 'contact', 'text', `${docContent}\n${String(msgAny.media_url || '')}`.trim())
           continue
         }
 
@@ -2305,6 +2341,10 @@ export default function Chat() {
           conversationId,
           ownerId: conversation?.owner_id || conversation?.wa_owners?.id || null,
           ownerName: conversation?.wa_owners?.display_name || null,
+          userId: user?.id || null,
+          inviteCode: String(user?.user_metadata?.invite_code || '').trim() || null,
+          inviteeName: String(user?.user_metadata?.invitee_name || '').trim() || null,
+          inviteLanguage: String(user?.user_metadata?.language || '').trim() || null,
           metadata: { timezone },
           timezone,
           history,
@@ -2671,12 +2711,18 @@ export default function Chat() {
       })
       if (outboundCallIntent && conversation?.wa_contacts?.email) {
         try {
+          const recentDocumentIds = messages
+            .filter((entry) => entry.type === 'document' && typeof entry.document_id === 'string' && entry.document_id.trim().length > 0)
+            .slice(-3)
+            .map((entry) => String(entry.document_id || '').trim())
+            .filter(Boolean)
           const outboundCallPromise = requestOutboundCall({
             conversationId,
             ownerId: conversation?.owner_id ?? null,
             contactId: conversation?.contact_id ?? null,
             contactEmail: String(conversation.wa_contacts.email || '').trim(),
             requestedByMessageId: messageId,
+            documentIds: recentDocumentIds,
             triggerText: content,
             callerDisplayName: conversation?.wa_owners?.display_name ?? 'Avatar',
             delayMinutes: outboundCallIntent.delayMinutes,
@@ -2925,6 +2971,42 @@ export default function Chat() {
       return
     }
     openCaptionDraft(file)
+  }
+
+  async function handleDocumentSelected(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    setMediaMenuOpen(false)
+    if (!file || !conversationId || !conversation) return
+    if ((file.type || '').toLowerCase() !== 'application/pdf') {
+      setUiError('INVALID_DOCUMENT_TYPE', 'Please choose a PDF file.')
+      return
+    }
+
+    setSending(true)
+    setError(null)
+    setErrorTrace(null)
+
+    try {
+      const uploaded = await uploadDocumentToStorage(conversation, file, null)
+      if (!uploaded.fileUrl || !uploaded.documentId) {
+        throw new Error('Document upload failed')
+      }
+      const label = `[PDF] ${uploaded.fileName}`
+      const message = await sendMessage(
+        conversationId,
+        'contact',
+        'text',
+        label,
+        uploaded.fileUrl,
+      )
+      setMessages((current) => [...current, message as Message])
+      simulateAvatarRead((message as Message).id)
+    } catch (uploadError: any) {
+      setUiError('SEND_DOCUMENT_FAILED', uploadError?.message || 'Unable to send this PDF.', uploadError)
+    } finally {
+      setSending(false)
+    }
   }
 
   async function handleVideoRecordButton() {
@@ -3334,6 +3416,12 @@ export default function Chat() {
                       message={message}
                       isRead={isRead}
                     />
+                  ) : message.type === 'document' ? (
+                    <MediaMessageBubble
+                      isContact={isContact}
+                      message={message}
+                      isRead={isRead}
+                    />
                   ) : (
                     <div
                       className={`relative rounded-[20px] border px-4 py-3 text-[14.5px] leading-relaxed shadow-[0_2px_8px_rgba(0,0,0,0.12)] ${
@@ -3679,6 +3767,20 @@ export default function Chat() {
                   </span>
                   <span>Share image</span>
                 </button>
+                <button
+                  type="button"
+                  onClick={() => documentInputRef.current?.click()}
+                  className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm text-white/88 transition hover:bg-white/6"
+                >
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#173447] text-[#88ffe4]">
+                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                      <path d="M6 2h8l4 4v16H6z" />
+                      <path d="M14 2v6h6" />
+                      <path d="M9 9h2M9 13h6M9 17h6" />
+                    </svg>
+                  </span>
+                  <span>Share PDF</span>
+                </button>
               </div>
             ) : null}
           </div>
@@ -3739,6 +3841,7 @@ export default function Chat() {
         </div>
 
         <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageSelected} />
+        <input ref={documentInputRef} type="file" accept="application/pdf,.pdf" className="hidden" onChange={handleDocumentSelected} />
       </footer>
       </div>
 

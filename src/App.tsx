@@ -8,6 +8,7 @@ import Signup from './pages/Signup'
 import Dashboard from './pages/Dashboard'
 import Invite from './pages/Invite'
 import InviteAccept from './pages/InviteAccept'
+import Onboarding from './pages/Onboarding'
 import Chat from './pages/Chat'
 import AvatarSelect from './pages/AvatarSelect'
 import Settings from './pages/Settings'
@@ -32,6 +33,14 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
           <Route path="/invite/:inviteCode" element={<InviteAccept />} />
+          <Route
+            path="/onboarding"
+            element={
+              <ProtectedRoute>
+                <Onboarding />
+              </ProtectedRoute>
+            }
+          />
           <Route path="/status" element={<Status />} />
           <Route path="/meeting/:token" element={<MeetingLobby />} />
           <Route path="/chat/:conversationId" element={<Chat />} />

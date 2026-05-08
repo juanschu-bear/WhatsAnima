@@ -436,33 +436,26 @@ function sortParticipants(participants: any[]) {
   return [...participants].sort((a, b) => Number(Boolean(b?.local)) - Number(Boolean(a?.local)))
 }
 
-function getGridColumns(count: number) {
-  if (count <= 1) return 1
-  if (count === 2) return 2
-  if (count === 3) return 3
-  if (count === 4) return 2
-  if (count <= 6) return 3
-  if (count <= 9) return 3
-  return 4
-}
-
 function ParticipantTile({
   participant,
   isLocal,
   isActive,
   isCameraEnabled,
+  videoFit = 'cover',
   zoom = 1,
 }: {
   participant: any
   isLocal: boolean
   isActive: boolean
   isCameraEnabled: boolean
+  videoFit?: 'cover' | 'contain'
   zoom?: number
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const hasVideoTrack = Boolean(getParticipantTrack(participant, 'video'))
   const showVideo = hasVideoTrack && (!isLocal || isCameraEnabled)
   const label = (isLocal ? 'You' : getParticipantName(participant)) || 'Guest'
+  const videoFitClass = videoFit === 'contain' ? 'object-contain' : 'object-cover'
 
   useEffect(() => {
     const stream = showVideo ? buildParticipantStream(participant, !isLocal) : null
@@ -481,7 +474,7 @@ function ParticipantTile({
           autoPlay
           muted={isLocal}
           playsInline
-          className="h-full w-full bg-black object-contain"
+          className={`h-full w-full bg-black ${videoFitClass}`}
           style={{ transform: `${isLocal ? 'scaleX(-1) ' : ''}scale(${zoom})` }}
         />
       ) : (
@@ -625,6 +618,8 @@ const ONBOARDING_TRIGGER = 'onboarding_first_call'
 const VIDEO_ZOOM_MIN = 0.4
 const VIDEO_ZOOM_MAX = 1.6
 const VIDEO_ZOOM_STEP = 0.05
+const VIDEO_ZOOM_DEFAULT_REMOTE = 1.2
+const VIDEO_ZOOM_DEFAULT_LOCAL = 1.1
 const VIDEO_ZOOM_STORAGE_REMOTE = 'wa_video_zoom_remote'
 const VIDEO_ZOOM_STORAGE_LOCAL = 'wa_video_zoom_local'
 
@@ -634,15 +629,17 @@ function clampVideoZoom(value: number): number {
 }
 
 function readZoomPreference(key: string): number {
-  if (typeof window === 'undefined') return 1
+  if (typeof window === 'undefined') {
+    return key === VIDEO_ZOOM_STORAGE_REMOTE ? VIDEO_ZOOM_DEFAULT_REMOTE : VIDEO_ZOOM_DEFAULT_LOCAL
+  }
   try {
     const value = Number(window.localStorage.getItem(key))
     if (!Number.isFinite(value)) {
-      return key === VIDEO_ZOOM_STORAGE_REMOTE ? 0.75 : 1
+      return key === VIDEO_ZOOM_STORAGE_REMOTE ? VIDEO_ZOOM_DEFAULT_REMOTE : VIDEO_ZOOM_DEFAULT_LOCAL
     }
     return clampVideoZoom(value)
   } catch {
-    return key === VIDEO_ZOOM_STORAGE_REMOTE ? 0.75 : 1
+    return key === VIDEO_ZOOM_STORAGE_REMOTE ? VIDEO_ZOOM_DEFAULT_REMOTE : VIDEO_ZOOM_DEFAULT_LOCAL
   }
 }
 
@@ -752,6 +749,7 @@ export default function VideoCall() {
   const lastRavenContextAtRef = useRef<number>(0)
   const callStartAtRef = useRef<number | null>(null)
   const callSummarySentRef = useRef(false)
+  const transcriptBufferRef = useRef<string[]>([])
   const participantsRef = useRef<any[]>([])
   const lastUserSpeechEndAtRef = useRef<number | null>(null)
   const lastLatencyLoggedAtRef = useRef<number | null>(null)
@@ -974,6 +972,13 @@ export default function VideoCall() {
   const forwardTranscript = async (payload: { text: string; speaker?: string | null; timestamp?: number }) => {
     const sessionId = sessionIdRef.current
     if (!sessionId) return
+    const trimmed = String(payload.text || '').trim()
+    if (trimmed) {
+      const current = transcriptBufferRef.current
+      const last = current[current.length - 1]
+      if (last !== trimmed) current.push(trimmed)
+      if (current.length > 100) current.splice(0, current.length - 100)
+    }
     const body = {
       session_id: sessionId,
       transcript: payload.text,
@@ -1182,6 +1187,8 @@ export default function VideoCall() {
       ownerId: conversation?.owner_id ?? conversation?.wa_owners?.id ?? null,
       personaName: personaOverrideEnabled ? selectedPersona : conversation?.wa_owners?.display_name || 'MAXIM',
       replicaId: conversation?.wa_owners?.tavus_replica_id?.trim() || FALLBACK_REPLICA_ID,
+      incomingCallId: incomingCallId || null,
+      userId: user?.id || null,
       language: normalizeLanguageCode(languageRef.current),
       reason,
     })
@@ -1212,6 +1219,8 @@ export default function VideoCall() {
           ownerId: conversation?.owner_id ?? conversation?.wa_owners?.id ?? null,
           personaName: personaOverrideEnabled ? selectedPersona : conversation?.wa_owners?.display_name || 'MAXIM',
           replicaId: conversation?.wa_owners?.tavus_replica_id?.trim() || FALLBACK_REPLICA_ID,
+          incomingCallId: incomingCallId || null,
+          userId: user?.id || null,
           language: normalizeLanguageCode(languageRef.current),
           reason,
         }),
@@ -1776,13 +1785,21 @@ export default function VideoCall() {
       ended_at: new Date(endedAtMs).toISOString(),
       duration_sec: durationSec,
       participants: participantNames,
+      summary_text: (() => {
+        const transcript = serializeLivekitTranscript(livekitTranscriptBlocks)
+        const bufferedTranscript = transcriptBufferRef.current.join('\n').trim()
+        const source = transcript || bufferedTranscript
+        if (!source) return ''
+        const excerpt = source.slice(0, 1200).trim()
+        return excerpt ? `Transcript excerpt: ${excerpt}` : ''
+      })(),
     }
 
     try {
       await sendMessage(
         conversationId,
         'avatar',
-        'text',
+        'call_summary',
         `[Call summary] ${JSON.stringify(summaryPayload)}`
       )
     } catch (error) {
@@ -1888,6 +1905,7 @@ export default function VideoCall() {
       callHandoffInjectedRef.current = false
       languageContextInjectedRef.current = false
       participantsRef.current = []
+      transcriptBufferRef.current = []
       lastUserSpeechEndAtRef.current = null
       lastLatencyLoggedAtRef.current = null
       lastActiveSpeakerIdRef.current = null
@@ -1916,6 +1934,7 @@ export default function VideoCall() {
         owner_id: owner.id || conversation.owner_id || null,
         contact_id: conversation.contact_id || null,
         contact_name: conversation.wa_contacts?.display_name || null,
+        user_id: user?.id || null,
         incoming_call_id: incomingCallId || null,
         meeting_token: meetingToken || undefined,
         meeting_guest_join_only: isMeetingGuest,
@@ -2854,6 +2873,14 @@ export default function VideoCall() {
       const handleVoiceCommandEvent = (event: any) => {
         const message = extractConversationText(event)
         if (!message) return
+        const line = message.text.trim()
+        if (line) {
+          const buffer = transcriptBufferRef.current
+          const tagged = `${message.role === 'assistant' ? 'Avatar' : 'User'}: ${line}`
+          const last = buffer[buffer.length - 1]
+          if (last !== tagged) buffer.push(tagged)
+          if (buffer.length > 140) buffer.splice(0, buffer.length - 140)
+        }
 
         const text = message.text.toLowerCase()
         const mentionsCreator = /creator[-\s]?mode|creator[-\s]?modus/.test(text)
@@ -3174,8 +3201,6 @@ export default function VideoCall() {
   const replicaId = owner.tavus_replica_id?.trim() || FALLBACK_REPLICA_ID
   const selectedPersonaDetails = personas.find((persona) => persona.name === selectedPersona) ?? null
   const selectedLanguage = LANGUAGES.find((item) => item.code === language)
-  const sideBySideColumns = getGridColumns(visibleParticipants.length)
-
   return (
     <div className="relative h-[100dvh] min-h-[100dvh] overflow-hidden bg-[radial-gradient(circle_at_top,rgba(0,195,170,0.16),transparent_30%),radial-gradient(circle_at_85%_20%,rgba(53,127,255,0.16),transparent_24%),linear-gradient(180deg,#03060b_0%,#07111a_48%,#02050a_100%)] text-white supports-[-webkit-touch-callout:none]:min-h-[-webkit-fill-available]">
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:44px_44px] opacity-30" />
@@ -3214,58 +3239,61 @@ export default function VideoCall() {
           <div className="relative flex min-h-0 flex-1 overflow-hidden rounded-[28px] border border-white/8 bg-[linear-gradient(180deg,rgba(9,18,28,0.94),rgba(4,10,18,0.96))] shadow-[0_40px_120px_rgba(0,0,0,0.45)] sm:rounded-[32px]">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(112,240,222,0.13),transparent_32%)]" />
 
-            <div className="relative flex h-full w-full items-center justify-center">
-              <div className="relative h-full w-full">
+            <div className="relative flex h-full w-full items-center justify-center p-2 sm:p-3">
+              <div className={`relative w-full ${isNarrowViewport ? 'h-full' : 'max-h-full max-w-[1720px] aspect-video'}`}>
                 <div className="absolute inset-0">
                   {isLivekit ? (
                     viewMode === 'speaker' ? (
-                      <div className="relative h-full w-full p-3 sm:p-4">
-                        <div className="h-full w-full">
+                      <div className="relative h-full w-full p-2 sm:p-3">
+                        <div className="flex h-full w-full items-center justify-center">
+                          <div className="aspect-video h-auto max-h-full w-full">
                           <LivekitVideoTile
                             track={livekitRemoteVideo}
                             isLocal={false}
                             label={livekitRemoteName || personaName}
                             isActive={livekitActiveKinds.includes('agent')}
                             cameraEnabled
-                            videoFit="contain"
+                            videoFit="cover"
                             zoom={remoteZoom}
                           />
+                          </div>
                         </div>
-                        <div className="absolute bottom-4 right-4 h-40 w-64 sm:bottom-6 sm:right-6 sm:h-44 sm:w-72">
+                        <div className="absolute bottom-4 right-4 h-36 w-64 sm:bottom-6 sm:right-6 sm:h-40 sm:w-72">
                           <LivekitVideoTile
                             track={livekitLocalVideo}
                             isLocal
                             label={livekitLocalName || 'You'}
                             isActive={livekitActiveKinds.includes('user')}
                             cameraEnabled={isCameraEnabled}
-                            videoFit={isNarrowViewport ? 'contain' : 'cover'}
+                            videoFit="cover"
                             zoom={localZoom}
                           />
                         </div>
                       </div>
                     ) : (
-                      <div
-                        className="grid h-full w-full gap-3 p-3 sm:gap-4 sm:p-4"
-                        style={{ gridTemplateColumns: isNarrowViewport ? 'minmax(0, 1fr)' : 'repeat(2, minmax(0, 1fr))' }}
-                      >
-                        <LivekitVideoTile
-                          track={livekitRemoteVideo}
-                          isLocal={false}
-                          label={livekitRemoteName || personaName}
-                          isActive={livekitActiveKinds.includes('agent')}
-                          cameraEnabled
-                          videoFit="contain"
-                          zoom={remoteZoom}
-                        />
-                        <LivekitVideoTile
-                          track={livekitLocalVideo}
-                          isLocal
-                          label={livekitLocalName || 'You'}
-                          isActive={livekitActiveKinds.includes('user')}
-                          cameraEnabled={isCameraEnabled}
-                          videoFit="cover"
-                          zoom={localZoom}
-                        />
+                      <div className="flex h-full w-full items-stretch gap-0 p-0">
+                        <div className="h-full min-w-0 flex-1">
+                          <LivekitVideoTile
+                            track={livekitRemoteVideo}
+                            isLocal={false}
+                            label={livekitRemoteName || personaName}
+                            isActive={livekitActiveKinds.includes('agent')}
+                            cameraEnabled
+                            videoFit="cover"
+                            zoom={remoteZoom}
+                          />
+                        </div>
+                        <div className="h-full min-w-0 flex-1">
+                          <LivekitVideoTile
+                            track={livekitLocalVideo}
+                            isLocal
+                            label={livekitLocalName || 'You'}
+                            isActive={livekitActiveKinds.includes('user')}
+                            cameraEnabled={isCameraEnabled}
+                            videoFit="cover"
+                            zoom={localZoom}
+                          />
+                        </div>
                       </div>
                     )
                   ) : visibleParticipants.length === 0 ? (
@@ -3355,20 +3383,23 @@ export default function VideoCall() {
                       ) : null}
                     </div>
                   ) : viewMode === 'speaker' ? (
-                    <div className="relative h-full w-full p-3 sm:p-4">
-                      <div className="h-full w-full">
+                    <div className="relative h-full w-full p-2 sm:p-3">
+                      <div className="flex h-full w-full items-center justify-center">
+                        <div className="aspect-video h-auto max-h-full w-full">
                         {activeSpeakerParticipant ? (
                           <ParticipantTile
                             participant={activeSpeakerParticipant}
                             isLocal={Boolean(activeSpeakerParticipant?.local)}
                             isActive
                             isCameraEnabled={isCameraEnabled}
+                            videoFit="cover"
                             zoom={Boolean(activeSpeakerParticipant?.local) ? localZoom : remoteZoom}
                           />
                         ) : null}
+                        </div>
                       </div>
                       {thumbnailParticipants.length > 0 ? (
-                        <div className="absolute bottom-4 right-4 w-40 sm:bottom-6 sm:right-6 sm:w-48">
+                        <div className="absolute bottom-4 right-4 h-32 w-56 sm:bottom-6 sm:right-6 sm:h-40 sm:w-72">
                           <ParticipantTile
                             participant={thumbnailParticipants[0]}
                             isLocal={Boolean(thumbnailParticipants[0]?.local)}
@@ -3380,19 +3411,18 @@ export default function VideoCall() {
                       ) : null}
                     </div>
                   ) : (
-                    <div
-                      className="grid h-full w-full gap-3 p-3 sm:gap-4 sm:p-4"
-                      style={{ gridTemplateColumns: `repeat(${sideBySideColumns}, minmax(0, 1fr))` }}
-                    >
+                    <div className="flex h-full w-full items-stretch gap-0 p-0">
                       {visibleParticipants.map((participant, index) => (
-                        <ParticipantTile
-                          key={getParticipantId(participant) || `grid-${index}`}
-                          participant={participant}
-                          isLocal={Boolean(participant?.local)}
-                          isActive={getParticipantId(participant) === activeSpeakerId}
-                          isCameraEnabled={isCameraEnabled}
-                          zoom={Boolean(participant?.local) ? localZoom : remoteZoom}
-                        />
+                        <div key={getParticipantId(participant) || `grid-${index}`} className="h-full min-w-0 flex-1">
+                          <ParticipantTile
+                            participant={participant}
+                            isLocal={Boolean(participant?.local)}
+                            isActive={getParticipantId(participant) === activeSpeakerId}
+                            isCameraEnabled={isCameraEnabled}
+                            videoFit="cover"
+                            zoom={Boolean(participant?.local) ? localZoom : remoteZoom}
+                          />
+                        </div>
                       ))}
                     </div>
                   )}
@@ -3538,7 +3568,7 @@ export default function VideoCall() {
               </button>
               <button
                 type="button"
-                onClick={() => setRemoteZoom(1)}
+                onClick={() => setRemoteZoom(VIDEO_ZOOM_DEFAULT_REMOTE)}
                 className="rounded-full border border-white/12 bg-white/6 px-2 py-1 text-white/75 transition hover:bg-white/12 hover:text-white"
               >
                 Reset
@@ -3566,7 +3596,7 @@ export default function VideoCall() {
               </button>
               <button
                 type="button"
-                onClick={() => setLocalZoom(1)}
+                onClick={() => setLocalZoom(VIDEO_ZOOM_DEFAULT_LOCAL)}
                 className="rounded-full border border-white/12 bg-white/6 px-2 py-1 text-white/75 transition hover:bg-white/12 hover:text-white"
               >
                 Reset

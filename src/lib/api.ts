@@ -1,7 +1,7 @@
 import { supabase } from './supabase'
 import { getCanonicalAppUrl } from './canonicalOrigin'
 
-export type MessageType = 'text' | 'voice' | 'video' | 'image' | 'flashcard' | 'quiz' | 'lesson' | 'fillin' | 'call_summary' | 'system'
+export type MessageType = 'text' | 'voice' | 'video' | 'image' | 'document' | 'flashcard' | 'quiz' | 'lesson' | 'fillin' | 'call_summary' | 'system'
 
 export interface ContactConversationPayload {
   ownerId: string
@@ -1084,6 +1084,7 @@ export async function sendMessage(
     audioStatus?: string | null
     audioRetryCount?: number | null
     audioLastError?: string | null
+    documentId?: string | null
   }
 ) {
   const timezone =
@@ -1105,6 +1106,7 @@ export async function sendMessage(
       audioStatus: extra?.audioStatus ?? null,
       audioRetryCount: extra?.audioRetryCount ?? null,
       audioLastError: extra?.audioLastError ?? null,
+      documentId: extra?.documentId ?? null,
       timezone,
     }),
   })
@@ -1176,6 +1178,7 @@ export async function requestOutboundCall(payload: {
   userId?: string | null
   contactEmail: string
   requestedByMessageId?: string | null
+  documentIds?: string[]
   triggerText: string
   language?: string | null
   callerDisplayName?: string | null
