@@ -32,8 +32,17 @@ interface BackendPersona {
   is_active?: boolean
 }
 
-const LIVE_CALL_API_BASE =
-  (import.meta.env.VITE_LIVE_CALL_API_BASE as string | undefined) || 'https://anima.onioko.com'
+function normalizeLiveCallApiBase(raw?: string) {
+  const normalized = String(raw || '')
+    .trim()
+    .replace(/\/+$/, '')
+    .replace(/\/api$/, '')
+  if (!normalized) return 'https://boardroom-api.onioko.com'
+  if (normalized === 'https://anima.onioko.com') return 'https://boardroom-api.onioko.com'
+  return normalized
+}
+
+const LIVE_CALL_API_BASE = normalizeLiveCallApiBase(import.meta.env.VITE_LIVE_CALL_API_BASE as string | undefined)
 const FALLBACK_REPLICA_ID = 'r987f6e6f73c'
 const JUAN_LOCKED_REPLICA_ID = 'rf5414018e80'
 const HEARTBEAT_INTERVAL_MS = 15_000
