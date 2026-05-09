@@ -545,6 +545,7 @@ export async function acceptOnboardingInvitation(payload: {
   inviteCode: string
   userId: string
   userEmail?: string | null
+  inviteeName?: string | null
 }) {
   const response = await fetch('/api/accept-invitation', {
     method: 'POST',

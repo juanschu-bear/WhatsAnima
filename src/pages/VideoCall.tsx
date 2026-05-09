@@ -1605,6 +1605,20 @@ export default function VideoCall() {
     }
 
     if (conversationId) {
+      let isOnboardingCall = false
+      try {
+        const flag = sessionStorage.getItem(`wa_onboarding_call:${conversationId}`)
+        if (flag) {
+          isOnboardingCall = true
+          sessionStorage.removeItem(`wa_onboarding_call:${conversationId}`)
+        }
+      } catch {
+        // ignore storage errors
+      }
+      if (isOnboardingCall) {
+        navigate('/onboarding', { replace: true })
+        return
+      }
       navigate(`/chat/${conversationId}`, { replace: true })
       return
     }
