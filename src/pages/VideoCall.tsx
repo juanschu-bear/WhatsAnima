@@ -14,7 +14,7 @@ import type {
   TranscriptionSegment,
   TextStreamInfo,
 } from 'livekit-client'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { resolveAvatarUrl } from '../lib/avatars'
@@ -32,17 +32,8 @@ interface BackendPersona {
   is_active?: boolean
 }
 
-function normalizeLiveCallApiBase(raw?: string) {
-  const normalized = String(raw || '')
-    .trim()
-    .replace(/\/+$/, '')
-    .replace(/\/api$/, '')
-  if (!normalized) return 'https://boardroom-api.onioko.com'
-  if (normalized === 'https://anima.onioko.com') return 'https://boardroom-api.onioko.com'
-  return normalized
-}
-
-const LIVE_CALL_API_BASE = normalizeLiveCallApiBase(import.meta.env.VITE_LIVE_CALL_API_BASE as string | undefined)
+const LIVE_CALL_API_BASE =
+  (import.meta.env.VITE_LIVE_CALL_API_BASE as string | undefined) || 'https://anima.onioko.com'
 const FALLBACK_REPLICA_ID = 'r987f6e6f73c'
 const JUAN_LOCKED_REPLICA_ID = 'rf5414018e80'
 const HEARTBEAT_INTERVAL_MS = 15_000
@@ -422,13 +413,6 @@ function sortParticipants(participants: any[]) {
   return [...participants].sort((a, b) => Number(Boolean(b?.local)) - Number(Boolean(a?.local)))
 }
 
-// Strip trailing model-name parentheticals like "(Haiku)", "(Sonnet)", "(Opus)"
-// for UI display only. Preserves intentional suffixes like "(Elite)".
-function formatDisplayName(name: string | null | undefined): string {
-  if (!name) return ''
-  return name.replace(/\s*\((?:haiku|sonnet|opus|claude[^)]*)\)\s*$/i, '').trim()
-}
-
 function getGridColumns(count: number) {
   if (count <= 1) return 1
   if (count === 2) return 2
@@ -474,13 +458,6 @@ function ParticipantTile({
           playsInline
           className="h-full w-full object-cover"
           style={isLocal ? { transform: 'scaleX(-1)' } : undefined}
-          onLoadedMetadata={(event) => {
-            const v = event.currentTarget
-            // eslint-disable-next-line no-console
-            console.log(
-              `[VideoCall][daily][${isLocal ? 'local' : 'remote'}] native=${v.videoWidth}x${v.videoHeight} aspect=${(v.videoWidth / Math.max(v.videoHeight, 1)).toFixed(3)} label="${label}"`,
-            )
-          }}
         />
       ) : (
         <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.08),transparent_45%),linear-gradient(180deg,rgba(14,19,30,0.98),rgba(7,10,18,0.98))] px-4 text-center">
@@ -506,14 +483,12 @@ function LivekitVideoTile({
   label,
   isActive,
   cameraEnabled,
-  onNativeSize,
 }: {
   track: LivekitVideoTrack | null
   isLocal: boolean
   label: string
   isActive: boolean
   cameraEnabled: boolean
-  onNativeSize?: (width: number, height: number) => void
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const shouldShow = Boolean(track) && (!isLocal || cameraEnabled)
@@ -527,26 +502,6 @@ function LivekitVideoTile({
     }
   }, [track, shouldShow])
 
-  useEffect(() => {
-    const element = videoRef.current
-    if (!element || !shouldShow) return
-    const report = () => {
-      if (!element.videoWidth || !element.videoHeight) return
-      // eslint-disable-next-line no-console
-      console.log(
-        `[VideoCall][livekit][${isLocal ? 'local' : 'remote'}] native=${element.videoWidth}x${element.videoHeight} aspect=${(element.videoWidth / element.videoHeight).toFixed(3)} label="${label}"`,
-      )
-      onNativeSize?.(element.videoWidth, element.videoHeight)
-    }
-    element.addEventListener('loadedmetadata', report)
-    element.addEventListener('resize', report)
-    if (element.readyState >= 1) report()
-    return () => {
-      element.removeEventListener('loadedmetadata', report)
-      element.removeEventListener('resize', report)
-    }
-  }, [shouldShow, isLocal, label, onNativeSize])
-
   return (
     <div
       className={`relative h-full w-full overflow-hidden rounded-[22px] border bg-black/70 shadow-[0_18px_60px_rgba(0,0,0,0.35)] ${
@@ -559,7 +514,7 @@ function LivekitVideoTile({
           autoPlay
           muted={isLocal}
           playsInline
-          className="h-full w-full object-cover"
+          className={`h-full w-full ${isLocal ? 'object-cover' : 'object-contain'}`}
           style={isLocal ? { transform: 'scaleX(-1)' } : undefined}
         />
       ) : (
@@ -628,47 +583,6 @@ const LIVEKIT_CHAT_TOPIC = 'lk.chat'
 const LIVEKIT_SEGMENT_ID_ATTR = 'lk.segment_id'
 const LIVEKIT_TRACK_ID_ATTR = 'lk.transcribed_track_id'
 const LIVEKIT_FINAL_ATTR = 'lk.transcription_final'
-const INCOMING_CALL_CONTEXT_PREFIX = 'wa_incoming_call_context:'
-const INCOMING_CALL_PREWARM_PREFIX = 'wa_incoming_call_prewarm:'
-const ONBOARDING_TRIGGER = 'onboarding_first_call'
-const VIDEO_ZOOM_MIN = 0.4
-const VIDEO_ZOOM_MAX = 1.6
-const VIDEO_ZOOM_STEP = 0.05
-const VIDEO_ZOOM_DEFAULT_REMOTE = 1
-const VIDEO_ZOOM_DEFAULT_LOCAL = 1
-
-function clampVideoZoom(value: number): number {
-  if (!Number.isFinite(value)) return 1
-  return Math.min(VIDEO_ZOOM_MAX, Math.max(VIDEO_ZOOM_MIN, Math.round(value * 100) / 100))
-}
-
-function detectCallLanguageFromText(text: string): SupportedLanguage {
-  const t = String(text || '').toLowerCase()
-  if (
-    /\bruf mich an\b/.test(t) ||
-    /\brufe mich an\b/.test(t) ||
-    /\banruf\b/.test(t) ||
-    /\brufst du mich an\b/.test(t)
-  ) return 'de'
-  if (
-    /\bllámame\b/i.test(text) ||
-    /\bllamame\b/.test(t) ||
-    /\bllámame en\b/i.test(text) ||
-    /\bl(l)?ama(me)?\b/.test(t)
-  ) return 'es'
-  if (/\bcall me\b/.test(t)) return 'en'
-  return 'en'
-}
-
-function buildOnboardingHandoffContext(language: SupportedLanguage, callerName: string) {
-  if (language === 'de') {
-    return `[ONBOARDING] Dies ist euer erstes Gespräch. Begrüße ${callerName} warm und namentlich, stelle dich kurz vor, erkläre den Zweck des Kennenlern-Calls, frage nach Hintergrund, Zielen und wichtigen Personen im Umfeld, fasse am Ende zusammen und nutze natürliche Sprache ohne technische Begriffe.`
-  }
-  if (language === 'es') {
-    return `[ONBOARDING] Esta es su primera conversación. Saluda cálidamente a ${callerName} por su nombre, preséntate brevemente, explica el propósito de esta llamada inicial, pregunta por su contexto, objetivos y personas importantes, resume al final y evita términos técnicos.`
-  }
-  return `[ONBOARDING] This is your first conversation. Greet ${callerName} warmly by name, introduce yourself briefly, explain the purpose of this first call, ask about background, goals, and important people around them, summarize at the end, and avoid technical terms.`
-}
 
 function isLivekitAgentIdentity(identity: string | null | undefined): boolean {
   const value = (identity || '').trim()
@@ -696,8 +610,6 @@ export default function VideoCall() {
   const [creatorMode, setCreatorMode] = useState(false)
   const [selectedPersona, setSelectedPersona] = useState('MAXIM')
   const [viewMode, setViewMode] = useState<ViewMode>('speaker')
-  const [remoteZoom, setRemoteZoom] = useState<number>(VIDEO_ZOOM_DEFAULT_REMOTE)
-  const [localZoom, setLocalZoom] = useState<number>(VIDEO_ZOOM_DEFAULT_LOCAL)
   const [phase, setPhase] = useState<CallPhase>('setup')
   const [statusText, setStatusText] = useState('Ready to join')
   const [error, setError] = useState<string | null>(null)
@@ -725,18 +637,6 @@ export default function VideoCall() {
   const livekitLocalIdentityRef = useRef<string | null>(null)
   const [livekitRemoteName, setLivekitRemoteName] = useState<string>('')
   const [livekitLocalName, setLivekitLocalName] = useState<string>('')
-  // Native source aspect ratios (width / height). Default to 16:9 until a
-  // <video> reports its real dimensions via loadedmetadata/resize. Containers
-  // are sized from these so object-cover never crops a square avatar to a
-  // 16:9 box (heavy face zoom) and never leaves bars on a 16:9 webcam.
-  const [livekitRemoteAspect, setLivekitRemoteAspect] = useState<number>(16 / 9)
-  const [livekitLocalAspect, setLivekitLocalAspect] = useState<number>(16 / 9)
-  const handleRemoteNativeSize = useCallback((w: number, h: number) => {
-    if (w > 0 && h > 0) setLivekitRemoteAspect(w / h)
-  }, [])
-  const handleLocalNativeSize = useCallback((w: number, h: number) => {
-    if (w > 0 && h > 0) setLivekitLocalAspect(w / h)
-  }, [])
   const [livekitActiveKinds, setLivekitActiveKinds] = useState<LivekitSpeakerKind[]>([])
   const [livekitTranscriptBlocks, setLivekitTranscriptBlocks] = useState<LivekitTranscriptBlock[]>([])
   const [showTranscript, setShowTranscript] = useState(false)
@@ -781,32 +681,6 @@ export default function VideoCall() {
   const isMeetingMode = meetingToken.length > 0
   const isMeetingGuest = isMeetingMode && !meetingHostControl
   const forcedSessionId = String(searchParams.get('session_id') || '').trim()
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const media = window.matchMedia('(max-width: 639px)')
-    const apply = () => setIsNarrowViewport(media.matches)
-    apply()
-    media.addEventListener('change', apply)
-    return () => {
-      media.removeEventListener('change', apply)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!incomingCallId) return
-    try {
-      const raw = sessionStorage.getItem(`${INCOMING_CALL_CONTEXT_PREFIX}${incomingCallId}`)
-      if (!raw) return
-      const parsed = JSON.parse(raw) as { trigger_text?: string; language?: string }
-      const triggerText = String(parsed?.trigger_text || '').trim()
-      if (triggerText) setIncomingCallTriggerText(triggerText)
-      const parsedLanguage = parsed?.language ? normalizeLanguageCode(parsed.language) : null
-      setIncomingCallLanguage(parsedLanguage || (triggerText ? detectCallLanguageFromText(triggerText) : null))
-    } catch {
-      // Ignore parse/storage errors.
-    }
-  }, [incomingCallId])
 
   useEffect(() => {
     sessionIdRef.current = sessionId
@@ -2860,7 +2734,7 @@ export default function VideoCall() {
           <div className="text-center">
             <p className="text-xs uppercase tracking-[0.3em] text-white/45">Live video call</p>
             <h1 className="mt-1 text-base font-semibold tracking-[-0.02em] text-white sm:text-lg">
-              {formatDisplayName(personaName)}
+              {personaName}
             </h1>
           </div>
 
@@ -2878,75 +2752,50 @@ export default function VideoCall() {
           <div className="relative flex min-h-0 flex-1 overflow-hidden rounded-[28px] border border-white/8 bg-[linear-gradient(180deg,rgba(9,18,28,0.94),rgba(4,10,18,0.96))] shadow-[0_40px_120px_rgba(0,0,0,0.45)] sm:rounded-[32px]">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(112,240,222,0.13),transparent_32%)]" />
 
-            <div className="relative flex h-full w-full items-center justify-center p-2 sm:p-3">
-              <div className={`relative w-full ${isNarrowViewport ? 'h-full' : 'max-h-full max-w-[1320px] aspect-[3/2]'}`}>
+            <div className="relative flex h-full w-full items-center justify-center">
+              <div className="relative h-full w-full">
                 <div className="absolute inset-0">
                   {isLivekit ? (
                     viewMode === 'speaker' ? (
                       <div className="relative h-full w-full p-3 sm:p-4">
-                        <div className="flex h-full w-full items-center justify-center">
-                          <div className="h-full w-full">
+                        <div className="h-full w-full">
                           <LivekitVideoTile
                             track={livekitRemoteVideo}
                             isLocal={false}
                             label={livekitRemoteName || personaName}
                             isActive={livekitActiveKinds.includes('agent')}
                             cameraEnabled
-                            videoFit="cover"
-                            zoom={remoteZoom}
                           />
-                          </div>
                         </div>
-                        <div
-                          className="absolute bottom-4 right-4 w-32 sm:bottom-6 sm:right-6 sm:w-48"
-                          style={{ aspectRatio: String(livekitLocalAspect) }}
-                        >
+                        <div className="absolute bottom-4 right-4 aspect-video w-40 sm:bottom-6 sm:right-6 sm:w-48">
                           <LivekitVideoTile
                             track={livekitLocalVideo}
                             isLocal
                             label={livekitLocalName || 'You'}
                             isActive={livekitActiveKinds.includes('user')}
                             cameraEnabled={isCameraEnabled}
-                            onNativeSize={handleLocalNativeSize}
                           />
                         </div>
                       </div>
                     ) : (
-                      <div className="flex h-full w-full items-center justify-center gap-3 p-3 sm:gap-4 sm:p-4">
-                        <div
-                          className="h-full shrink-0"
-                          style={{
-                            aspectRatio: String(Math.max(livekitRemoteAspect, 3 / 4)),
-                            maxHeight: '100%',
-                            maxWidth: '48%',
-                          }}
-                        >
-                          <LivekitVideoTile
-                            track={livekitRemoteVideo}
-                            isLocal={false}
-                            label={formatDisplayName(livekitRemoteName || personaName)}
-                            isActive={livekitActiveKinds.includes('agent')}
-                            cameraEnabled
-                            onNativeSize={handleRemoteNativeSize}
-                          />
-                        </div>
-                        <div
-                          className="h-full shrink-0"
-                          style={{
-                            aspectRatio: String(Math.max(livekitLocalAspect, 3 / 4)),
-                            maxHeight: '100%',
-                            maxWidth: '48%',
-                          }}
-                        >
-                          <LivekitVideoTile
-                            track={livekitLocalVideo}
-                            isLocal
-                            label={livekitLocalName || 'You'}
-                            isActive={livekitActiveKinds.includes('user')}
-                            cameraEnabled={isCameraEnabled}
-                            onNativeSize={handleLocalNativeSize}
-                          />
-                        </div>
+                      <div
+                        className="grid h-full w-full gap-3 p-3 sm:gap-4 sm:p-4"
+                        style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}
+                      >
+                        <LivekitVideoTile
+                          track={livekitRemoteVideo}
+                          isLocal={false}
+                          label={livekitRemoteName || personaName}
+                          isActive={livekitActiveKinds.includes('agent')}
+                          cameraEnabled
+                        />
+                        <LivekitVideoTile
+                          track={livekitLocalVideo}
+                          isLocal
+                          label={livekitLocalName || 'You'}
+                          isActive={livekitActiveKinds.includes('user')}
+                          cameraEnabled={isCameraEnabled}
+                        />
                       </div>
                     )
                   ) : visibleParticipants.length === 0 ? (
@@ -2960,7 +2809,7 @@ export default function VideoCall() {
                         <span className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full border-4 border-[#08111a] bg-[#70f0de]" />
                       </div>
                       <p className="mt-3 text-xl font-semibold tracking-[-0.03em] text-white sm:mt-6 sm:text-3xl">
-                        {formatDisplayName(personaName)}
+                        {personaName}
                       </p>
                       <p className="mt-1.5 text-sm leading-6 text-white/62 sm:mt-3 sm:text-base">
                         {phase === 'setup'
@@ -3036,9 +2885,8 @@ export default function VideoCall() {
                       ) : null}
                     </div>
                   ) : viewMode === 'speaker' ? (
-                    <div className="relative h-full w-full p-2 sm:p-3">
-                      <div className="flex h-full w-full items-center justify-center">
-                        <div className="h-full w-full">
+                    <div className="relative h-full w-full p-3 sm:p-4">
+                      <div className="h-full w-full">
                         {activeSpeakerParticipant ? (
                           <ParticipantTile
                             participant={activeSpeakerParticipant}
@@ -3049,7 +2897,7 @@ export default function VideoCall() {
                         ) : null}
                       </div>
                       {thumbnailParticipants.length > 0 ? (
-                        <div className="absolute bottom-4 right-4 aspect-video w-32 sm:bottom-6 sm:right-6 sm:w-48">
+                        <div className="absolute bottom-4 right-4 w-40 sm:bottom-6 sm:right-6 sm:w-48">
                           <ParticipantTile
                             participant={thumbnailParticipants[0]}
                             isLocal={Boolean(thumbnailParticipants[0]?.local)}
