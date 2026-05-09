@@ -429,16 +429,6 @@ function formatDisplayName(name: string | null | undefined): string {
   return name.replace(/\s*\((?:haiku|sonnet|opus|claude[^)]*)\)\s*$/i, '').trim()
 }
 
-function getGridColumns(count: number) {
-  if (count <= 1) return 1
-  if (count === 2) return 2
-  if (count === 3) return 3
-  if (count === 4) return 2
-  if (count <= 6) return 3
-  if (count <= 9) return 3
-  return 4
-}
-
 function ParticipantTile({
   participant,
   isLocal,
@@ -462,8 +452,8 @@ function ParticipantTile({
 
   return (
     <div
-      className={`relative h-full w-full overflow-hidden rounded-[22px] border bg-black/30 shadow-[0_18px_60px_rgba(0,0,0,0.35)] ${
-        isActive ? 'border-[#70f0de]/70 ring-2 ring-[#70f0de]/30' : 'border-white/10'
+      className={`relative h-full w-full overflow-hidden rounded-[22px] border-2 bg-black/30 shadow-[0_18px_60px_rgba(0,0,0,0.35)] transition-all duration-150 ${
+        isActive ? 'border-[#70f0de] ring-4 ring-[#70f0de]/40 shadow-[0_0_28px_rgba(112,240,222,0.55)]' : 'border-white/10'
       }`}
     >
       {showVideo ? (
@@ -2839,7 +2829,6 @@ export default function VideoCall() {
   const replicaId = owner.tavus_replica_id?.trim() || FALLBACK_REPLICA_ID
   const selectedPersonaDetails = personas.find((persona) => persona.name === selectedPersona) ?? null
   const selectedLanguage = LANGUAGES.find((item) => item.code === language)
-  const sideBySideColumns = getGridColumns(visibleParticipants.length)
   const effectiveViewMode: ViewMode = isNarrowViewport && isLandscape ? 'side-by-side' : viewMode
 
   return (
@@ -2917,8 +2906,8 @@ export default function VideoCall() {
                         </div>
                       </div>
                     ) : (
-                      <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-3 landscape:flex-row sm:flex-row sm:gap-4 sm:p-4">
-                        <div className="aspect-square min-h-0 min-w-0 max-h-full max-w-full flex-1 landscape:max-w-[48%] landscape:max-h-full sm:max-w-[48%] sm:max-h-full">
+                      <div className="flex h-full w-full flex-col gap-3 p-3 landscape:flex-row sm:flex-row sm:gap-4 sm:p-4">
+                        <div className="flex-1 min-h-0 min-w-0">
                           <LivekitVideoTile
                             track={livekitRemoteVideo}
                             isLocal={false}
@@ -2928,7 +2917,7 @@ export default function VideoCall() {
                             onNativeSize={handleRemoteNativeSize}
                           />
                         </div>
-                        <div className="aspect-square min-h-0 min-w-0 max-h-full max-w-full flex-1 landscape:max-w-[48%] landscape:max-h-full sm:max-w-[48%] sm:max-h-full">
+                        <div className="flex-1 min-h-0 min-w-0">
                           <LivekitVideoTile
                             track={livekitLocalVideo}
                             isLocal
@@ -3039,7 +3028,7 @@ export default function VideoCall() {
                         ) : null}
                       </div>
                       {thumbnailParticipants.length > 0 ? (
-                        <div className="absolute bottom-4 right-4 aspect-video w-32 sm:bottom-6 sm:right-6 sm:w-48">
+                        <div className="absolute bottom-4 right-4 aspect-square w-44 sm:bottom-6 sm:right-6 sm:w-52">
                           <ParticipantTile
                             participant={thumbnailParticipants[0]}
                             isLocal={Boolean(thumbnailParticipants[0]?.local)}
@@ -3050,18 +3039,19 @@ export default function VideoCall() {
                       ) : null}
                     </div>
                   ) : (
-                    <div
-                      className="grid h-full w-full gap-3 p-3 sm:gap-4 sm:p-4"
-                      style={{ gridTemplateColumns: `repeat(${sideBySideColumns}, minmax(0, 1fr))` }}
-                    >
+                    <div className="flex h-full w-full flex-col gap-3 p-3 landscape:flex-row sm:flex-row sm:gap-4 sm:p-4">
                       {visibleParticipants.map((participant, index) => (
-                        <ParticipantTile
+                        <div
                           key={getParticipantId(participant) || `grid-${index}`}
-                          participant={participant}
-                          isLocal={Boolean(participant?.local)}
-                          isActive={getParticipantId(participant) === activeSpeakerId}
-                          isCameraEnabled={isCameraEnabled}
-                        />
+                          className="flex-1 min-h-0 min-w-0"
+                        >
+                          <ParticipantTile
+                            participant={participant}
+                            isLocal={Boolean(participant?.local)}
+                            isActive={getParticipantId(participant) === activeSpeakerId}
+                            isCameraEnabled={isCameraEnabled}
+                          />
+                        </div>
                       ))}
                     </div>
                   )}
