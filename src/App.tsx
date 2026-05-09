@@ -21,6 +21,7 @@ import MeetingLobby from './pages/MeetingLobby'
 import MeetingHost from './pages/MeetingHost'
 import OPMPerceptionPanelPreviewScreen from './screens/OPMPerceptionPanelPreviewScreen'
 import EcosystemConsole from './pages/EcosystemConsole'
+import Diary from './pages/Diary'
 import IncomingCallOverlay from './components/IncomingCallOverlay'
 
 export default function App() {
@@ -47,6 +48,7 @@ export default function App() {
           <Route path="/video-call" element={<VideoCall />} />
           <Route path="/video-call/:conversationId" element={<VideoCall />} />
           <Route path="/opm-monitor" element={<OPMPerceptionPanelPreviewScreen />} />
+          <Route path="/diary" element={<Diary />} />
           <Route
             path="/console"
             element={<EcosystemConsole />}
