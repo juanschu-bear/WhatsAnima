@@ -472,7 +472,7 @@ function ParticipantTile({
           autoPlay
           muted={isLocal}
           playsInline
-          className="h-full w-full object-contain"
+          className="h-full w-full object-cover"
           style={isLocal ? { transform: 'scaleX(-1)' } : undefined}
           onLoadedMetadata={(event) => {
             const v = event.currentTarget
@@ -559,7 +559,7 @@ function LivekitVideoTile({
           autoPlay
           muted={isLocal}
           playsInline
-          className="h-full w-full object-contain"
+          className="h-full w-full object-cover"
           style={isLocal ? { transform: 'scaleX(-1)' } : undefined}
         />
       ) : (
@@ -2927,7 +2927,7 @@ export default function VideoCall() {
                 <div className="absolute inset-0">
                   {isLivekit ? (
                     effectiveViewMode === 'speaker' ? (
-                      <div className="relative flex h-full w-full items-center justify-center p-3 sm:p-4">
+                      <div className="relative flex h-full w-full items-center justify-center gap-3 p-3 sm:gap-4 sm:p-4">
                         <div
                           className="relative w-full sm:h-full sm:w-auto"
                           style={{
@@ -2944,7 +2944,7 @@ export default function VideoCall() {
                             cameraEnabled
                             onNativeSize={handleRemoteNativeSize}
                           />
-                          <div className="absolute bottom-3 right-3 aspect-square w-28 sm:bottom-4 sm:right-4 sm:w-40">
+                          <div className="absolute bottom-3 right-3 aspect-square w-28 sm:hidden">
                             <LivekitVideoTile
                               track={livekitLocalVideo}
                               isLocal
@@ -2954,6 +2954,16 @@ export default function VideoCall() {
                               onNativeSize={handleLocalNativeSize}
                             />
                           </div>
+                        </div>
+                        <div className="hidden aspect-square w-40 self-end sm:block lg:w-48">
+                          <LivekitVideoTile
+                            track={livekitLocalVideo}
+                            isLocal
+                            label={livekitLocalName || 'You'}
+                            isActive={userSpeakingHeld}
+                            cameraEnabled={isCameraEnabled}
+                            onNativeSize={handleLocalNativeSize}
+                          />
                         </div>
                       </div>
                     ) : (
@@ -3067,8 +3077,8 @@ export default function VideoCall() {
                       ) : null}
                     </div>
                   ) : effectiveViewMode === 'speaker' ? (
-                    <div className="relative flex h-full w-full items-center justify-center p-3 sm:p-4">
-                      <div className="relative h-full w-full">
+                    <div className="relative flex h-full w-full items-center justify-center gap-3 p-3 sm:gap-4 sm:p-4">
+                      <div className="relative h-full w-full sm:h-full sm:w-auto sm:flex-none sm:aspect-square sm:max-h-full sm:max-w-full">
                         {activeSpeakerParticipant ? (
                           <ParticipantTile
                             participant={activeSpeakerParticipant}
@@ -3078,7 +3088,7 @@ export default function VideoCall() {
                           />
                         ) : null}
                         {thumbnailParticipants.length > 0 ? (
-                          <div className="absolute bottom-3 right-3 aspect-square w-28 sm:bottom-4 sm:right-4 sm:w-40">
+                          <div className="absolute bottom-3 right-3 aspect-square w-28 sm:hidden">
                             <ParticipantTile
                               participant={thumbnailParticipants[0]}
                               isLocal={Boolean(thumbnailParticipants[0]?.local)}
@@ -3088,6 +3098,16 @@ export default function VideoCall() {
                           </div>
                         ) : null}
                       </div>
+                      {thumbnailParticipants.length > 0 ? (
+                        <div className="hidden aspect-square w-40 self-end sm:block lg:w-48">
+                          <ParticipantTile
+                            participant={thumbnailParticipants[0]}
+                            isLocal={Boolean(thumbnailParticipants[0]?.local)}
+                            isActive={false}
+                            isCameraEnabled={isCameraEnabled}
+                          />
+                        </div>
+                      ) : null}
                     </div>
                   ) : (
                     <div className="flex h-full w-full flex-col gap-3 p-3 landscape:flex-row sm:flex-row sm:gap-4 sm:p-4">
