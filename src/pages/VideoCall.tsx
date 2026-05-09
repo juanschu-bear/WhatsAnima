@@ -14,7 +14,7 @@ import type {
   TranscriptionSegment,
   TextStreamInfo,
 } from 'livekit-client'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { resolveAvatarUrl } from '../lib/avatars'
@@ -32,8 +32,17 @@ interface BackendPersona {
   is_active?: boolean
 }
 
-const LIVE_CALL_API_BASE =
-  (import.meta.env.VITE_LIVE_CALL_API_BASE as string | undefined) || 'https://anima.onioko.com'
+function normalizeLiveCallApiBase(raw?: string) {
+  const normalized = String(raw || '')
+    .trim()
+    .replace(/\/+$/, '')
+    .replace(/\/api$/, '')
+  if (!normalized) return 'https://boardroom-api.onioko.com'
+  if (normalized === 'https://anima.onioko.com') return 'https://boardroom-api.onioko.com'
+  return normalized
+}
+
+const LIVE_CALL_API_BASE = normalizeLiveCallApiBase(import.meta.env.VITE_LIVE_CALL_API_BASE as string | undefined)
 const FALLBACK_REPLICA_ID = 'r987f6e6f73c'
 const JUAN_LOCKED_REPLICA_ID = 'rf5414018e80'
 const HEARTBEAT_INTERVAL_MS = 15_000
@@ -413,6 +422,13 @@ function sortParticipants(participants: any[]) {
   return [...participants].sort((a, b) => Number(Boolean(b?.local)) - Number(Boolean(a?.local)))
 }
 
+// Strip trailing model-name parentheticals like "(Haiku)", "(Sonnet)", "(Opus)"
+// for UI display only. Preserves intentional suffixes like "(Elite)".
+function formatDisplayName(name: string | null | undefined): string {
+  if (!name) return ''
+  return name.replace(/\s*\((?:haiku|sonnet|opus|claude[^)]*)\)\s*$/i, '').trim()
+}
+
 function getGridColumns(count: number) {
   if (count <= 1) return 1
   if (count === 2) return 2
@@ -458,6 +474,13 @@ function ParticipantTile({
           playsInline
           className="h-full w-full object-cover"
           style={isLocal ? { transform: 'scaleX(-1)' } : undefined}
+          onLoadedMetadata={(event) => {
+            const v = event.currentTarget
+            // eslint-disable-next-line no-console
+            console.log(
+              `[VideoCall][daily][${isLocal ? 'local' : 'remote'}] native=${v.videoWidth}x${v.videoHeight} aspect=${(v.videoWidth / Math.max(v.videoHeight, 1)).toFixed(3)} label="${label}"`,
+            )
+          }}
         />
       ) : (
         <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.08),transparent_45%),linear-gradient(180deg,rgba(14,19,30,0.98),rgba(7,10,18,0.98))] px-4 text-center">
@@ -483,12 +506,14 @@ function LivekitVideoTile({
   label,
   isActive,
   cameraEnabled,
+  onNativeSize,
 }: {
   track: LivekitVideoTrack | null
   isLocal: boolean
   label: string
   isActive: boolean
   cameraEnabled: boolean
+  onNativeSize?: (width: number, height: number) => void
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const shouldShow = Boolean(track) && (!isLocal || cameraEnabled)
@@ -502,6 +527,26 @@ function LivekitVideoTile({
     }
   }, [track, shouldShow])
 
+  useEffect(() => {
+    const element = videoRef.current
+    if (!element || !shouldShow) return
+    const report = () => {
+      if (!element.videoWidth || !element.videoHeight) return
+      // eslint-disable-next-line no-console
+      console.log(
+        `[VideoCall][livekit][${isLocal ? 'local' : 'remote'}] native=${element.videoWidth}x${element.videoHeight} aspect=${(element.videoWidth / element.videoHeight).toFixed(3)} label="${label}"`,
+      )
+      onNativeSize?.(element.videoWidth, element.videoHeight)
+    }
+    element.addEventListener('loadedmetadata', report)
+    element.addEventListener('resize', report)
+    if (element.readyState >= 1) report()
+    return () => {
+      element.removeEventListener('loadedmetadata', report)
+      element.removeEventListener('resize', report)
+    }
+  }, [shouldShow, isLocal, label, onNativeSize])
+
   return (
     <div
       className={`relative h-full w-full overflow-hidden rounded-[22px] border bg-black/70 shadow-[0_18px_60px_rgba(0,0,0,0.35)] ${
@@ -514,7 +559,7 @@ function LivekitVideoTile({
           autoPlay
           muted={isLocal}
           playsInline
-          className={`h-full w-full ${isLocal ? 'object-cover' : 'object-contain'}`}
+          className="h-full w-full object-cover"
           style={isLocal ? { transform: 'scaleX(-1)' } : undefined}
         />
       ) : (
@@ -637,6 +682,18 @@ export default function VideoCall() {
   const livekitLocalIdentityRef = useRef<string | null>(null)
   const [livekitRemoteName, setLivekitRemoteName] = useState<string>('')
   const [livekitLocalName, setLivekitLocalName] = useState<string>('')
+  // Native source aspect ratios (width / height). Default to 16:9 until a
+  // <video> reports its real dimensions via loadedmetadata/resize. Containers
+  // are sized from these so object-cover never crops a square avatar to a
+  // 16:9 box (heavy face zoom) and never leaves bars on a 16:9 webcam.
+  const [livekitRemoteAspect, setLivekitRemoteAspect] = useState<number>(16 / 9)
+  const [livekitLocalAspect, setLivekitLocalAspect] = useState<number>(16 / 9)
+  const handleRemoteNativeSize = useCallback((w: number, h: number) => {
+    if (w > 0 && h > 0) setLivekitRemoteAspect(w / h)
+  }, [])
+  const handleLocalNativeSize = useCallback((w: number, h: number) => {
+    if (w > 0 && h > 0) setLivekitLocalAspect(w / h)
+  }, [])
   const [livekitActiveKinds, setLivekitActiveKinds] = useState<LivekitSpeakerKind[]>([])
   const [livekitTranscriptBlocks, setLivekitTranscriptBlocks] = useState<LivekitTranscriptBlock[]>([])
   const [showTranscript, setShowTranscript] = useState(false)
@@ -2734,7 +2791,7 @@ export default function VideoCall() {
           <div className="text-center">
             <p className="text-xs uppercase tracking-[0.3em] text-white/45">Live video call</p>
             <h1 className="mt-1 text-base font-semibold tracking-[-0.02em] text-white sm:text-lg">
-              {personaName}
+              {formatDisplayName(personaName)}
             </h1>
           </div>
 
@@ -2758,44 +2815,71 @@ export default function VideoCall() {
                   {isLivekit ? (
                     viewMode === 'speaker' ? (
                       <div className="relative h-full w-full p-3 sm:p-4">
-                        <div className="h-full w-full">
-                          <LivekitVideoTile
-                            track={livekitRemoteVideo}
-                            isLocal={false}
-                            label={livekitRemoteName || personaName}
-                            isActive={livekitActiveKinds.includes('agent')}
-                            cameraEnabled
-                          />
+                        <div className="flex h-full w-full items-center justify-center">
+                          <div
+                            className="w-full sm:h-full sm:w-auto"
+                            style={{
+                              aspectRatio: String(Math.max(livekitRemoteAspect, 3 / 4)),
+                              maxHeight: '100%',
+                              maxWidth: '100%',
+                            }}
+                          >
+                            <LivekitVideoTile
+                              track={livekitRemoteVideo}
+                              isLocal={false}
+                              label={formatDisplayName(livekitRemoteName || personaName)}
+                              isActive={livekitActiveKinds.includes('agent')}
+                              cameraEnabled
+                              onNativeSize={handleRemoteNativeSize}
+                            />
+                          </div>
                         </div>
-                        <div className="absolute bottom-4 right-4 aspect-video w-40 sm:bottom-6 sm:right-6 sm:w-48">
+                        <div
+                          className="absolute bottom-4 right-4 w-32 sm:bottom-6 sm:right-6 sm:w-48"
+                          style={{ aspectRatio: String(livekitLocalAspect) }}
+                        >
                           <LivekitVideoTile
                             track={livekitLocalVideo}
                             isLocal
                             label={livekitLocalName || 'You'}
                             isActive={livekitActiveKinds.includes('user')}
                             cameraEnabled={isCameraEnabled}
+                            onNativeSize={handleLocalNativeSize}
                           />
                         </div>
                       </div>
                     ) : (
-                      <div
-                        className="grid h-full w-full gap-3 p-3 sm:gap-4 sm:p-4"
-                        style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}
-                      >
-                        <LivekitVideoTile
-                          track={livekitRemoteVideo}
-                          isLocal={false}
-                          label={livekitRemoteName || personaName}
-                          isActive={livekitActiveKinds.includes('agent')}
-                          cameraEnabled
-                        />
-                        <LivekitVideoTile
-                          track={livekitLocalVideo}
-                          isLocal
-                          label={livekitLocalName || 'You'}
-                          isActive={livekitActiveKinds.includes('user')}
-                          cameraEnabled={isCameraEnabled}
-                        />
+                      <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-3 sm:flex-row sm:gap-4 sm:p-4">
+                        <div
+                          className="w-full max-w-full max-h-full sm:h-full sm:w-auto sm:max-w-[48%] sm:shrink-0"
+                          style={{
+                            aspectRatio: String(Math.max(livekitRemoteAspect, 3 / 4)),
+                          }}
+                        >
+                          <LivekitVideoTile
+                            track={livekitRemoteVideo}
+                            isLocal={false}
+                            label={formatDisplayName(livekitRemoteName || personaName)}
+                            isActive={livekitActiveKinds.includes('agent')}
+                            cameraEnabled
+                            onNativeSize={handleRemoteNativeSize}
+                          />
+                        </div>
+                        <div
+                          className="w-full max-w-full max-h-full sm:h-full sm:w-auto sm:max-w-[48%] sm:shrink-0"
+                          style={{
+                            aspectRatio: String(Math.max(livekitLocalAspect, 3 / 4)),
+                          }}
+                        >
+                          <LivekitVideoTile
+                            track={livekitLocalVideo}
+                            isLocal
+                            label={livekitLocalName || 'You'}
+                            isActive={livekitActiveKinds.includes('user')}
+                            cameraEnabled={isCameraEnabled}
+                            onNativeSize={handleLocalNativeSize}
+                          />
+                        </div>
                       </div>
                     )
                   ) : visibleParticipants.length === 0 ? (
@@ -2809,7 +2893,7 @@ export default function VideoCall() {
                         <span className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full border-4 border-[#08111a] bg-[#70f0de]" />
                       </div>
                       <p className="mt-3 text-xl font-semibold tracking-[-0.03em] text-white sm:mt-6 sm:text-3xl">
-                        {personaName}
+                        {formatDisplayName(personaName)}
                       </p>
                       <p className="mt-1.5 text-sm leading-6 text-white/62 sm:mt-3 sm:text-base">
                         {phase === 'setup'
@@ -2897,7 +2981,7 @@ export default function VideoCall() {
                         ) : null}
                       </div>
                       {thumbnailParticipants.length > 0 ? (
-                        <div className="absolute bottom-4 right-4 w-40 sm:bottom-6 sm:right-6 sm:w-48">
+                        <div className="absolute bottom-4 right-4 aspect-video w-32 sm:bottom-6 sm:right-6 sm:w-48">
                           <ParticipantTile
                             participant={thumbnailParticipants[0]}
                             isLocal={Boolean(thumbnailParticipants[0]?.local)}
