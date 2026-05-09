@@ -19,7 +19,6 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { resolveAvatarUrl } from '../lib/avatars'
 import { getConversation, sendMessage, checkUsage, incrementCallUsage } from '../lib/api'
-import { supabase } from '../lib/supabase'
 
 type ConversationData = Awaited<ReturnType<typeof getConversation>>
 type CallPhase = 'setup' | 'starting' | 'joining' | 'connected' | 'error'
@@ -430,15 +429,6 @@ function formatDisplayName(name: string | null | undefined): string {
   return name.replace(/\s*\((?:haiku|sonnet|opus|claude[^)]*)\)\s*$/i, '').trim()
 }
 
-function formatCallDuration(totalSeconds: number): string {
-  const seconds = Math.max(0, Math.floor(totalSeconds))
-  const hours = Math.floor(seconds / 3600)
-  const minutes = Math.floor((seconds % 3600) / 60)
-  const secs = seconds % 60
-  const pad = (n: number) => n.toString().padStart(2, '0')
-  return hours > 0 ? `${hours}:${pad(minutes)}:${pad(secs)}` : `${pad(minutes)}:${pad(secs)}`
-}
-
 function ParticipantTile({
   participant,
   isLocal,
@@ -472,7 +462,7 @@ function ParticipantTile({
           autoPlay
           muted={isLocal}
           playsInline
-          className="h-full w-full object-contain"
+          className="h-full w-full object-cover"
           style={isLocal ? { transform: 'scaleX(-1)' } : undefined}
           onLoadedMetadata={(event) => {
             const v = event.currentTarget
@@ -559,7 +549,7 @@ function LivekitVideoTile({
           autoPlay
           muted={isLocal}
           playsInline
-          className="h-full w-full object-contain"
+          className="h-full w-full object-cover"
           style={isLocal ? { transform: 'scaleX(-1)' } : undefined}
         />
       ) : (
@@ -707,8 +697,6 @@ export default function VideoCall() {
   })
   const [agentSpeakingHeld, setAgentSpeakingHeld] = useState(false)
   const [userSpeakingHeld, setUserSpeakingHeld] = useState(false)
-  const [isAdmin, setIsAdmin] = useState(false)
-  const [callDurationSec, setCallDurationSec] = useState(0)
   const livekitRemoteNameRef = useRef<string>('')
   const livekitLocalNameRef = useRef<string>('')
   const sessionIdRef = useRef<string | null>(null)
@@ -754,42 +742,6 @@ export default function VideoCall() {
   useEffect(() => {
     sessionIdRef.current = sessionId
   }, [sessionId])
-
-  useEffect(() => {
-    if (!user?.id) {
-      setIsAdmin(false)
-      return
-    }
-    let cancelled = false
-    void (async () => {
-      const { data } = await supabase
-        .from('wa_owners')
-        .select('id')
-        .eq('user_id', user.id)
-        .is('deleted_at', null)
-        .maybeSingle()
-      if (!cancelled) setIsAdmin(Boolean(data))
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [user?.id])
-
-  useEffect(() => {
-    if (phase !== 'connected') {
-      setCallDurationSec(0)
-      return
-    }
-    const startedAt = callStartAtRef.current ?? Date.now()
-    if (!callStartAtRef.current) callStartAtRef.current = startedAt
-    const tick = () => {
-      const now = Date.now()
-      setCallDurationSec(Math.max(0, Math.floor((now - startedAt) / 1000)))
-    }
-    tick()
-    const id = window.setInterval(tick, 1000)
-    return () => window.clearInterval(id)
-  }, [phase])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -2901,15 +2853,10 @@ export default function VideoCall() {
             <h1 className="mt-1 text-base font-semibold tracking-[-0.02em] text-white sm:text-lg">
               {formatDisplayName(personaName)}
             </h1>
-            {phase === 'connected' ? (
-              <p className="mt-1 font-mono text-xs tabular-nums text-[#70f0de]/90">
-                {formatCallDuration(callDurationSec)}
-              </p>
-            ) : null}
           </div>
 
           <div className="min-w-[78px] text-right text-[11px] text-white/55">
-            {isAdmin && sessionId ? (
+            {sessionId ? (
               <div>
                 <div className="uppercase tracking-[0.18em] text-white/35">Session</div>
                 <div className="mt-1 font-medium text-white/70">{sessionId.slice(0, 8)}</div>
@@ -2927,33 +2874,35 @@ export default function VideoCall() {
                 <div className="absolute inset-0">
                   {isLivekit ? (
                     effectiveViewMode === 'speaker' ? (
-                      <div className="relative flex h-full w-full items-center justify-center p-3 sm:p-4">
-                        <div
-                          className="relative w-full sm:h-full sm:w-auto"
-                          style={{
-                            aspectRatio: String(Math.max(livekitRemoteAspect, 3 / 4)),
-                            maxHeight: '100%',
-                            maxWidth: '100%',
-                          }}
-                        >
-                          <LivekitVideoTile
-                            track={livekitRemoteVideo}
-                            isLocal={false}
-                            label={formatDisplayName(livekitRemoteName || personaName)}
-                            isActive={agentSpeakingHeld}
-                            cameraEnabled
-                            onNativeSize={handleRemoteNativeSize}
-                          />
-                          <div className="absolute bottom-3 right-3 aspect-square w-28 sm:bottom-4 sm:right-4 sm:w-40">
+                      <div className="relative h-full w-full p-3 sm:p-4">
+                        <div className="flex h-full w-full items-center justify-center">
+                          <div
+                            className="w-full sm:h-full sm:w-auto"
+                            style={{
+                              aspectRatio: String(Math.max(livekitRemoteAspect, 3 / 4)),
+                              maxHeight: '100%',
+                              maxWidth: '100%',
+                            }}
+                          >
                             <LivekitVideoTile
-                              track={livekitLocalVideo}
-                              isLocal
-                              label={livekitLocalName || 'You'}
-                              isActive={userSpeakingHeld}
-                              cameraEnabled={isCameraEnabled}
-                              onNativeSize={handleLocalNativeSize}
+                              track={livekitRemoteVideo}
+                              isLocal={false}
+                              label={formatDisplayName(livekitRemoteName || personaName)}
+                              isActive={agentSpeakingHeld}
+                              cameraEnabled
+                              onNativeSize={handleRemoteNativeSize}
                             />
                           </div>
+                        </div>
+                        <div className="absolute bottom-4 right-4 aspect-square w-44 sm:bottom-6 sm:right-6 sm:w-52">
+                          <LivekitVideoTile
+                            track={livekitLocalVideo}
+                            isLocal
+                            label={livekitLocalName || 'You'}
+                            isActive={userSpeakingHeld}
+                            cameraEnabled={isCameraEnabled}
+                            onNativeSize={handleLocalNativeSize}
+                          />
                         </div>
                       </div>
                     ) : (
@@ -3067,8 +3016,8 @@ export default function VideoCall() {
                       ) : null}
                     </div>
                   ) : effectiveViewMode === 'speaker' ? (
-                    <div className="relative flex h-full w-full items-center justify-center p-3 sm:p-4">
-                      <div className="relative h-full w-full">
+                    <div className="relative h-full w-full p-3 sm:p-4">
+                      <div className="h-full w-full">
                         {activeSpeakerParticipant ? (
                           <ParticipantTile
                             participant={activeSpeakerParticipant}
@@ -3077,17 +3026,17 @@ export default function VideoCall() {
                             isCameraEnabled={isCameraEnabled}
                           />
                         ) : null}
-                        {thumbnailParticipants.length > 0 ? (
-                          <div className="absolute bottom-3 right-3 aspect-square w-28 sm:bottom-4 sm:right-4 sm:w-40">
-                            <ParticipantTile
-                              participant={thumbnailParticipants[0]}
-                              isLocal={Boolean(thumbnailParticipants[0]?.local)}
-                              isActive={false}
-                              isCameraEnabled={isCameraEnabled}
-                            />
-                          </div>
-                        ) : null}
                       </div>
+                      {thumbnailParticipants.length > 0 ? (
+                        <div className="absolute bottom-4 right-4 aspect-square w-44 sm:bottom-6 sm:right-6 sm:w-52">
+                          <ParticipantTile
+                            participant={thumbnailParticipants[0]}
+                            isLocal={Boolean(thumbnailParticipants[0]?.local)}
+                            isActive={false}
+                            isCameraEnabled={isCameraEnabled}
+                          />
+                        </div>
+                      ) : null}
                     </div>
                   ) : (
                     <div className="flex h-full w-full flex-col gap-3 p-3 landscape:flex-row sm:flex-row sm:gap-4 sm:p-4">
@@ -3266,22 +3215,20 @@ export default function VideoCall() {
               )}
             </button>
 
-            {isAdmin ? (
-              <button
-                type="button"
-                onClick={openOpmMonitor}
-                className="flex h-14 w-14 touch-manipulation items-center justify-center rounded-full border border-white/12 bg-white/4 text-white transition hover:bg-white/12 sm:h-[3.75rem] sm:w-[3.75rem]"
-                aria-label="Open OPM Monitor"
-              >
-                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
-                  <path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />
-                  <circle cx="12" cy="12" r="2.75" />
-                  <path d="M12 8.5v1" />
-                </svg>
-              </button>
-            ) : null}
+            <button
+              type="button"
+              onClick={openOpmMonitor}
+              className="flex h-14 w-14 touch-manipulation items-center justify-center rounded-full border border-white/12 bg-white/4 text-white transition hover:bg-white/12 sm:h-[3.75rem] sm:w-[3.75rem]"
+              aria-label="Open OPM Monitor"
+            >
+              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+                <path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />
+                <circle cx="12" cy="12" r="2.75" />
+                <path d="M12 8.5v1" />
+              </svg>
+            </button>
 
-            {isAdmin && isLivekit ? (
+            {isLivekit ? (
               <button
                 type="button"
                 onClick={() => setShowTranscript((current) => !current)}
@@ -3293,9 +3240,7 @@ export default function VideoCall() {
               >
                 {showTranscript ? 'Hide Transcript' : 'Transcript'}
               </button>
-            ) : null}
-
-            {isAdmin && !isLivekit ? (
+            ) : (
               <button
                 type="button"
                 onClick={triggerEchoSanityCheck}
@@ -3304,7 +3249,7 @@ export default function VideoCall() {
               >
                 Echo Test
               </button>
-            ) : null}
+            )}
 
             {isMeetingMode ? (
               <button
