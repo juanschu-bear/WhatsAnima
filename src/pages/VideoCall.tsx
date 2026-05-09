@@ -19,6 +19,18 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { resolveAvatarUrl } from '../lib/avatars'
 import { getConversation, sendMessage, checkUsage, incrementCallUsage } from '../lib/api'
+import { supabase } from '../lib/supabase'
+
+const ADMIN_EMAILS = new Set(['aicallyu.global@gmail.com'])
+
+function formatCallDuration(totalSeconds: number): string {
+  const seconds = Math.max(0, Math.floor(totalSeconds))
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  const secs = seconds % 60
+  const pad = (n: number) => n.toString().padStart(2, '0')
+  return hours > 0 ? `${hours}:${pad(minutes)}:${pad(secs)}` : `${pad(minutes)}:${pad(secs)}`
+}
 
 type ConversationData = Awaited<ReturnType<typeof getConversation>>
 type CallPhase = 'setup' | 'starting' | 'joining' | 'connected' | 'error'
@@ -676,7 +688,7 @@ export default function VideoCall() {
   // <video> reports its real dimensions via loadedmetadata/resize. Containers
   // are sized from these so object-cover never crops a square avatar to a
   // 16:9 box (heavy face zoom) and never leaves bars on a 16:9 webcam.
-  const [livekitRemoteAspect, setLivekitRemoteAspect] = useState<number>(16 / 9)
+  const [, setLivekitRemoteAspect] = useState<number>(16 / 9)
   const [, setLivekitLocalAspect] = useState<number>(16 / 9)
   const handleRemoteNativeSize = useCallback((w: number, h: number) => {
     if (w > 0 && h > 0) setLivekitRemoteAspect(w / h)
@@ -697,6 +709,8 @@ export default function VideoCall() {
   })
   const [agentSpeakingHeld, setAgentSpeakingHeld] = useState(false)
   const [userSpeakingHeld, setUserSpeakingHeld] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [callDurationSec, setCallDurationSec] = useState(0)
   const livekitRemoteNameRef = useRef<string>('')
   const livekitLocalNameRef = useRef<string>('')
   const sessionIdRef = useRef<string | null>(null)
@@ -742,6 +756,44 @@ export default function VideoCall() {
   useEffect(() => {
     sessionIdRef.current = sessionId
   }, [sessionId])
+
+  useEffect(() => {
+    const email = String(user?.email || '').trim().toLowerCase()
+    if (!user?.id) {
+      setIsAdmin(false)
+      return
+    }
+    if (email && ADMIN_EMAILS.has(email)) {
+      setIsAdmin(true)
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      const { data } = await supabase
+        .from('wa_owners')
+        .select('id')
+        .eq('user_id', user.id)
+        .is('deleted_at', null)
+        .maybeSingle()
+      if (!cancelled) setIsAdmin(Boolean(data))
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [user?.id, user?.email])
+
+  useEffect(() => {
+    if (phase !== 'connected') {
+      setCallDurationSec(0)
+      return
+    }
+    if (!callStartAtRef.current) callStartAtRef.current = Date.now()
+    const startedAt = callStartAtRef.current
+    const tick = () => setCallDurationSec(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)))
+    tick()
+    const id = window.setInterval(tick, 1000)
+    return () => window.clearInterval(id)
+  }, [phase])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -1370,13 +1422,17 @@ export default function VideoCall() {
   }, [])
 
   const visibleParticipants = sortParticipants(participants).filter((participant) => !isPipecatParticipant(participant))
-  const activeSpeakerParticipant =
-    visibleParticipants.find((participant) => getParticipantId(participant) === activeSpeakerId) ??
-    visibleParticipants.find((participant) => getParticipantTrack(participant, 'video')) ??
-    visibleParticipants[0] ??
+  // Speaker view always shows the remote (avatar) as the main tile and the
+  // local participant as PiP. No auto-switching when audio activity changes.
+  const primaryRemoteParticipant =
+    visibleParticipants.find((participant) => participant?.user_id === 'tavus-replica' && getParticipantTrack(participant, 'video')) ??
+    visibleParticipants.find((participant) => !participant?.local && getParticipantTrack(participant, 'video')) ??
+    visibleParticipants.find((participant) => !participant?.local) ??
     null
-  const thumbnailParticipants = activeSpeakerParticipant
-    ? visibleParticipants.filter((participant) => participant !== activeSpeakerParticipant)
+  const localParticipant = visibleParticipants.find((participant) => participant?.local) ?? null
+  const activeSpeakerParticipant = primaryRemoteParticipant ?? visibleParticipants[0] ?? null
+  const thumbnailParticipants = localParticipant && localParticipant !== activeSpeakerParticipant
+    ? [localParticipant]
     : []
 
   useEffect(() => {
@@ -2853,10 +2909,15 @@ export default function VideoCall() {
             <h1 className="mt-1 text-base font-semibold tracking-[-0.02em] text-white sm:text-lg">
               {formatDisplayName(personaName)}
             </h1>
+            {phase === 'connected' ? (
+              <p className="mt-1 font-mono text-xs tabular-nums text-[#70f0de]/90">
+                {formatCallDuration(callDurationSec)}
+              </p>
+            ) : null}
           </div>
 
           <div className="min-w-[78px] text-right text-[11px] text-white/55">
-            {sessionId ? (
+            {isAdmin && sessionId ? (
               <div>
                 <div className="uppercase tracking-[0.18em] text-white/35">Session</div>
                 <div className="mt-1 font-medium text-white/70">{sessionId.slice(0, 8)}</div>
@@ -2874,40 +2935,31 @@ export default function VideoCall() {
                 <div className="absolute inset-0">
                   {isLivekit ? (
                     effectiveViewMode === 'speaker' ? (
-                      <div className="relative h-full w-full p-3 sm:p-4">
-                        <div className="flex h-full w-full items-center justify-center">
-                          <div
-                            className="w-full sm:h-full sm:w-auto"
-                            style={{
-                              aspectRatio: String(Math.max(livekitRemoteAspect, 3 / 4)),
-                              maxHeight: '100%',
-                              maxWidth: '100%',
-                            }}
-                          >
+                      <div className="relative flex h-full w-full items-center justify-center p-3 sm:p-4">
+                        <div className="relative aspect-square h-full max-h-full max-w-full">
+                          <LivekitVideoTile
+                            track={livekitRemoteVideo}
+                            isLocal={false}
+                            label={formatDisplayName(livekitRemoteName || personaName)}
+                            isActive={agentSpeakingHeld}
+                            cameraEnabled
+                            onNativeSize={handleRemoteNativeSize}
+                          />
+                          <div className="absolute bottom-3 right-3 aspect-square w-24 overflow-hidden rounded-[18px] sm:bottom-4 sm:right-4 sm:w-36">
                             <LivekitVideoTile
-                              track={livekitRemoteVideo}
-                              isLocal={false}
-                              label={formatDisplayName(livekitRemoteName || personaName)}
-                              isActive={agentSpeakingHeld}
-                              cameraEnabled
-                              onNativeSize={handleRemoteNativeSize}
+                              track={livekitLocalVideo}
+                              isLocal
+                              label={livekitLocalName || 'You'}
+                              isActive={userSpeakingHeld}
+                              cameraEnabled={isCameraEnabled}
+                              onNativeSize={handleLocalNativeSize}
                             />
                           </div>
                         </div>
-                        <div className="absolute bottom-4 right-4 aspect-square w-44 sm:bottom-6 sm:right-6 sm:w-52">
-                          <LivekitVideoTile
-                            track={livekitLocalVideo}
-                            isLocal
-                            label={livekitLocalName || 'You'}
-                            isActive={userSpeakingHeld}
-                            cameraEnabled={isCameraEnabled}
-                            onNativeSize={handleLocalNativeSize}
-                          />
-                        </div>
                       </div>
                     ) : (
-                      <div className="flex h-full w-full flex-col gap-3 p-3 landscape:flex-row sm:flex-row sm:gap-4 sm:p-4">
-                        <div className="flex-1 min-h-0 min-w-0">
+                      <div className="grid h-full w-full grid-cols-1 grid-rows-2 place-items-center gap-3 p-3 landscape:grid-cols-2 landscape:grid-rows-1 sm:grid-cols-2 sm:grid-rows-1 sm:gap-4 sm:p-4">
+                        <div className="aspect-square h-full max-h-full max-w-full">
                           <LivekitVideoTile
                             track={livekitRemoteVideo}
                             isLocal={false}
@@ -2917,7 +2969,7 @@ export default function VideoCall() {
                             onNativeSize={handleRemoteNativeSize}
                           />
                         </div>
-                        <div className="flex-1 min-h-0 min-w-0">
+                        <div className="aspect-square h-full max-h-full max-w-full">
                           <LivekitVideoTile
                             track={livekitLocalVideo}
                             isLocal
@@ -3016,8 +3068,8 @@ export default function VideoCall() {
                       ) : null}
                     </div>
                   ) : effectiveViewMode === 'speaker' ? (
-                    <div className="relative h-full w-full p-3 sm:p-4">
-                      <div className="h-full w-full">
+                    <div className="relative flex h-full w-full items-center justify-center p-3 sm:p-4">
+                      <div className="relative aspect-square h-full max-h-full max-w-full">
                         {activeSpeakerParticipant ? (
                           <ParticipantTile
                             participant={activeSpeakerParticipant}
@@ -3026,24 +3078,24 @@ export default function VideoCall() {
                             isCameraEnabled={isCameraEnabled}
                           />
                         ) : null}
+                        {thumbnailParticipants.length > 0 ? (
+                          <div className="absolute bottom-3 right-3 aspect-square w-24 overflow-hidden rounded-[18px] sm:bottom-4 sm:right-4 sm:w-36">
+                            <ParticipantTile
+                              participant={thumbnailParticipants[0]}
+                              isLocal={Boolean(thumbnailParticipants[0]?.local)}
+                              isActive={false}
+                              isCameraEnabled={isCameraEnabled}
+                            />
+                          </div>
+                        ) : null}
                       </div>
-                      {thumbnailParticipants.length > 0 ? (
-                        <div className="absolute bottom-4 right-4 aspect-square w-44 sm:bottom-6 sm:right-6 sm:w-52">
-                          <ParticipantTile
-                            participant={thumbnailParticipants[0]}
-                            isLocal={Boolean(thumbnailParticipants[0]?.local)}
-                            isActive={false}
-                            isCameraEnabled={isCameraEnabled}
-                          />
-                        </div>
-                      ) : null}
                     </div>
                   ) : (
-                    <div className="flex h-full w-full flex-col gap-3 p-3 landscape:flex-row sm:flex-row sm:gap-4 sm:p-4">
+                    <div className="grid h-full w-full grid-cols-1 grid-rows-2 place-items-center gap-3 p-3 landscape:grid-cols-2 landscape:grid-rows-1 sm:grid-cols-2 sm:grid-rows-1 sm:gap-4 sm:p-4">
                       {visibleParticipants.map((participant, index) => (
                         <div
                           key={getParticipantId(participant) || `grid-${index}`}
-                          className="flex-1 min-h-0 min-w-0"
+                          className="aspect-square h-full max-h-full max-w-full"
                         >
                           <ParticipantTile
                             participant={participant}
@@ -3215,18 +3267,20 @@ export default function VideoCall() {
               )}
             </button>
 
-            <button
-              type="button"
-              onClick={openOpmMonitor}
-              className="flex h-14 w-14 touch-manipulation items-center justify-center rounded-full border border-white/12 bg-white/4 text-white transition hover:bg-white/12 sm:h-[3.75rem] sm:w-[3.75rem]"
-              aria-label="Open OPM Monitor"
-            >
-              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
-                <path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />
-                <circle cx="12" cy="12" r="2.75" />
-                <path d="M12 8.5v1" />
-              </svg>
-            </button>
+            {isAdmin ? (
+              <button
+                type="button"
+                onClick={openOpmMonitor}
+                className="flex h-14 w-14 touch-manipulation items-center justify-center rounded-full border border-white/12 bg-white/4 text-white transition hover:bg-white/12 sm:h-[3.75rem] sm:w-[3.75rem]"
+                aria-label="Open OPM Monitor"
+              >
+                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+                  <path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />
+                  <circle cx="12" cy="12" r="2.75" />
+                  <path d="M12 8.5v1" />
+                </svg>
+              </button>
+            ) : null}
 
             {isLivekit ? (
               <button
@@ -3240,7 +3294,7 @@ export default function VideoCall() {
               >
                 {showTranscript ? 'Hide Transcript' : 'Transcript'}
               </button>
-            ) : (
+            ) : isAdmin ? (
               <button
                 type="button"
                 onClick={triggerEchoSanityCheck}
@@ -3249,7 +3303,7 @@ export default function VideoCall() {
               >
                 Echo Test
               </button>
-            )}
+            ) : null}
 
             {isMeetingMode ? (
               <button
