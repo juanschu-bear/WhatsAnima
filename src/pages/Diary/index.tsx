@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { DIARY_AVATARS, type DiaryAvatar } from './avatars'
+import { DIARY_AVATARS, avatarFromApi, type DiaryAvatar } from './avatars'
 import {
+  fetchAvatars,
   fetchDiary,
   parseEntry,
   extractSkills,
@@ -93,6 +94,11 @@ function EntryScreen({ opening, onOpen }: { opening: boolean; onOpen: () => void
   )
 }
 
+interface AvatarWithCount {
+  avatar: DiaryAvatar
+  entryCount: number
+}
+
 function SelectScreen({
   onBack,
   onSelect,
@@ -100,6 +106,30 @@ function SelectScreen({
   onBack: () => void
   onSelect: (a: DiaryAvatar) => void
 }) {
+  const [items, setItems] = useState<AvatarWithCount[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetchAvatars()
+      .then((apiAvatars) => {
+        if (cancelled) return
+        const merged = apiAvatars.map((a) => ({
+          avatar: avatarFromApi(a),
+          entryCount: a.entry_count ?? 0,
+        }))
+        setItems(merged)
+      })
+      .catch((err) => {
+        if (cancelled) return
+        setError(err instanceof Error ? err.message : 'Failed to load avatars')
+        setItems(DIARY_AVATARS.map((a) => ({ avatar: a, entryCount: 0 })))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   return (
     <div className="screen select-screen">
       <button className="back-btn" onClick={onBack}>
@@ -109,11 +139,11 @@ function SelectScreen({
         <div className="select-label">Diary</div>
         <h1 className="select-title">Whose diary would you like to read?</h1>
         <p className="select-sub">
-          Avatars keep private reflections — lessons, patterns, and shifts in how they think.
+          Avatars keep private reflections, lessons, patterns, and shifts in how they think.
         </p>
       </div>
       <div className="avatar-grid">
-        {DIARY_AVATARS.map((a) => (
+        {(items ?? []).map(({ avatar: a, entryCount }) => (
           <button key={a.agentId} className="avatar-card" onClick={() => onSelect(a)}>
             <div className="card-top">
               <span>{a.number}</span>
@@ -124,12 +154,19 @@ function SelectScreen({
             <div className="card-role">{a.expertise}</div>
             <span className={`card-badge ${a.type.toLowerCase()}`}>{a.type}</span>
             <div className="card-bottom">
-              <span className="card-entries">Read diary</span>
+              <span className="card-entries">
+                {entryCount} {entryCount === 1 ? 'entry' : 'entries'}
+              </span>
               <span className="card-arrow">→</span>
             </div>
           </button>
         ))}
       </div>
+      {error && items && (
+        <p style={{ marginTop: 30, color: '#6a6050', fontStyle: 'italic', fontSize: 13 }}>
+          Could not reach diary API ({error}). Showing cached avatars.
+        </p>
+      )}
     </div>
   )
 }
