@@ -1,0 +1,88 @@
+/* Mobile-landscape (phone-in-landscape) overrides for VideoCall.
+ * Targets phones (max-height: 500px) and forces side-by-side videos
+ * to fill the entire viewport with overlay controls.
+ * Tablets/desktops are taller than 500px so they're untouched.
+ */
+@media (orientation: landscape) and (max-height: 500px) {
+  .vc-header { display: none !important; }
+  .vc-view-toggle { display: none !important; }
+
+  .vc-outer {
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .vc-card {
+    border-radius: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+
+  /* Force the side-by-side grid into a horizontal flex row that fills the screen. */
+  .vc-grid {
+    display: flex !important;
+    flex-direction: row !important;
+    gap: 4px !important;
+    padding: 0 !important;
+    height: 100% !important;
+    width: 100% !important;
+    place-items: stretch !important;
+  }
+
+  /* Override aspect-square / max-width / max-height so each tile takes 50% width and full height. */
+  .vc-tile {
+    flex: 1 1 0 !important;
+    width: 50% !important;
+    height: 100% !important;
+    max-width: 50% !important;
+    max-height: 100% !important;
+    aspect-ratio: auto !important;
+    border-radius: 6px !important;
+    overflow: hidden !important;
+  }
+  .vc-tile > * {
+    width: 100% !important;
+    height: 100% !important;
+  }
+  .vc-tile video {
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover !important;
+  }
+
+  /* Controls float as a slim overlay at the bottom. */
+  .vc-controls {
+    position: fixed !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    height: 52px !important;
+    z-index: 30 !important;
+    margin: 0 !important;
+    padding: 0 10px env(safe-area-inset-bottom, 0) 10px !important;
+    gap: 8px !important;
+    background: linear-gradient(to top, rgba(0,0,0,0.65), rgba(0,0,0,0.25)) !important;
+    backdrop-filter: blur(10px);
+  }
+  .vc-controls > button {
+    height: 40px !important;
+    width: 40px !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    padding: 0 !important;
+    font-size: 12px !important;
+  }
+  /* Buttons with text labels (Transcript / Echo / Record / Leave) keep auto width */
+  .vc-controls > button.vc-text-btn {
+    width: auto !important;
+    min-width: 0 !important;
+    padding: 0 12px !important;
+  }
+  .vc-controls > button svg {
+    width: 16px !important;
+    height: 16px !important;
+  }
+
+  /* Hide the status pill (Connected / etc.) at the top of the card to free up space. */
+  .vc-status-pill { display: none !important; }
+}
