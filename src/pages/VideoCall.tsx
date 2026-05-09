@@ -2817,7 +2817,7 @@ export default function VideoCall() {
                       <div className="relative h-full w-full p-3 sm:p-4">
                         <div className="flex h-full w-full items-center justify-center">
                           <div
-                            className="w-full sm:h-full sm:w-auto"
+                            className="h-full"
                             style={{
                               aspectRatio: String(Math.max(livekitRemoteAspect, 3 / 4)),
                               maxHeight: '100%',
@@ -2849,11 +2849,13 @@ export default function VideoCall() {
                         </div>
                       </div>
                     ) : (
-                      <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-3 sm:flex-row sm:gap-4 sm:p-4">
+                      <div className="flex h-full w-full items-center justify-center gap-3 p-3 sm:gap-4 sm:p-4">
                         <div
-                          className="w-full max-w-full max-h-full sm:h-full sm:w-auto sm:max-w-[48%] sm:shrink-0"
+                          className="h-full shrink-0"
                           style={{
                             aspectRatio: String(Math.max(livekitRemoteAspect, 3 / 4)),
+                            maxHeight: '100%',
+                            maxWidth: '48%',
                           }}
                         >
                           <LivekitVideoTile
@@ -2866,9 +2868,11 @@ export default function VideoCall() {
                           />
                         </div>
                         <div
-                          className="w-full max-w-full max-h-full sm:h-full sm:w-auto sm:max-w-[48%] sm:shrink-0"
+                          className="h-full shrink-0"
                           style={{
                             aspectRatio: String(Math.max(livekitLocalAspect, 3 / 4)),
+                            maxHeight: '100%',
+                            maxWidth: '48%',
                           }}
                         >
                           <LivekitVideoTile
