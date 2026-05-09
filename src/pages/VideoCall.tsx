@@ -2886,13 +2886,14 @@ export default function VideoCall() {
   const selectedPersonaDetails = personas.find((persona) => persona.name === selectedPersona) ?? null
   const selectedLanguage = LANGUAGES.find((item) => item.code === language)
   const effectiveViewMode: ViewMode = isNarrowViewport && isLandscape ? 'side-by-side' : viewMode
+  const mobileLandscape = isNarrowViewport && isLandscape
 
   return (
     <div className="relative h-[100dvh] min-h-[100dvh] overflow-hidden bg-[radial-gradient(circle_at_top,rgba(0,195,170,0.16),transparent_30%),radial-gradient(circle_at_85%_20%,rgba(53,127,255,0.16),transparent_24%),linear-gradient(180deg,#03060b_0%,#07111a_48%,#02050a_100%)] text-white supports-[-webkit-touch-callout:none]:min-h-[-webkit-fill-available]">
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:44px_44px] opacity-30" />
 
       <div className="relative z-10 flex h-full min-h-0 flex-col">
-        <header className="flex items-center justify-between px-4 pb-3 pt-[max(1rem,env(safe-area-inset-top))] sm:px-6 sm:pb-4">
+        <header className={`${mobileLandscape ? 'hidden' : 'flex'} items-center justify-between px-4 pb-3 pt-[max(1rem,env(safe-area-inset-top))] sm:px-6 sm:pb-4`}>
           <button
             type="button"
             onClick={() => void leaveCall()}
@@ -2926,7 +2927,7 @@ export default function VideoCall() {
           </div>
         </header>
 
-        <div className="flex min-h-0 flex-1 flex-col px-3 pb-[calc(env(safe-area-inset-bottom)+0.875rem)] sm:px-6 sm:pb-[calc(env(safe-area-inset-bottom)+1.25rem)]">
+        <div className={`flex min-h-0 flex-1 flex-col ${mobileLandscape ? 'px-1 pb-1' : 'px-3 pb-[calc(env(safe-area-inset-bottom)+0.875rem)]'} sm:px-6 sm:pb-[calc(env(safe-area-inset-bottom)+1.25rem)]`}>
           <div className="relative flex min-h-0 flex-1 overflow-hidden rounded-[28px] border border-white/8 bg-[linear-gradient(180deg,rgba(9,18,28,0.94),rgba(4,10,18,0.96))] shadow-[0_40px_120px_rgba(0,0,0,0.45)] sm:rounded-[32px]">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(112,240,222,0.13),transparent_32%)]" />
 
@@ -2945,7 +2946,7 @@ export default function VideoCall() {
                             cameraEnabled
                             onNativeSize={handleRemoteNativeSize}
                           />
-                          <div className="absolute bottom-3 right-3 aspect-square w-24 overflow-hidden rounded-[18px] sm:bottom-4 sm:right-4 sm:w-36">
+                          <div className="absolute bottom-3 right-3 aspect-square w-[130px] overflow-hidden rounded-[18px] sm:bottom-4 sm:right-4 sm:w-36">
                             <LivekitVideoTile
                               track={livekitLocalVideo}
                               isLocal
@@ -3079,7 +3080,7 @@ export default function VideoCall() {
                           />
                         ) : null}
                         {thumbnailParticipants.length > 0 ? (
-                          <div className="absolute bottom-3 right-3 aspect-square w-24 overflow-hidden rounded-[18px] sm:bottom-4 sm:right-4 sm:w-36">
+                          <div className="absolute bottom-3 right-3 aspect-square w-[130px] overflow-hidden rounded-[18px] sm:bottom-4 sm:right-4 sm:w-36">
                             <ParticipantTile
                               participant={thumbnailParticipants[0]}
                               isLocal={Boolean(thumbnailParticipants[0]?.local)}
@@ -3205,7 +3206,7 @@ export default function VideoCall() {
             </div>
           </div>
 
-          <div className="mt-3 flex items-center justify-center gap-2 px-1 sm:mt-4">
+          <div className={`mt-3 ${mobileLandscape ? 'hidden' : 'flex'} items-center justify-center gap-2 px-1 sm:mt-4`}>
             <div className="rounded-full border border-white/10 bg-white/6 p-1">
               <button
                 type="button"
@@ -3224,7 +3225,7 @@ export default function VideoCall() {
             </div>
           </div>
 
-          <div className="mt-3 flex items-center justify-center gap-3 px-1 sm:mt-4 sm:gap-4">
+          <div className={`${mobileLandscape ? 'mt-1 gap-2' : 'mt-3 gap-3'} flex items-center justify-center px-1 sm:mt-4 sm:gap-4`}>
             <button
               type="button"
               onClick={() => void toggleMic()}
