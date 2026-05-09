@@ -1,4 +1,4 @@
-const MEMPALACE_BASE = 'https://mempalace.onioko.com'
+const DIARY_API_BASE = 'https://boardroom-api.onioko.com/api/diary'
 
 export interface RawEntry {
   date: string
@@ -28,14 +28,34 @@ export interface ParsedTag {
   raw: string
 }
 
+export interface ApiAvatar {
+  agent_id: string
+  name?: string
+  initials?: string
+  expertise?: string
+  role?: string
+  wing?: string
+  number?: string
+  type?: string
+  entry_count: number
+}
+
 export async function fetchDiary(agentId: string, lastN = 50): Promise<DiaryReadResponse> {
-  const res = await fetch(`${MEMPALACE_BASE}/diary/read`, {
+  const res = await fetch(`${DIARY_API_BASE}/read`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ agent: agentId, last_n: lastN }),
   })
-  if (!res.ok) throw new Error(`MemPalace ${res.status}`)
+  if (!res.ok) throw new Error(`Diary API ${res.status}`)
   return res.json()
+}
+
+export async function fetchAvatars(): Promise<ApiAvatar[]> {
+  const res = await fetch(`${DIARY_API_BASE}/avatars`)
+  if (!res.ok) throw new Error(`Diary API ${res.status}`)
+  const data = (await res.json()) as { avatars?: ApiAvatar[] } | ApiAvatar[]
+  if (Array.isArray(data)) return data
+  return data.avatars ?? []
 }
 
 function classifyTag(raw: string): ParsedTag {

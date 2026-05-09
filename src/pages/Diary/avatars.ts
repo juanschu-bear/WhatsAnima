@@ -63,4 +63,46 @@ export const DIARY_AVATARS: DiaryAvatar[] = [
     agentId: 'elena-navarro',
     type: 'Premium',
   },
+  {
+    number: '07',
+    wing: 'WING VII',
+    name: 'Jordan Cash',
+    initials: 'JC',
+    expertise: 'Cash Flow & Finance Strategist',
+    agentId: 'jordan-cash',
+    type: 'Premium',
+  },
 ]
+
+export const AVATARS_BY_ID: Record<string, DiaryAvatar> = Object.fromEntries(
+  DIARY_AVATARS.map((a) => [a.agentId, a]),
+)
+
+function initialsFrom(name: string): string {
+  const parts = name.replace(/^Prof\.?\s+/i, '').split(/\s+/).filter(Boolean)
+  return (parts[0]?.[0] ?? '').toUpperCase() + (parts[1]?.[0] ?? '').toUpperCase()
+}
+
+export function avatarFromApi(api: {
+  agent_id: string
+  name?: string
+  initials?: string
+  expertise?: string
+  role?: string
+  wing?: string
+  number?: string
+  type?: string
+}): DiaryAvatar {
+  const base = AVATARS_BY_ID[api.agent_id]
+  if (base) return base
+  const name = api.name ?? api.agent_id
+  return {
+    agentId: api.agent_id,
+    name,
+    initials: api.initials ?? initialsFrom(name),
+    expertise: api.expertise ?? api.role ?? '',
+    wing: api.wing ?? '',
+    number: api.number ?? '',
+    type: api.type === 'Elite' ? 'Elite' : 'Premium',
+  }
+}
