@@ -549,8 +549,8 @@ function LivekitVideoTile({
 
   return (
     <div
-      className={`relative h-full w-full overflow-hidden rounded-[22px] border bg-black/70 shadow-[0_18px_60px_rgba(0,0,0,0.35)] ${
-        isActive ? 'border-[#70f0de]/70 ring-2 ring-[#70f0de]/30' : 'border-white/10'
+      className={`relative h-full w-full overflow-hidden rounded-[22px] border-2 bg-black/70 shadow-[0_18px_60px_rgba(0,0,0,0.35)] transition-all duration-150 ${
+        isActive ? 'border-[#70f0de] ring-4 ring-[#70f0de]/40 shadow-[0_0_28px_rgba(112,240,222,0.55)]' : 'border-white/10'
       }`}
     >
       {shouldShow ? (
@@ -687,7 +687,7 @@ export default function VideoCall() {
   // are sized from these so object-cover never crops a square avatar to a
   // 16:9 box (heavy face zoom) and never leaves bars on a 16:9 webcam.
   const [livekitRemoteAspect, setLivekitRemoteAspect] = useState<number>(16 / 9)
-  const [livekitLocalAspect, setLivekitLocalAspect] = useState<number>(16 / 9)
+  const [, setLivekitLocalAspect] = useState<number>(16 / 9)
   const handleRemoteNativeSize = useCallback((w: number, h: number) => {
     if (w > 0 && h > 0) setLivekitRemoteAspect(w / h)
   }, [])
@@ -697,6 +697,16 @@ export default function VideoCall() {
   const [livekitActiveKinds, setLivekitActiveKinds] = useState<LivekitSpeakerKind[]>([])
   const [livekitTranscriptBlocks, setLivekitTranscriptBlocks] = useState<LivekitTranscriptBlock[]>([])
   const [showTranscript, setShowTranscript] = useState(false)
+  const [isLandscape, setIsLandscape] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false
+    return window.matchMedia('(orientation: landscape)').matches
+  })
+  const [isNarrowViewport, setIsNarrowViewport] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false
+    return window.matchMedia('(max-width: 639px)').matches
+  })
+  const [agentSpeakingHeld, setAgentSpeakingHeld] = useState(false)
+  const [userSpeakingHeld, setUserSpeakingHeld] = useState(false)
   const livekitRemoteNameRef = useRef<string>('')
   const livekitLocalNameRef = useRef<string>('')
   const sessionIdRef = useRef<string | null>(null)
@@ -742,6 +752,66 @@ export default function VideoCall() {
   useEffect(() => {
     sessionIdRef.current = sessionId
   }, [sessionId])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const landscape = window.matchMedia('(orientation: landscape)')
+    const narrow = window.matchMedia('(max-width: 639px)')
+    const apply = () => {
+      setIsLandscape(landscape.matches)
+      setIsNarrowViewport(narrow.matches)
+    }
+    apply()
+    landscape.addEventListener('change', apply)
+    narrow.addEventListener('change', apply)
+    return () => {
+      landscape.removeEventListener('change', apply)
+      narrow.removeEventListener('change', apply)
+    }
+  }, [])
+
+  useEffect(() => {
+    const agentActive = livekitActiveKinds.includes('agent')
+    const userActive = livekitActiveKinds.includes('user')
+    if (agentActive) setAgentSpeakingHeld(true)
+    if (userActive) setUserSpeakingHeld(true)
+    const timers: number[] = []
+    if (!agentActive && agentSpeakingHeld) {
+      timers.push(window.setTimeout(() => setAgentSpeakingHeld(false), 700))
+    }
+    if (!userActive && userSpeakingHeld) {
+      timers.push(window.setTimeout(() => setUserSpeakingHeld(false), 700))
+    }
+    return () => timers.forEach((id) => window.clearTimeout(id))
+  }, [livekitActiveKinds, agentSpeakingHeld, userSpeakingHeld])
+
+  useEffect(() => {
+    if (!isLivekit) return
+    let stopped = false
+    const intervalId = window.setInterval(() => {
+      const room = livekitRoomRef.current
+      if (!room || stopped) return
+      let agentSpeaking = false
+      let userSpeaking = false
+      room.remoteParticipants.forEach((participant) => {
+        if (!participant.isSpeaking) return
+        if (isLivekitAgentParticipant(participant)) agentSpeaking = true
+        else userSpeaking = true
+      })
+      if (room.localParticipant?.isSpeaking) userSpeaking = true
+      const next: LivekitSpeakerKind[] = []
+      if (agentSpeaking) next.push('agent')
+      if (userSpeaking) next.push('user')
+      setLivekitActiveKinds((prev) => {
+        if (prev.length === next.length && prev.every((k) => next.includes(k))) return prev
+        return next
+      })
+    }, 250)
+    return () => {
+      stopped = true
+      window.clearInterval(intervalId)
+    }
+  }, [isLivekit])
 
   useEffect(() => {
     languageRef.current = normalizeLanguageCode(language)
@@ -2770,6 +2840,7 @@ export default function VideoCall() {
   const selectedPersonaDetails = personas.find((persona) => persona.name === selectedPersona) ?? null
   const selectedLanguage = LANGUAGES.find((item) => item.code === language)
   const sideBySideColumns = getGridColumns(visibleParticipants.length)
+  const effectiveViewMode: ViewMode = isNarrowViewport && isLandscape ? 'side-by-side' : viewMode
 
   return (
     <div className="relative h-[100dvh] min-h-[100dvh] overflow-hidden bg-[radial-gradient(circle_at_top,rgba(0,195,170,0.16),transparent_30%),radial-gradient(circle_at_85%_20%,rgba(53,127,255,0.16),transparent_24%),linear-gradient(180deg,#03060b_0%,#07111a_48%,#02050a_100%)] text-white supports-[-webkit-touch-callout:none]:min-h-[-webkit-fill-available]">
@@ -2813,7 +2884,7 @@ export default function VideoCall() {
               <div className="relative h-full w-full">
                 <div className="absolute inset-0">
                   {isLivekit ? (
-                    viewMode === 'speaker' ? (
+                    effectiveViewMode === 'speaker' ? (
                       <div className="relative h-full w-full p-3 sm:p-4">
                         <div className="flex h-full w-full items-center justify-center">
                           <div
@@ -2828,54 +2899,41 @@ export default function VideoCall() {
                               track={livekitRemoteVideo}
                               isLocal={false}
                               label={formatDisplayName(livekitRemoteName || personaName)}
-                              isActive={livekitActiveKinds.includes('agent')}
+                              isActive={agentSpeakingHeld}
                               cameraEnabled
                               onNativeSize={handleRemoteNativeSize}
                             />
                           </div>
                         </div>
-                        <div
-                          className="absolute bottom-4 right-4 w-32 sm:bottom-6 sm:right-6 sm:w-48"
-                          style={{ aspectRatio: String(livekitLocalAspect) }}
-                        >
+                        <div className="absolute bottom-4 right-4 aspect-square w-44 sm:bottom-6 sm:right-6 sm:w-52">
                           <LivekitVideoTile
                             track={livekitLocalVideo}
                             isLocal
                             label={livekitLocalName || 'You'}
-                            isActive={livekitActiveKinds.includes('user')}
+                            isActive={userSpeakingHeld}
                             cameraEnabled={isCameraEnabled}
                             onNativeSize={handleLocalNativeSize}
                           />
                         </div>
                       </div>
                     ) : (
-                      <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-3 sm:flex-row sm:gap-4 sm:p-4">
-                        <div
-                          className="w-full max-w-full max-h-full sm:h-full sm:w-auto sm:max-w-[48%] sm:shrink-0"
-                          style={{
-                            aspectRatio: String(Math.max(livekitRemoteAspect, 3 / 4)),
-                          }}
-                        >
+                      <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-3 landscape:flex-row sm:flex-row sm:gap-4 sm:p-4">
+                        <div className="aspect-square min-h-0 min-w-0 max-h-full max-w-full flex-1 landscape:max-w-[48%] landscape:max-h-full sm:max-w-[48%] sm:max-h-full">
                           <LivekitVideoTile
                             track={livekitRemoteVideo}
                             isLocal={false}
                             label={formatDisplayName(livekitRemoteName || personaName)}
-                            isActive={livekitActiveKinds.includes('agent')}
+                            isActive={agentSpeakingHeld}
                             cameraEnabled
                             onNativeSize={handleRemoteNativeSize}
                           />
                         </div>
-                        <div
-                          className="w-full max-w-full max-h-full sm:h-full sm:w-auto sm:max-w-[48%] sm:shrink-0"
-                          style={{
-                            aspectRatio: String(Math.max(livekitLocalAspect, 3 / 4)),
-                          }}
-                        >
+                        <div className="aspect-square min-h-0 min-w-0 max-h-full max-w-full flex-1 landscape:max-w-[48%] landscape:max-h-full sm:max-w-[48%] sm:max-h-full">
                           <LivekitVideoTile
                             track={livekitLocalVideo}
                             isLocal
                             label={livekitLocalName || 'You'}
-                            isActive={livekitActiveKinds.includes('user')}
+                            isActive={userSpeakingHeld}
                             cameraEnabled={isCameraEnabled}
                             onNativeSize={handleLocalNativeSize}
                           />
@@ -2968,7 +3026,7 @@ export default function VideoCall() {
                         </div>
                       ) : null}
                     </div>
-                  ) : viewMode === 'speaker' ? (
+                  ) : effectiveViewMode === 'speaker' ? (
                     <div className="relative h-full w-full p-3 sm:p-4">
                       <div className="h-full w-full">
                         {activeSpeakerParticipant ? (
