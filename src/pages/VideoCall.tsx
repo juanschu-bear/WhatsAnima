@@ -20,6 +20,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { resolveAvatarUrl } from '../lib/avatars'
 import { getConversation, sendMessage, checkUsage, incrementCallUsage } from '../lib/api'
 import { supabase } from '../lib/supabase'
+import './VideoCall.mobile.css'
 
 const ADMIN_EMAILS = new Set(['aicallyu.global@gmail.com'])
 
@@ -2901,7 +2902,7 @@ export default function VideoCall() {
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:44px_44px] opacity-30" />
 
       <div className="relative z-10 flex h-full min-h-0 flex-col">
-        <header className={`${mobileLandscape ? 'hidden' : 'flex'} items-center justify-between px-4 pb-3 pt-[max(1rem,env(safe-area-inset-top))] sm:px-6 sm:pb-4`}>
+        <header className={`vc-header ${mobileLandscape ? 'hidden' : 'flex'} items-center justify-between px-4 pb-3 pt-[max(1rem,env(safe-area-inset-top))] sm:px-6 sm:pb-4`}>
           <button
             type="button"
             onClick={() => void leaveCall()}
@@ -2935,8 +2936,8 @@ export default function VideoCall() {
           </div>
         </header>
 
-        <div className={`flex min-h-0 flex-1 flex-col ${mobileLandscape ? 'px-1 pb-1' : 'px-3 pb-[calc(env(safe-area-inset-bottom)+0.875rem)]'} sm:px-6 sm:pb-[calc(env(safe-area-inset-bottom)+1.25rem)]`}>
-          <div className="relative flex min-h-0 flex-1 overflow-hidden rounded-[28px] border border-white/8 bg-[linear-gradient(180deg,rgba(9,18,28,0.94),rgba(4,10,18,0.96))] shadow-[0_40px_120px_rgba(0,0,0,0.45)] sm:rounded-[32px]">
+        <div className={`vc-outer flex min-h-0 flex-1 flex-col ${mobileLandscape ? 'px-1 pb-1' : 'px-3 pb-[calc(env(safe-area-inset-bottom)+0.875rem)]'} sm:px-6 sm:pb-[calc(env(safe-area-inset-bottom)+1.25rem)]`}>
+          <div className="vc-card relative flex min-h-0 flex-1 overflow-hidden rounded-[28px] border border-white/8 bg-[linear-gradient(180deg,rgba(9,18,28,0.94),rgba(4,10,18,0.96))] shadow-[0_40px_120px_rgba(0,0,0,0.45)] sm:rounded-[32px]">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(112,240,222,0.13),transparent_32%)]" />
 
             <div className="relative flex h-full w-full items-center justify-center">
@@ -2967,8 +2968,8 @@ export default function VideoCall() {
                         </div>
                       </div>
                     ) : (
-                      <div className="grid h-full w-full grid-cols-1 grid-rows-2 place-items-center gap-3 p-3 landscape:grid-cols-2 landscape:grid-rows-1 sm:grid-cols-2 sm:grid-rows-1 sm:gap-4 sm:p-4">
-                        <div className="aspect-square h-full max-h-full max-w-full">
+                      <div className="vc-grid grid h-full w-full grid-cols-1 grid-rows-2 place-items-center gap-3 p-3 landscape:grid-cols-2 landscape:grid-rows-1 sm:grid-cols-2 sm:grid-rows-1 sm:gap-4 sm:p-4">
+                        <div className="vc-tile aspect-square h-full max-h-full max-w-full">
                           <LivekitVideoTile
                             track={livekitRemoteVideo}
                             isLocal={false}
@@ -2978,7 +2979,7 @@ export default function VideoCall() {
                             onNativeSize={handleRemoteNativeSize}
                           />
                         </div>
-                        <div className="aspect-square h-full max-h-full max-w-full">
+                        <div className="vc-tile aspect-square h-full max-h-full max-w-full">
                           <LivekitVideoTile
                             track={livekitLocalVideo}
                             isLocal
@@ -3182,7 +3183,7 @@ export default function VideoCall() {
                 </div>
               ) : null}
 
-              <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-center px-3 pt-4 sm:px-4 sm:pt-5">
+              <div className="vc-status-pill pointer-events-none absolute inset-x-0 top-0 flex justify-center px-3 pt-4 sm:px-4 sm:pt-5">
                 <div className="flex items-center gap-2 rounded-full border border-white/10 bg-black/28 px-3 py-2 text-[11px] font-medium tracking-[0.22em] text-white/78 backdrop-blur-xl sm:px-4 sm:text-xs">
                   <span>{statusText}</span>
                   {recordingActive ? (
@@ -3214,7 +3215,7 @@ export default function VideoCall() {
             </div>
           </div>
 
-          <div className={`mt-3 ${mobileLandscape ? 'hidden' : 'flex'} items-center justify-center gap-2 px-1 sm:mt-4`}>
+          <div className={`vc-view-toggle mt-3 ${mobileLandscape ? 'hidden' : 'flex'} items-center justify-center gap-2 px-1 sm:mt-4`}>
             <div className="rounded-full border border-white/10 bg-white/6 p-1">
               <button
                 type="button"
@@ -3233,7 +3234,7 @@ export default function VideoCall() {
             </div>
           </div>
 
-          <div className={`${mobileLandscape ? 'mt-1 gap-2' : 'mt-3 gap-3'} flex items-center justify-center px-1 sm:mt-4 sm:gap-4`}>
+          <div className={`vc-controls ${mobileLandscape ? 'mt-1 gap-2' : 'mt-3 gap-3'} flex items-center justify-center px-1 sm:mt-4 sm:gap-4`}>
             <button
               type="button"
               onClick={() => void toggleMic()}
@@ -3295,7 +3296,7 @@ export default function VideoCall() {
               <button
                 type="button"
                 onClick={() => setShowTranscript((current) => !current)}
-                className={`flex h-14 min-w-[6.5rem] touch-manipulation items-center justify-center rounded-full border px-4 text-sm font-semibold transition sm:h-[3.75rem] sm:min-w-[7rem] ${
+                className={`vc-text-btn flex h-14 min-w-[6.5rem] touch-manipulation items-center justify-center rounded-full border px-4 text-sm font-semibold transition sm:h-[3.75rem] sm:min-w-[7rem] ${
                   showTranscript
                     ? 'border-[#79f5e4]/40 bg-[#79f5e4]/18 text-[#d6fff5] hover:bg-[#79f5e4]/24'
                     : 'border-white/14 bg-white/8 text-white hover:bg-white/14'
@@ -3308,7 +3309,7 @@ export default function VideoCall() {
                 type="button"
                 onClick={triggerEchoSanityCheck}
                 disabled={phase !== 'connected'}
-                className="flex h-14 min-w-[6.5rem] touch-manipulation items-center justify-center rounded-full border border-white/14 bg-white/8 px-4 text-sm font-semibold text-white transition hover:bg-white/14 disabled:opacity-60 sm:h-[3.75rem] sm:min-w-[7rem]"
+                className="vc-text-btn flex h-14 min-w-[6.5rem] touch-manipulation items-center justify-center rounded-full border border-white/14 bg-white/8 px-4 text-sm font-semibold text-white transition hover:bg-white/14 disabled:opacity-60 sm:h-[3.75rem] sm:min-w-[7rem]"
               >
                 Echo Test
               </button>
@@ -3319,7 +3320,7 @@ export default function VideoCall() {
                 type="button"
                 onClick={() => void toggleRecording(false)}
                 disabled={recordingBusy || phase !== 'connected'}
-                className={`flex h-14 min-w-[6.5rem] touch-manipulation items-center justify-center rounded-full border px-4 text-sm font-semibold transition ${
+                className={`vc-text-btn flex h-14 min-w-[6.5rem] touch-manipulation items-center justify-center rounded-full border px-4 text-sm font-semibold transition ${
                   recordingActive
                     ? 'border-red-400/30 bg-red-500/18 text-red-100 hover:bg-red-500/24'
                     : 'border-white/12 bg-white/6 text-white hover:bg-white/10'
@@ -3332,7 +3333,7 @@ export default function VideoCall() {
             <button
               type="button"
               onClick={() => void leaveCall()}
-              className="flex h-14 min-w-[6.5rem] touch-manipulation items-center justify-center rounded-full bg-[linear-gradient(135deg,#ff6a73,#ff3d54)] px-6 text-sm font-semibold text-white shadow-[0_20px_50px_rgba(255,61,84,0.28)] transition hover:brightness-105"
+              className="vc-text-btn flex h-14 min-w-[6.5rem] touch-manipulation items-center justify-center rounded-full bg-[linear-gradient(135deg,#ff6a73,#ff3d54)] px-6 text-sm font-semibold text-white shadow-[0_20px_50px_rgba(255,61,84,0.28)] transition hover:brightness-105"
             >
               Leave
             </button>
