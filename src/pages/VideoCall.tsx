@@ -707,6 +707,10 @@ export default function VideoCall() {
     if (typeof window === 'undefined') return false
     return window.matchMedia('(max-width: 639px)').matches
   })
+  const [isShortViewport, setIsShortViewport] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false
+    return window.matchMedia('(max-height: 500px)').matches
+  })
   const [agentSpeakingHeld, setAgentSpeakingHeld] = useState(false)
   const [userSpeakingHeld, setUserSpeakingHeld] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
@@ -799,16 +803,20 @@ export default function VideoCall() {
     if (typeof window === 'undefined') return
     const landscape = window.matchMedia('(orientation: landscape)')
     const narrow = window.matchMedia('(max-width: 639px)')
+    const shortVp = window.matchMedia('(max-height: 500px)')
     const apply = () => {
       setIsLandscape(landscape.matches)
       setIsNarrowViewport(narrow.matches)
+      setIsShortViewport(shortVp.matches)
     }
     apply()
     landscape.addEventListener('change', apply)
     narrow.addEventListener('change', apply)
+    shortVp.addEventListener('change', apply)
     return () => {
       landscape.removeEventListener('change', apply)
       narrow.removeEventListener('change', apply)
+      shortVp.removeEventListener('change', apply)
     }
   }, [])
 
@@ -2885,8 +2893,8 @@ export default function VideoCall() {
   const replicaId = owner.tavus_replica_id?.trim() || FALLBACK_REPLICA_ID
   const selectedPersonaDetails = personas.find((persona) => persona.name === selectedPersona) ?? null
   const selectedLanguage = LANGUAGES.find((item) => item.code === language)
-  const effectiveViewMode: ViewMode = isNarrowViewport && isLandscape ? 'side-by-side' : viewMode
-  const mobileLandscape = isNarrowViewport && isLandscape
+  const mobileLandscape = isLandscape && (isNarrowViewport || isShortViewport)
+  const effectiveViewMode: ViewMode = mobileLandscape ? 'side-by-side' : viewMode
 
   return (
     <div className="relative h-[100dvh] min-h-[100dvh] overflow-hidden bg-[radial-gradient(circle_at_top,rgba(0,195,170,0.16),transparent_30%),radial-gradient(circle_at_85%_20%,rgba(53,127,255,0.16),transparent_24%),linear-gradient(180deg,#03060b_0%,#07111a_48%,#02050a_100%)] text-white supports-[-webkit-touch-callout:none]:min-h-[-webkit-fill-available]">
