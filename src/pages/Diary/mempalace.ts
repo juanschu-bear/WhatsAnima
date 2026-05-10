@@ -170,3 +170,68 @@ export function groupByDay(entries: ParsedEntry[]): DayGroup[] {
     .map(([date, entries]) => ({ date, entries }))
     .sort((a, b) => b.date.localeCompare(a.date))
 }
+
+export interface TagAggregate {
+  name: string
+  displayName: string
+  count: number
+  description: string
+  since: string
+  latestDate: string
+  recentTitles: string[]
+}
+
+function titleCase(slug: string): string {
+  return slug
+    .replace(/[-_]+/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ')
+}
+
+function firstSentence(text: string): string {
+  const trimmed = text.trim()
+  if (!trimmed) return ''
+  const m = trimmed.match(/[^.!?]+[.!?]/)
+  if (m) return m[0].trim()
+  return trimmed.length > 160 ? trimmed.slice(0, 157) + '…' : trimmed
+}
+
+export function aggregateByTagType(
+  entries: ParsedEntry[],
+  type: 'skill' | 'pattern' | 'contact',
+): TagAggregate[] {
+  const buckets = new Map<string, ParsedEntry[]>()
+  for (const e of entries) {
+    const seen = new Set<string>()
+    for (const t of e.tags) {
+      if (t.type !== type) continue
+      const key = t.value
+      if (seen.has(key)) continue
+      seen.add(key)
+      if (!buckets.has(key)) buckets.set(key, [])
+      buckets.get(key)!.push(e)
+    }
+  }
+
+  const result: TagAggregate[] = []
+  for (const [name, list] of buckets) {
+    const sortedAsc = [...list].sort((a, b) =>
+      (a.timestamp ?? a.date).localeCompare(b.timestamp ?? b.date),
+    )
+    const sortedDesc = [...sortedAsc].reverse()
+    const newest = sortedDesc[0]
+    const oldest = sortedAsc[0]
+    result.push({
+      name,
+      displayName: type === 'contact' ? name : titleCase(name),
+      count: list.length,
+      description: firstSentence(newest.text || newest.title),
+      since: oldest.date,
+      latestDate: newest.date,
+      recentTitles: sortedDesc.slice(0, 3).map((e) => e.title),
+    })
+  }
+  return result.sort((a, b) => b.count - a.count)
+}

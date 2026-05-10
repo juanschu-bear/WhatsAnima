@@ -13,8 +13,10 @@ import {
   extractSkills,
   groupByDay,
   dedupEntries,
+  aggregateByTagType,
   type ParsedEntry,
   type ParsedTag,
+  type TagAggregate,
 } from './mempalace'
 import './diary.css'
 
@@ -289,22 +291,19 @@ function DiaryScreen({ avatar }: { avatar: DiaryAvatar }) {
   }, [avatar.agentId])
 
   const skills = useMemo(() => (entries ? extractSkills(entries) : []), [entries])
-  const groups = useMemo(() => {
-    if (!entries) return []
-    const filtered = entries
-      .map((e) => {
-        if (filter === 'all') return e
-        const tags = e.tags.filter((t) => {
-          if (filter === 'skills') return t.type === 'skill'
-          if (filter === 'patterns') return t.type === 'pattern'
-          if (filter === 'contacts') return t.type === 'contact'
-          return true
-        })
-        return tags.length > 0 ? e : null
-      })
-      .filter((e): e is ParsedEntry => e !== null)
-    return groupByDay(filtered)
-  }, [entries, filter])
+  const groups = useMemo(() => (entries ? groupByDay(entries) : []), [entries])
+  const skillAggs = useMemo(
+    () => (entries ? aggregateByTagType(entries, 'skill') : []),
+    [entries],
+  )
+  const patternAggs = useMemo(
+    () => (entries ? aggregateByTagType(entries, 'pattern') : []),
+    [entries],
+  )
+  const contactAggs = useMemo(
+    () => (entries ? aggregateByTagType(entries, 'contact') : []),
+    [entries],
+  )
 
   const firstName = avatar.name.startsWith('Prof.') ? avatar.name : avatar.name.split(' ')[0]
   const total = entries?.length ?? 0
@@ -374,31 +373,52 @@ function DiaryScreen({ avatar }: { avatar: DiaryAvatar }) {
               ))}
             </div>
 
-            {groups.map((g) => {
-              const shut = !!shutDays[g.date]
-              return (
-                <div key={g.date} className={`dg${shut ? ' shut' : ''}`}>
-                  <div
-                    className="dg-head"
-                    onClick={() =>
-                      setShutDays((prev) => ({ ...prev, [g.date]: !prev[g.date] }))
-                    }
-                  >
-                    <span className="dg-date">{g.date}</span>
-                    <span className="dg-line" />
-                    <span className="dg-n">
-                      {g.entries.length} {g.entries.length === 1 ? 'entry' : 'entries'}
-                    </span>
-                    <span className="dg-arr">▼</span>
+            {filter === 'all' &&
+              groups.map((g) => {
+                const shut = !!shutDays[g.date]
+                return (
+                  <div key={g.date} className={`dg${shut ? ' shut' : ''}`}>
+                    <div
+                      className="dg-head"
+                      onClick={() =>
+                        setShutDays((prev) => ({ ...prev, [g.date]: !prev[g.date] }))
+                      }
+                    >
+                      <span className="dg-date">{g.date}</span>
+                      <span className="dg-line" />
+                      <span className="dg-n">
+                        {g.entries.length} {g.entries.length === 1 ? 'entry' : 'entries'}
+                      </span>
+                      <span className="dg-arr">▼</span>
+                    </div>
+                    <div className="dg-body">
+                      {g.entries.map((e, idx) => (
+                        <EntryView key={`${g.date}-${idx}`} entry={e} />
+                      ))}
+                    </div>
                   </div>
-                  <div className="dg-body">
-                    {g.entries.map((e, idx) => (
-                      <EntryView key={`${g.date}-${idx}`} entry={e} />
-                    ))}
-                  </div>
-                </div>
-              )
-            })}
+                )
+              })}
+
+            {filter === 'skills' && (
+              <AggregateView
+                kind="skill"
+                title="Skill Inventory"
+                items={skillAggs}
+                avatarName={avatar.name}
+              />
+            )}
+            {filter === 'patterns' && (
+              <AggregateView
+                kind="pattern"
+                title="Pattern Inventory"
+                items={patternAggs}
+                avatarName={avatar.name}
+              />
+            )}
+            {filter === 'contacts' && (
+              <ContactsView items={contactAggs} avatarName={avatar.name} />
+            )}
           </>
         )}
       </div>
@@ -439,6 +459,139 @@ function EntryView({ entry }: { entry: ParsedEntry }) {
         </div>
       )}
     </div>
+  )
+}
+
+function hashCode(s: string): number {
+  let h = 0
+  for (let i = 0; i < s.length; i++) {
+    h = (h * 31 + s.charCodeAt(i)) | 0
+  }
+  return Math.abs(h)
+}
+
+function nodePosition(name: string, idx: number, total: number) {
+  const h = hashCode(name)
+  const cols = total <= 4 ? total : Math.ceil(Math.sqrt(total * 1.5))
+  const col = idx % cols
+  const row = Math.floor(idx / cols)
+  const baseX = ((col + 0.5) / cols) * 100
+  const baseY = ((row + 0.5) / Math.max(1, Math.ceil(total / cols))) * 100
+  const jitterX = ((h % 1000) / 1000 - 0.5) * 12
+  const jitterY = (((h >> 7) % 1000) / 1000 - 0.5) * 14
+  return { left: `${Math.max(8, Math.min(92, baseX + jitterX))}%`, top: `${Math.max(12, Math.min(88, baseY + jitterY))}%` }
+}
+
+function nodeSize(count: number, max: number): number {
+  if (max <= 1) return 84
+  const t = count / max
+  return Math.round(60 + t * 84)
+}
+
+function AggregateView({
+  kind,
+  title,
+  items,
+  avatarName,
+}: {
+  kind: 'skill' | 'pattern'
+  title: string
+  items: TagAggregate[]
+  avatarName: string
+}) {
+  if (items.length === 0) {
+    return <div className="diary-status">No {kind === 'skill' ? 'skills' : 'patterns'} yet.</div>
+  }
+  const max = Math.max(...items.map((i) => i.count))
+  const dotClass = kind === 'skill' ? 'dot-skill' : 'dot-pattern'
+
+  return (
+    <>
+      <div className="agg-graph">
+        {items.map((item, i) => {
+          const pos = nodePosition(item.name, i, items.length)
+          const size = nodeSize(item.count, max)
+          return (
+            <div
+              key={item.name}
+              className={`agg-node ${dotClass}`}
+              style={{ left: pos.left, top: pos.top, width: size, height: size }}
+            >
+              <span className="agg-node-name">{item.displayName}</span>
+              <span className="agg-node-count">
+                {item.count} {item.count === 1 ? 'reference' : 'references'}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+
+      <div className="agg-section-head">{title}</div>
+      <div className="agg-list">
+        {items.map((item) => (
+          <div key={item.name} className="agg-card">
+            <span className={`agg-card-dot ${dotClass}`} />
+            <div className="agg-card-body">
+              <div className="agg-card-title">{item.displayName}</div>
+              {item.description && (
+                <div className="agg-card-desc">{item.description}</div>
+              )}
+              <div className="agg-card-meta">{avatarName}</div>
+            </div>
+            <div className="agg-card-side">
+              <div className="agg-card-count">
+                {item.count} {item.count === 1 ? 'entry' : 'entries'}
+              </div>
+              <div className="agg-card-since">Since {item.since}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
+  )
+}
+
+function ContactsView({
+  items,
+  avatarName,
+}: {
+  items: TagAggregate[]
+  avatarName: string
+}) {
+  if (items.length === 0) {
+    return <div className="diary-status">No contacts referenced yet.</div>
+  }
+  return (
+    <>
+      <div className="agg-section-head">Contact Inventory</div>
+      <div className="agg-list">
+        {items.map((item) => (
+          <div key={item.name} className="agg-card contact-card">
+            <span className="agg-card-dot dot-contact" />
+            <div className="agg-card-body">
+              <div className="agg-card-title">{item.displayName}</div>
+              <div className="agg-card-desc">
+                Last entry: <em>{item.recentTitles[0] ?? '—'}</em>
+              </div>
+              {item.recentTitles.length > 1 && (
+                <ul className="contact-titles">
+                  {item.recentTitles.slice(1).map((t, i) => (
+                    <li key={i}>{t}</li>
+                  ))}
+                </ul>
+              )}
+              <div className="agg-card-meta">{avatarName}</div>
+            </div>
+            <div className="agg-card-side">
+              <div className="agg-card-count">
+                {item.count} {item.count === 1 ? 'entry' : 'entries'}
+              </div>
+              <div className="agg-card-since">Last {item.latestDate}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
   )
 }
 

@@ -186,6 +186,150 @@
 .diary-root .diary-status { text-align: center; padding: 60px 20px; color: #8a8578; font-style: italic; font-size: 18px; }
 .diary-root .diary-status.error { color: #b84a2a; }
 
+/* ============ AGGREGATE VIEWS (skills / patterns / contacts) ============ */
+.diary-root .agg-graph {
+  position: relative;
+  width: 100%;
+  height: 380px;
+  margin: 10px 0 40px;
+  background: radial-gradient(ellipse at 50% 35%, #1c1815 0%, #0d0b09 60%, #050404 100%);
+  border-radius: 18px;
+  overflow: hidden;
+  border: 0.5px solid #2a2418;
+}
+.diary-root .agg-node {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 10px 8px;
+  font-family: 'Cormorant Garamond', serif;
+  color: #f3e8c8;
+  cursor: default;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+.diary-root .agg-node:hover {
+  transform: translate(-50%, -50%) scale(1.05);
+  box-shadow: 0 0 28px rgba(212, 184, 112, 0.25);
+}
+.diary-root .agg-node.dot-skill {
+  background: radial-gradient(circle at 35% 30%, rgba(220, 180, 100, 0.55), rgba(133, 118, 77, 0.35) 60%, rgba(40, 32, 20, 0.6) 100%);
+  border: 0.5px solid rgba(212, 184, 112, 0.45);
+}
+.diary-root .agg-node.dot-pattern {
+  background: radial-gradient(circle at 35% 30%, rgba(160, 130, 200, 0.45), rgba(107, 90, 173, 0.30) 60%, rgba(35, 28, 50, 0.6) 100%);
+  border: 0.5px solid rgba(176, 152, 220, 0.45);
+}
+.diary-root .agg-node-name {
+  font-size: 13px;
+  line-height: 1.15;
+  font-weight: 500;
+  color: #f3e8c8;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  max-width: 90%;
+}
+.diary-root .agg-node-count {
+  font-size: 10px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: rgba(243, 232, 200, 0.65);
+  margin-top: 4px;
+}
+
+.diary-root .agg-section-head {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 12px;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  color: #a09b90;
+  margin: 30px 0 18px;
+  text-align: center;
+}
+
+.diary-root .agg-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: 50px;
+}
+
+.diary-root .agg-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 18px 20px;
+  background: #eee9de;
+  border-radius: 12px;
+  border: 0.5px solid #d9d2c2;
+}
+
+.diary-root .agg-card-dot {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-top: 8px;
+}
+.diary-root .agg-card-dot.dot-skill { background: #b07d2a; box-shadow: 0 0 0 3px rgba(176, 125, 42, 0.18); }
+.diary-root .agg-card-dot.dot-pattern { background: #6b5aad; box-shadow: 0 0 0 3px rgba(107, 90, 173, 0.18); }
+.diary-root .agg-card-dot.dot-contact { background: #1d7a5a; box-shadow: 0 0 0 3px rgba(29, 122, 90, 0.18); }
+
+.diary-root .agg-card-body { flex: 1; min-width: 0; }
+.diary-root .agg-card-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 20px;
+  color: #2c2a25;
+  margin-bottom: 4px;
+}
+.diary-root .agg-card-desc {
+  font-family: 'Caveat', cursive;
+  font-size: 19px;
+  color: #5a554b;
+  line-height: 1.4;
+  margin-bottom: 6px;
+}
+.diary-root .agg-card-desc em { font-style: italic; color: #3d3a34; }
+.diary-root .agg-card-meta {
+  font-family: 'Cormorant Garamond', serif;
+  font-style: italic;
+  font-size: 13px;
+  color: #b07d2a;
+}
+
+.diary-root .agg-card-side {
+  flex: 0 0 auto;
+  text-align: right;
+  font-family: 'Cormorant Garamond', serif;
+}
+.diary-root .agg-card-count {
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #4a4640;
+  font-weight: 500;
+}
+.diary-root .agg-card-since {
+  font-size: 12px;
+  color: #a09b90;
+  font-style: italic;
+  margin-top: 4px;
+}
+
+.diary-root .contact-titles {
+  list-style: none;
+  margin: 4px 0 6px;
+  padding: 0;
+  font-family: 'Caveat', cursive;
+  font-size: 17px;
+  color: #6a6560;
+  line-height: 1.5;
+}
+.diary-root .contact-titles li::before { content: '· '; color: #c4bdb0; }
+
 @media (max-width: 700px) {
   .diary-root .select-title { font-size: 28px; }
   .diary-root .diary { padding: 50px 22px 60px; }
@@ -193,4 +337,7 @@
   .diary-root .ent-title { font-size: 24px; }
   .diary-root .ent-text { font-size: 21px; }
   .diary-root .ent-tags { font-size: 18px; }
+  .diary-root .agg-graph { height: 300px; }
+  .diary-root .agg-card { flex-wrap: wrap; padding: 14px 16px; }
+  .diary-root .agg-card-side { text-align: left; width: 100%; margin-top: 6px; }
 }
