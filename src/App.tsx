@@ -48,7 +48,7 @@ export default function App() {
           <Route path="/video-call" element={<VideoCall />} />
           <Route path="/video-call/:conversationId" element={<VideoCall />} />
           <Route path="/opm-monitor" element={<OPMPerceptionPanelPreviewScreen />} />
-          <Route path="/diary" element={<Diary />} />
+          <Route path="/diary/*" element={<Diary />} />
           <Route
             path="/console"
             element={<EcosystemConsole />}

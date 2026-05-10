@@ -1,17 +1,23 @@
 import { useEffect, useMemo, useState } from 'react'
-import { DIARY_AVATARS, avatarFromApi, type DiaryAvatar } from './avatars'
+import { Routes, Route, useNavigate, useParams } from 'react-router-dom'
+import {
+  AVATARS_BY_ID,
+  DIARY_AVATARS,
+  avatarFromApi,
+  type DiaryAvatar,
+} from './avatars'
 import {
   fetchAvatars,
   fetchDiary,
   parseEntry,
   extractSkills,
   groupByDay,
+  dedupEntries,
   type ParsedEntry,
   type ParsedTag,
 } from './mempalace'
 import './diary.css'
 
-type Screen = 'entry' | 'select' | 'diary'
 type Filter = 'all' | 'skills' | 'patterns' | 'contacts'
 
 const SKILL_COLOR_CLASSES = ['sg', 'sp', 'sb', 'sa', 'sr', 'spk']
@@ -28,49 +34,38 @@ function ensureFonts() {
 }
 
 export default function Diary() {
-  const [screen, setScreen] = useState<Screen>('entry')
-  const [opening, setOpening] = useState(false)
-  const [selected, setSelected] = useState<DiaryAvatar | null>(null)
-
   useEffect(() => {
     ensureFonts()
   }, [])
 
-  function openBook() {
-    if (opening) return
-    setOpening(true)
-    window.setTimeout(() => {
-      setOpening(false)
-      setScreen('select')
-    }, 800)
-  }
-
-  function chooseAvatar(a: DiaryAvatar) {
-    setSelected(a)
-    setScreen('diary')
-  }
-
   return (
     <div className="diary-root">
-      {screen === 'entry' && <EntryScreen opening={opening} onOpen={openBook} />}
-      {screen === 'select' && (
-        <SelectScreen onBack={() => setScreen('entry')} onSelect={chooseAvatar} />
-      )}
-      {screen === 'diary' && selected && (
-        <DiaryScreen avatar={selected} onBack={() => setScreen('select')} />
-      )}
+      <Routes>
+        <Route index element={<EntryScreen />} />
+        <Route path="select" element={<SelectScreen />} />
+        <Route path=":agentId" element={<DiaryRouteWrapper />} />
+      </Routes>
     </div>
   )
 }
 
-function EntryScreen({ opening, onOpen }: { opening: boolean; onOpen: () => void }) {
+function EntryScreen() {
+  const navigate = useNavigate()
+  const [opening, setOpening] = useState(false)
+
+  function openBook() {
+    if (opening) return
+    setOpening(true)
+    window.setTimeout(() => navigate('/diary/select'), 800)
+  }
+
   return (
     <div
       className={`screen entry-screen${opening ? ' opening' : ''}`}
-      onClick={onOpen}
+      onClick={openBook}
       role="button"
       tabIndex={0}
-      onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onOpen()}
+      onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && openBook()}
     >
       <div className="book-glow" />
       <div className="book-wrapper">
@@ -99,13 +94,8 @@ interface AvatarWithCount {
   entryCount: number
 }
 
-function SelectScreen({
-  onBack,
-  onSelect,
-}: {
-  onBack: () => void
-  onSelect: (a: DiaryAvatar) => void
-}) {
+function SelectScreen() {
+  const navigate = useNavigate()
   const [items, setItems] = useState<AvatarWithCount[] | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -116,7 +106,7 @@ function SelectScreen({
         if (cancelled) return
         const merged = apiAvatars.map((a) => ({
           avatar: avatarFromApi(a),
-          entryCount: a.entry_count ?? 0,
+          entryCount: extractCount(a),
         }))
         setItems(merged)
       })
@@ -132,7 +122,7 @@ function SelectScreen({
 
   return (
     <div className="screen select-screen">
-      <button className="back-btn" onClick={onBack}>
+      <button className="back-btn" onClick={() => navigate('/diary')}>
         ← Back
       </button>
       <div className="select-header">
@@ -144,7 +134,11 @@ function SelectScreen({
       </div>
       <div className="avatar-grid">
         {(items ?? []).map(({ avatar: a, entryCount }) => (
-          <button key={a.agentId} className="avatar-card" onClick={() => onSelect(a)}>
+          <button
+            key={a.agentId}
+            className="avatar-card"
+            onClick={() => navigate(`/diary/${a.agentId}`)}
+          >
             <div className="card-top">
               <span>{a.number}</span>
               <span>{a.wing}</span>
@@ -171,7 +165,82 @@ function SelectScreen({
   )
 }
 
-function DiaryScreen({ avatar, onBack }: { avatar: DiaryAvatar; onBack: () => void }) {
+function extractCount(a: {
+  entry_count?: number
+  count?: number
+  total?: number
+  entries?: number
+}): number {
+  return Number(a.entry_count ?? a.count ?? a.total ?? a.entries ?? 0) || 0
+}
+
+function DiaryRouteWrapper() {
+  const { agentId } = useParams<{ agentId: string }>()
+  const navigate = useNavigate()
+  const [avatar, setAvatar] = useState<DiaryAvatar | null>(() =>
+    agentId ? AVATARS_BY_ID[agentId] ?? null : null,
+  )
+  const [resolving, setResolving] = useState(!avatar)
+
+  useEffect(() => {
+    if (avatar || !agentId) return
+    let cancelled = false
+    fetchAvatars()
+      .then((list) => {
+        if (cancelled) return
+        const match = list.find((a) => a.agent_id === agentId)
+        if (match) setAvatar(avatarFromApi(match))
+        else
+          setAvatar({
+            agentId,
+            name: agentId,
+            initials: agentId.slice(0, 2).toUpperCase(),
+            expertise: '',
+            wing: '',
+            number: '',
+            type: 'Premium',
+          })
+      })
+      .catch(() => {
+        if (cancelled) return
+        setAvatar({
+          agentId,
+          name: agentId,
+          initials: agentId.slice(0, 2).toUpperCase(),
+          expertise: '',
+          wing: '',
+          number: '',
+          type: 'Premium',
+        })
+      })
+      .finally(() => {
+        if (!cancelled) setResolving(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [agentId, avatar])
+
+  if (!agentId) {
+    navigate('/diary/select', { replace: true })
+    return null
+  }
+
+  if (resolving || !avatar) {
+    return (
+      <div className="screen diary-screen">
+        <div className="diary">
+          <div className="diary-status">Opening the pages…</div>
+        </div>
+      </div>
+    )
+  }
+
+  return <DiaryScreen avatar={avatar} />
+}
+
+function DiaryScreen({ avatar }: { avatar: DiaryAvatar }) {
+  const navigate = useNavigate()
   const [entries, setEntries] = useState<ParsedEntry[] | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -188,7 +257,7 @@ function DiaryScreen({ avatar, onBack }: { avatar: DiaryAvatar; onBack: () => vo
       .then((data) => {
         if (cancelled) return
         const parsed = (data.entries ?? []).map(parseEntry)
-        setEntries(parsed)
+        setEntries(dedupEntries(parsed))
       })
       .catch((err) => {
         if (cancelled) return
@@ -225,7 +294,7 @@ function DiaryScreen({ avatar, onBack }: { avatar: DiaryAvatar; onBack: () => vo
 
   return (
     <div className="screen diary-screen">
-      <button className="diary-back" onClick={onBack}>
+      <button className="diary-back" onClick={() => navigate('/diary/select')}>
         ← Back to diaries
       </button>
       <div className="diary">
@@ -244,7 +313,7 @@ function DiaryScreen({ avatar, onBack }: { avatar: DiaryAvatar; onBack: () => vo
         {loading && <div className="diary-status">Opening the pages…</div>}
         {error && (
           <div className="diary-status error">
-            Could not reach MemPalace ({error})
+            Could not reach diary API ({error})
           </div>
         )}
 
@@ -322,6 +391,12 @@ function DiaryScreen({ avatar, onBack }: { avatar: DiaryAvatar; onBack: () => vo
 
 function formatTime(ts?: string): string | null {
   if (!ts) return null
+  const d = new Date(ts)
+  if (!Number.isNaN(d.getTime())) {
+    const hh = String(d.getHours()).padStart(2, '0')
+    const mm = String(d.getMinutes()).padStart(2, '0')
+    return `${hh}:${mm}`
+  }
   const m = ts.match(/T(\d{2}):(\d{2})/)
   return m ? `${m[1]}:${m[2]}` : null
 }
