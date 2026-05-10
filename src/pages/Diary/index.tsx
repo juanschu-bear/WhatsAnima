@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Routes, Route, useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import {
   AVATARS_BY_ID,
   DIARY_AVATARS,
@@ -33,21 +33,38 @@ function ensureFonts() {
   document.head.appendChild(link)
 }
 
-export default function Diary() {
+function DiaryShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     ensureFonts()
   }, [])
+  return <div className="diary-root">{children}</div>
+}
 
+export function DiaryEntryRoute() {
   return (
-    <div className="diary-root">
-      <Routes>
-        <Route index element={<EntryScreen />} />
-        <Route path="select" element={<SelectScreen />} />
-        <Route path=":agentId" element={<DiaryRouteWrapper />} />
-      </Routes>
-    </div>
+    <DiaryShell>
+      <EntryScreen />
+    </DiaryShell>
   )
 }
+
+export function DiarySelectRoute() {
+  return (
+    <DiaryShell>
+      <SelectScreen />
+    </DiaryShell>
+  )
+}
+
+export function DiaryAvatarRoute() {
+  return (
+    <DiaryShell>
+      <DiaryRouteWrapper />
+    </DiaryShell>
+  )
+}
+
+export default DiaryEntryRoute
 
 function EntryScreen() {
   const navigate = useNavigate()
