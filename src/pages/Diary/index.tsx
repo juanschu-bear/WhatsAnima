@@ -263,13 +263,14 @@ function DiaryScreen({ avatar }: { avatar: DiaryAvatar }) {
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<Filter>('all')
   const [skillsShut, setSkillsShut] = useState(false)
-  const [shutDays, setShutDays] = useState<Record<string, boolean>>({})
+  const [openDays, setOpenDays] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     let cancelled = false
     setLoading(true)
     setError(null)
     setEntries(null)
+    setOpenDays({})
     fetchDiary(avatar.agentId, 100)
       .then((data) => {
         if (cancelled) return
@@ -305,6 +306,14 @@ function DiaryScreen({ avatar }: { avatar: DiaryAvatar }) {
       .filter((e): e is ParsedEntry => e !== null)
     return groupByDay(filtered)
   }, [entries, filter])
+
+  function jumpToDate(date: string) {
+    setOpenDays((prev) => ({ ...prev, [date]: true }))
+    window.requestAnimationFrame(() => {
+      const el = document.getElementById(`dg-${date}`)
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
+  }
 
   const firstName = avatar.name.startsWith('Prof.') ? avatar.name : avatar.name.split(' ')[0]
   const total = entries?.length ?? 0
@@ -374,14 +383,29 @@ function DiaryScreen({ avatar }: { avatar: DiaryAvatar }) {
               ))}
             </div>
 
+            {groups.length > 1 && (
+              <div className="date-bar" role="tablist">
+                {groups.map((g) => (
+                  <button
+                    key={g.date}
+                    className={`date-pill${openDays[g.date] ? ' on' : ''}`}
+                    onClick={() => jumpToDate(g.date)}
+                    title={`${g.entries.length} ${g.entries.length === 1 ? 'entry' : 'entries'}`}
+                  >
+                    {formatPillDate(g.date)}
+                  </button>
+                ))}
+              </div>
+            )}
+
             {groups.map((g) => {
-              const shut = !!shutDays[g.date]
+              const open = !!openDays[g.date]
               return (
-                <div key={g.date} className={`dg${shut ? ' shut' : ''}`}>
+                <div id={`dg-${g.date}`} key={g.date} className={`dg${open ? '' : ' shut'}`}>
                   <div
                     className="dg-head"
                     onClick={() =>
-                      setShutDays((prev) => ({ ...prev, [g.date]: !prev[g.date] }))
+                      setOpenDays((prev) => ({ ...prev, [g.date]: !prev[g.date] }))
                     }
                   >
                     <span className="dg-date">{g.date}</span>
@@ -404,6 +428,15 @@ function DiaryScreen({ avatar }: { avatar: DiaryAvatar }) {
       </div>
     </div>
   )
+}
+
+function formatPillDate(date: string): string {
+  const m = date.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (!m) return date
+  const [, , mm, dd] = m
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  const idx = parseInt(mm, 10) - 1
+  return `${months[idx] ?? mm} ${parseInt(dd, 10)}`
 }
 
 function formatTime(ts?: string): string | null {
