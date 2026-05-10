@@ -3,6 +3,8 @@ const DIARY_API_BASE = 'https://boardroom-api.onioko.com/api/diary'
 export interface RawEntry {
   date: string
   timestamp?: string
+  created_at?: string
+  ts?: string
   topic?: string
   content: string
 }
@@ -102,11 +104,33 @@ export function parseEntry(raw: RawEntry): ParsedEntry {
 
   return {
     date: raw.date,
-    timestamp: raw.timestamp,
+    timestamp: raw.timestamp ?? raw.created_at ?? raw.ts,
     title,
     text: body,
     tags,
   }
+}
+
+/**
+ * Drop near-duplicate entries: same title written within 5 minutes,
+ * keep only the newer one. Server sometimes double-writes.
+ */
+export function dedupEntries(entries: ParsedEntry[]): ParsedEntry[] {
+  const sorted = [...entries].sort((a, b) =>
+    (b.timestamp ?? '').localeCompare(a.timestamp ?? ''),
+  )
+  const kept: ParsedEntry[] = []
+  for (const e of sorted) {
+    const eTs = e.timestamp ? Date.parse(e.timestamp) : NaN
+    const dup = kept.find((k) => {
+      if (k.title.trim() !== e.title.trim()) return false
+      const kTs = k.timestamp ? Date.parse(k.timestamp) : NaN
+      if (Number.isNaN(eTs) || Number.isNaN(kTs)) return true
+      return Math.abs(kTs - eTs) < 300_000
+    })
+    if (!dup) kept.push(e)
+  }
+  return kept
 }
 
 export interface SkillCount {
