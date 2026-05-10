@@ -216,148 +216,195 @@
 .diary-root .diary-status.error { color: #b84a2a; }
 
 /* ============ AGGREGATE VIEWS (skills / patterns / contacts) ============ */
+.diary-root .agg-view { margin-top: 8px; }
+
+.diary-root .agg-page-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 44px;
+  font-weight: 400;
+  color: #d4c9b0;
+  text-align: center;
+  margin: 8px 0 14px;
+  letter-spacing: 0.5px;
+}
+.diary-root .agg-page-sub {
+  font-family: 'Cormorant Garamond', serif;
+  font-style: italic;
+  font-size: 15px;
+  color: #8a8275;
+  text-align: center;
+  max-width: 480px;
+  margin: 0 auto 18px;
+  line-height: 1.55;
+}
+
 .diary-root .agg-graph {
   position: relative;
   width: 100%;
-  height: 380px;
-  margin: 10px 0 40px;
-  background: radial-gradient(ellipse at 50% 35%, #1c1815 0%, #0d0b09 60%, #050404 100%);
-  border-radius: 18px;
+  height: 420px;
+  margin: 10px 0 30px;
+  background:
+    radial-gradient(circle at 20% 30%, rgba(133,118,77,0.04) 0, transparent 1px),
+    radial-gradient(circle at 70% 60%, rgba(133,118,77,0.05) 0, transparent 1px),
+    radial-gradient(circle at 40% 80%, rgba(133,118,77,0.04) 0, transparent 1px),
+    radial-gradient(ellipse at 50% 40%, rgba(133,118,77,0.05) 0%, transparent 70%);
+  background-size: 120px 120px, 90px 90px, 150px 150px, 100% 100%;
   overflow: hidden;
-  border: 0.5px solid #2a2418;
 }
 .diary-root .agg-node {
   position: absolute;
   transform: translate(-50%, -50%);
-  border-radius: 50%;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  text-align: center;
-  padding: 10px 8px;
+  gap: 8px;
   font-family: 'Cormorant Garamond', serif;
-  color: #f3e8c8;
   cursor: default;
-  transition: transform 0.25s ease, box-shadow 0.25s ease;
+  white-space: nowrap;
 }
-.diary-root .agg-node:hover {
-  transform: translate(-50%, -50%) scale(1.05);
-  box-shadow: 0 0 28px rgba(212, 184, 112, 0.25);
+.diary-root .agg-node::before {
+  content: '';
+  flex: 0 0 auto;
+  width: clamp(7px, calc(var(--node-size, 80px) / 12), 16px);
+  height: clamp(7px, calc(var(--node-size, 80px) / 12), 16px);
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px rgba(176, 125, 42, 0.16), 0 0 14px rgba(212, 184, 112, 0.35);
 }
-.diary-root .agg-node.dot-skill {
-  background: radial-gradient(circle at 35% 30%, rgba(220, 180, 100, 0.55), rgba(133, 118, 77, 0.35) 60%, rgba(40, 32, 20, 0.6) 100%);
-  border: 0.5px solid rgba(212, 184, 112, 0.45);
-}
-.diary-root .agg-node.dot-pattern {
-  background: radial-gradient(circle at 35% 30%, rgba(160, 130, 200, 0.45), rgba(107, 90, 173, 0.30) 60%, rgba(35, 28, 50, 0.6) 100%);
-  border: 0.5px solid rgba(176, 152, 220, 0.45);
-}
+.diary-root .agg-node.dot-skill::before { background: #c9a04a; }
+.diary-root .agg-node.dot-pattern::before { background: #9a85d6; box-shadow: 0 0 0 3px rgba(107, 90, 173, 0.18), 0 0 14px rgba(160, 130, 200, 0.35); }
+.diary-root .agg-node.dot-contact::before { background: #4ea88a; box-shadow: 0 0 0 3px rgba(29, 122, 90, 0.18), 0 0 14px rgba(78, 168, 138, 0.35); }
+.diary-root .agg-node-info { display: flex; flex-direction: column; }
 .diary-root .agg-node-name {
-  font-size: 13px;
-  line-height: 1.15;
-  font-weight: 500;
-  color: #f3e8c8;
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
-  max-width: 90%;
+  font-size: 14px;
+  font-weight: 400;
+  color: #d4c9b0;
+  line-height: 1.1;
 }
 .diary-root .agg-node-count {
-  font-size: 10px;
-  letter-spacing: 1.2px;
-  text-transform: uppercase;
-  color: rgba(243, 232, 200, 0.65);
-  margin-top: 4px;
+  font-size: 11px;
+  color: #6a6050;
+  font-style: italic;
+  margin-top: 2px;
 }
 
 .diary-root .agg-section-head {
   font-family: 'Cormorant Garamond', serif;
-  font-size: 12px;
-  letter-spacing: 4px;
+  font-size: 11px;
+  letter-spacing: 5px;
   text-transform: uppercase;
-  color: #a09b90;
-  margin: 30px 0 18px;
+  color: #85764d;
+  margin: 30px 0 0;
+  padding-bottom: 26px;
   text-align: center;
 }
 
 .diary-root .agg-list {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  margin-bottom: 50px;
+  margin-bottom: 60px;
 }
 
 .diary-root .agg-card {
+  padding: 26px 0 30px;
+  border-top: 0.5px solid rgba(133, 118, 77, 0.25);
+}
+.diary-root .agg-card:last-child { border-bottom: 0.5px solid rgba(133, 118, 77, 0.25); }
+
+.diary-root .agg-card-head {
   display: flex;
   align-items: flex-start;
   gap: 14px;
-  padding: 18px 20px;
-  background: #eee9de;
-  border-radius: 12px;
-  border: 0.5px solid #d9d2c2;
 }
 
 .diary-root .agg-card-dot {
   flex: 0 0 auto;
-  width: 10px;
-  height: 10px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
-  margin-top: 8px;
+  margin-top: 12px;
 }
-.diary-root .agg-card-dot.dot-skill { background: #b07d2a; box-shadow: 0 0 0 3px rgba(176, 125, 42, 0.18); }
-.diary-root .agg-card-dot.dot-pattern { background: #6b5aad; box-shadow: 0 0 0 3px rgba(107, 90, 173, 0.18); }
-.diary-root .agg-card-dot.dot-contact { background: #1d7a5a; box-shadow: 0 0 0 3px rgba(29, 122, 90, 0.18); }
+.diary-root .agg-card-dot.dot-skill { background: #c9a04a; box-shadow: 0 0 0 3px rgba(201, 160, 74, 0.18), 0 0 10px rgba(201, 160, 74, 0.3); }
+.diary-root .agg-card-dot.dot-pattern { background: #9a85d6; box-shadow: 0 0 0 3px rgba(154, 133, 214, 0.18), 0 0 10px rgba(154, 133, 214, 0.3); }
+.diary-root .agg-card-dot.dot-contact { background: #4ea88a; box-shadow: 0 0 0 3px rgba(78, 168, 138, 0.18), 0 0 10px rgba(78, 168, 138, 0.3); }
 
 .diary-root .agg-card-body { flex: 1; min-width: 0; }
 .diary-root .agg-card-title {
   font-family: 'Cormorant Garamond', serif;
-  font-size: 20px;
-  color: #2c2a25;
-  margin-bottom: 4px;
+  font-size: 22px;
+  color: #d4c9b0;
+  margin-bottom: 6px;
+  letter-spacing: 0.3px;
 }
 .diary-root .agg-card-desc {
-  font-family: 'Caveat', cursive;
-  font-size: 19px;
-  color: #5a554b;
-  line-height: 1.4;
-  margin-bottom: 6px;
+  font-family: 'Cormorant Garamond', serif;
+  font-style: italic;
+  font-size: 15px;
+  color: #a09b90;
+  line-height: 1.5;
+  margin-bottom: 10px;
 }
-.diary-root .agg-card-desc em { font-style: italic; color: #3d3a34; }
 .diary-root .agg-card-meta {
   font-family: 'Cormorant Garamond', serif;
   font-style: italic;
   font-size: 13px;
   color: #b07d2a;
+  letter-spacing: 0.5px;
 }
 
 .diary-root .agg-card-side {
   flex: 0 0 auto;
   text-align: right;
   font-family: 'Cormorant Garamond', serif;
+  min-width: 110px;
 }
 .diary-root .agg-card-count {
-  font-size: 11px;
-  letter-spacing: 2px;
+  font-size: 28px;
+  font-weight: 400;
+  color: #d4c9b0;
+  line-height: 1;
+}
+.diary-root .agg-card-count-label {
+  font-size: 10px;
+  letter-spacing: 3px;
   text-transform: uppercase;
-  color: #4a4640;
-  font-weight: 500;
+  color: #85764d;
+  margin-top: 4px;
 }
 .diary-root .agg-card-since {
   font-size: 12px;
-  color: #a09b90;
+  color: #6a6050;
   font-style: italic;
-  margin-top: 4px;
+  margin-top: 8px;
 }
 
-.diary-root .contact-titles {
-  list-style: none;
-  margin: 4px 0 6px;
-  padding: 0;
-  font-family: 'Caveat', cursive;
-  font-size: 17px;
-  color: #6a6560;
-  line-height: 1.5;
+.diary-root .agg-mem-list {
+  margin: 22px 0 0;
+  padding-left: 23px;
+  display: flex;
+  flex-direction: column;
 }
-.diary-root .contact-titles li::before { content: '· '; color: #c4bdb0; }
+.diary-root .agg-mem-row {
+  display: flex;
+  gap: 28px;
+  padding: 14px 0;
+  border-top: 0.5px dashed rgba(133, 118, 77, 0.18);
+}
+.diary-root .agg-mem-row:first-child { border-top: 0.5px dashed rgba(133, 118, 77, 0.18); }
+.diary-root .agg-mem-date {
+  flex: 0 0 92px;
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 12px;
+  color: #6a6050;
+  letter-spacing: 1px;
+  padding-top: 2px;
+}
+.diary-root .agg-mem-text {
+  flex: 1;
+  font-family: 'Cormorant Garamond', serif;
+  font-style: italic;
+  font-size: 15px;
+  line-height: 1.55;
+  color: #b8ad96;
+}
 
 @media (max-width: 700px) {
   .diary-root .select-title { font-size: 28px; }

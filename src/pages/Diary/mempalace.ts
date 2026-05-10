@@ -171,6 +171,12 @@ export function groupByDay(entries: ParsedEntry[]): DayGroup[] {
     .sort((a, b) => b.date.localeCompare(a.date))
 }
 
+export interface TagAggregateMemory {
+  date: string
+  title: string
+  excerpt: string
+}
+
 export interface TagAggregate {
   name: string
   displayName: string
@@ -179,6 +185,7 @@ export interface TagAggregate {
   since: string
   latestDate: string
   recentTitles: string[]
+  memories: TagAggregateMemory[]
 }
 
 function titleCase(slug: string): string {
@@ -231,6 +238,11 @@ export function aggregateByTagType(
       since: oldest.date,
       latestDate: newest.date,
       recentTitles: sortedDesc.slice(0, 3).map((e) => e.title),
+      memories: sortedDesc.map((e) => ({
+        date: e.date,
+        title: e.title,
+        excerpt: firstSentence(e.text || e.title),
+      })),
     })
   }
   return result.sort((a, b) => b.count - a.count)

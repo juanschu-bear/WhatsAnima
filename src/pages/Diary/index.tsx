@@ -428,23 +428,13 @@ function DiaryScreen({ avatar }: { avatar: DiaryAvatar }) {
             )}
 
             {filter === 'skills' && (
-              <AggregateView
-                kind="skill"
-                title="Skill Inventory"
-                items={skillAggs}
-                avatarName={avatar.name}
-              />
+              <AggregateView kind="skill" items={skillAggs} avatarName={avatar.name} />
             )}
             {filter === 'patterns' && (
-              <AggregateView
-                kind="pattern"
-                title="Pattern Inventory"
-                items={patternAggs}
-                avatarName={avatar.name}
-              />
+              <AggregateView kind="pattern" items={patternAggs} avatarName={avatar.name} />
             )}
             {filter === 'contacts' && (
-              <ContactsView items={contactAggs} avatarName={avatar.name} />
+              <AggregateView kind="contact" items={contactAggs} avatarName={avatar.name} />
             )}
           </>
         )}
@@ -524,25 +514,63 @@ function nodeSize(count: number, max: number): number {
   return Math.round(60 + t * 84)
 }
 
+type AggKind = 'skill' | 'pattern' | 'contact'
+
+const AGG_COPY: Record<AggKind, { title: string; subtitle: string; section: string; empty: string; memorySingular: string; memoryPlural: string }> = {
+  skill: {
+    title: 'Skills',
+    subtitle: 'What {name} has learned through conversation. Skills emerge from diary reflections and grow stronger with repetition.',
+    section: 'Skill Inventory',
+    empty: 'No skills yet.',
+    memorySingular: 'memory',
+    memoryPlural: 'memories',
+  },
+  pattern: {
+    title: 'Patterns',
+    subtitle: 'Recurring shapes {name} notices in themselves and others. Patterns surface across entries and sharpen over time.',
+    section: 'Pattern Inventory',
+    empty: 'No patterns yet.',
+    memorySingular: 'memory',
+    memoryPlural: 'memories',
+  },
+  contact: {
+    title: 'Contacts',
+    subtitle: 'People {name} keeps returning to in their diary. Each name marks a thread of attention across days.',
+    section: 'Contact Inventory',
+    empty: 'No contacts referenced yet.',
+    memorySingular: 'mention',
+    memoryPlural: 'mentions',
+  },
+}
+
 function AggregateView({
   kind,
-  title,
   items,
   avatarName,
 }: {
-  kind: 'skill' | 'pattern'
-  title: string
+  kind: AggKind
   items: TagAggregate[]
   avatarName: string
 }) {
+  const copy = AGG_COPY[kind]
+  const dotClass = kind === 'skill' ? 'dot-skill' : kind === 'pattern' ? 'dot-pattern' : 'dot-contact'
+
   if (items.length === 0) {
-    return <div className="diary-status">No {kind === 'skill' ? 'skills' : 'patterns'} yet.</div>
+    return (
+      <div className="agg-view">
+        <h2 className="agg-page-title">{avatarName}'s {copy.title}</h2>
+        <div className="diary-status">{copy.empty}</div>
+      </div>
+    )
   }
+
   const max = Math.max(...items.map((i) => i.count))
-  const dotClass = kind === 'skill' ? 'dot-skill' : 'dot-pattern'
 
   return (
-    <>
+    <div className="agg-view">
+      <h2 className="agg-page-title">{avatarName}'s {copy.title}</h2>
+      <p className="agg-page-sub">{copy.subtitle.replace('{name}', avatarName.split(' ')[0])}</p>
+
       <div className="agg-graph">
         {items.map((item, i) => {
           const pos = nodePosition(item.name, i, items.length)
@@ -551,83 +579,54 @@ function AggregateView({
             <div
               key={item.name}
               className={`agg-node ${dotClass}`}
-              style={{ left: pos.left, top: pos.top, width: size, height: size }}
+              style={{ left: pos.left, top: pos.top, ['--node-size' as string]: `${size}px` }}
             >
-              <span className="agg-node-name">{item.displayName}</span>
-              <span className="agg-node-count">
-                {item.count} {item.count === 1 ? 'reference' : 'references'}
-              </span>
+              <div className="agg-node-info">
+                <span className="agg-node-name">{item.displayName}</span>
+                <span className="agg-node-count">
+                  {item.count} {item.count === 1 ? 'reference' : 'references'}
+                </span>
+              </div>
             </div>
           )
         })}
       </div>
 
-      <div className="agg-section-head">{title}</div>
+      <div className="agg-section-head">{copy.section}</div>
+
       <div className="agg-list">
         {items.map((item) => (
           <div key={item.name} className="agg-card">
-            <span className={`agg-card-dot ${dotClass}`} />
-            <div className="agg-card-body">
-              <div className="agg-card-title">{item.displayName}</div>
-              {item.description && (
-                <div className="agg-card-desc">{item.description}</div>
-              )}
-              <div className="agg-card-meta">{avatarName}</div>
-            </div>
-            <div className="agg-card-side">
-              <div className="agg-card-count">
-                {item.count} {item.count === 1 ? 'entry' : 'entries'}
+            <div className="agg-card-head">
+              <span className={`agg-card-dot ${dotClass}`} />
+              <div className="agg-card-body">
+                <div className="agg-card-title">{item.displayName}</div>
+                {item.description && (
+                  <div className="agg-card-desc">{item.description}</div>
+                )}
+                <div className="agg-card-meta">{avatarName}</div>
               </div>
-              <div className="agg-card-since">Since {item.since}</div>
+              <div className="agg-card-side">
+                <div className="agg-card-count">{item.count}</div>
+                <div className="agg-card-count-label">
+                  {item.count === 1 ? copy.memorySingular : copy.memoryPlural}
+                </div>
+                <div className="agg-card-since">Since {item.since}</div>
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
-    </>
-  )
-}
 
-function ContactsView({
-  items,
-  avatarName,
-}: {
-  items: TagAggregate[]
-  avatarName: string
-}) {
-  if (items.length === 0) {
-    return <div className="diary-status">No contacts referenced yet.</div>
-  }
-  return (
-    <>
-      <div className="agg-section-head">Contact Inventory</div>
-      <div className="agg-list">
-        {items.map((item) => (
-          <div key={item.name} className="agg-card contact-card">
-            <span className="agg-card-dot dot-contact" />
-            <div className="agg-card-body">
-              <div className="agg-card-title">{item.displayName}</div>
-              <div className="agg-card-desc">
-                Last entry: <em>{item.recentTitles[0] ?? '—'}</em>
-              </div>
-              {item.recentTitles.length > 1 && (
-                <ul className="contact-titles">
-                  {item.recentTitles.slice(1).map((t, i) => (
-                    <li key={i}>{t}</li>
-                  ))}
-                </ul>
-              )}
-              <div className="agg-card-meta">{avatarName}</div>
-            </div>
-            <div className="agg-card-side">
-              <div className="agg-card-count">
-                {item.count} {item.count === 1 ? 'entry' : 'entries'}
-              </div>
-              <div className="agg-card-since">Last {item.latestDate}</div>
+            <div className="agg-mem-list">
+              {item.memories.map((m, i) => (
+                <div key={i} className="agg-mem-row">
+                  <div className="agg-mem-date">{m.date}</div>
+                  <div className="agg-mem-text">{m.excerpt}</div>
+                </div>
+              ))}
             </div>
           </div>
         ))}
       </div>
-    </>
+    </div>
   )
 }
 
