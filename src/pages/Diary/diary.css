@@ -170,6 +170,9 @@
 
 .diary-root .ent { margin-bottom: 50px; padding-left: 22px; border-left: 1.5px solid #d4cfc4; position: relative; }
 .diary-root .ent::before { content: ''; position: absolute; left: -4px; top: 8px; width: 7px; height: 7px; border-radius: 50%; background: #c4bdb0; }
+.diary-root .ent-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 0 0 14px; }
+.diary-root .ent-head .ent-title { margin: 0; }
+.diary-root .ent-time { font-family: 'Cormorant Garamond', serif; font-size: 13px; letter-spacing: 2px; color: #a09b90; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .diary-root .ent-title { font-family: 'Caveat', cursive; font-size: 28px; font-weight: 600; color: #2c2a25; margin: 0 0 14px; line-height: 1.2; }
 .diary-root .ent-text { font-family: 'Caveat', cursive; font-size: 24px; line-height: 1.75; color: #3d3a34; margin: 0 0 18px; white-space: pre-wrap; }
 .diary-root .ent-tags { font-family: 'Caveat', cursive; font-size: 20px; line-height: 1.8; color: #8a8578; }
