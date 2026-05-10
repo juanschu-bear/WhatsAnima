@@ -320,10 +320,20 @@ function DiaryScreen({ avatar, onBack }: { avatar: DiaryAvatar; onBack: () => vo
   )
 }
 
+function formatTime(ts?: string): string | null {
+  if (!ts) return null
+  const m = ts.match(/T(\d{2}):(\d{2})/)
+  return m ? `${m[1]}:${m[2]}` : null
+}
+
 function EntryView({ entry }: { entry: ParsedEntry }) {
+  const time = formatTime(entry.timestamp)
   return (
     <div className="ent">
-      <p className="ent-title">{entry.title}</p>
+      <div className="ent-head">
+        <p className="ent-title">{entry.title}</p>
+        {time && <span className="ent-time">{time}</span>}
+      </div>
       <p className="ent-text">{entry.text}</p>
       {entry.tags.length > 0 && (
         <div className="ent-tags">
