@@ -177,6 +177,8 @@ export interface TagAggregateMemory {
   excerpt: string
 }
 
+export type TagTrend = 'new' | 'growing' | 'stable' | 'improving' | 'resolved'
+
 export interface TagAggregate {
   name: string
   displayName: string
@@ -186,6 +188,9 @@ export interface TagAggregate {
   latestDate: string
   recentTitles: string[]
   memories: TagAggregateMemory[]
+  beforeCount: number
+  afterCount: number
+  trend: TagTrend
 }
 
 function titleCase(slug: string): string {
@@ -222,6 +227,13 @@ export function aggregateByTagType(
     }
   }
 
+  const entriesDesc = [...entries].sort((a, b) =>
+    (b.timestamp ?? b.date).localeCompare(a.timestamp ?? a.date),
+  )
+  const mid = Math.floor(entriesDesc.length / 2)
+  const newerSet = new Set(entriesDesc.slice(0, mid))
+  const olderSet = new Set(entriesDesc.slice(mid))
+
   const result: TagAggregate[] = []
   for (const [name, list] of buckets) {
     const sortedAsc = [...list].sort((a, b) =>
@@ -230,6 +242,13 @@ export function aggregateByTagType(
     const sortedDesc = [...sortedAsc].reverse()
     const newest = sortedDesc[0]
     const oldest = sortedAsc[0]
+    let beforeCount = 0
+    let afterCount = 0
+    for (const e of list) {
+      if (newerSet.has(e)) afterCount++
+      else if (olderSet.has(e)) beforeCount++
+    }
+    const trend = computeTrend(type, beforeCount, afterCount)
     result.push({
       name,
       displayName: type === 'contact' ? name : titleCase(name),
@@ -243,7 +262,151 @@ export function aggregateByTagType(
         title: e.title,
         excerpt: firstSentence(e.text || e.title),
       })),
+      beforeCount,
+      afterCount,
+      trend,
     })
   }
   return result.sort((a, b) => b.count - a.count)
+}
+
+function computeTrend(
+  type: 'skill' | 'pattern' | 'contact',
+  before: number,
+  after: number,
+): TagTrend {
+  if (type === 'pattern') {
+    if (before > 0 && after === 0) return 'resolved'
+    if (before > after && after > 0) return 'improving'
+    if (before === 0 && after > 0) return 'growing'
+    return 'stable'
+  }
+  if (before === 0 && after > 0) return 'new'
+  if (after > before) return 'growing'
+  if (after < before && after > 0) return 'improving'
+  if (before > 0 && after === 0) return 'resolved'
+  return 'stable'
+}
+
+export interface GrowthSignals {
+  growthScore: number
+  behavioralChange: number
+  diaryImpact: number
+  totalEntries: number
+  patternsImproving: number
+  patternsTotal: number
+  appliedRatio: number
+  behavioralChanges: BehavioralChange[]
+  impactEntries: ImpactEntry[]
+}
+
+export interface BehavioralChange {
+  kind: TagTrend
+  type: 'skill' | 'pattern'
+  name: string
+  displayName: string
+  description: string
+  before: number
+  after: number
+}
+
+export interface ImpactEntry {
+  date: string
+  timestamp?: string
+  title: string
+  text: string
+  applied: number
+}
+
+export function computeGrowthSignals(entries: ParsedEntry[]): GrowthSignals {
+  const skills = aggregateByTagType(entries, 'skill')
+  const patterns = aggregateByTagType(entries, 'pattern')
+
+  const skillsGrowing = skills.filter((s) => s.trend === 'growing' || s.trend === 'new').length
+  const patternsImproving = patterns.filter(
+    (p) => p.trend === 'improving' || p.trend === 'resolved',
+  ).length
+  const patternsTotal = patterns.length
+
+  const behavioralChanges: BehavioralChange[] = []
+  for (const p of patterns) {
+    if (p.trend === 'resolved' || p.trend === 'improving') {
+      behavioralChanges.push({
+        kind: p.trend,
+        type: 'pattern',
+        name: p.name,
+        displayName: p.displayName,
+        description: p.description,
+        before: p.beforeCount,
+        after: p.afterCount,
+      })
+    }
+  }
+  for (const s of skills) {
+    if (s.trend === 'new' || s.trend === 'growing') {
+      behavioralChanges.push({
+        kind: s.trend,
+        type: 'skill',
+        name: s.name,
+        displayName: s.displayName,
+        description: s.description,
+        before: s.beforeCount,
+        after: s.afterCount,
+      })
+    }
+  }
+
+  const entriesAsc = [...entries].sort((a, b) =>
+    (a.timestamp ?? a.date).localeCompare(b.timestamp ?? b.date),
+  )
+  const impactEntries: ImpactEntry[] = []
+  for (let i = 0; i < entriesAsc.length; i++) {
+    const e = entriesAsc[i]
+    const laterEntries = entriesAsc.slice(i + 1)
+    const ownSkills = new Set(
+      e.tags.filter((t) => t.type === 'skill').map((t) => t.value),
+    )
+    if (ownSkills.size === 0) continue
+    let applied = 0
+    for (const later of laterEntries) {
+      for (const lt of later.tags) {
+        if (lt.type === 'skill' && ownSkills.has(lt.value)) {
+          applied++
+          break
+        }
+      }
+    }
+    impactEntries.push({
+      date: e.date,
+      timestamp: e.timestamp,
+      title: e.title,
+      text: e.text,
+      applied,
+    })
+  }
+  impactEntries.sort((a, b) => b.applied - a.applied || (b.timestamp ?? b.date).localeCompare(a.timestamp ?? a.date))
+
+  const totalEntries = entries.length
+  const appliedCount = impactEntries.filter((i) => i.applied > 0).length
+  const appliedRatio = impactEntries.length > 0 ? appliedCount / impactEntries.length : 0
+
+  const growthScore = Math.min(
+    100,
+    Math.round((skillsGrowing * 8 + patternsImproving * 6 + Math.min(totalEntries, 30) * 1.2)),
+  )
+  const behavioralChange =
+    patternsTotal > 0 ? Math.round((patternsImproving / patternsTotal) * 100) : 0
+  const diaryImpact = Math.round(appliedRatio * 100)
+
+  return {
+    growthScore,
+    behavioralChange,
+    diaryImpact,
+    totalEntries,
+    patternsImproving,
+    patternsTotal,
+    appliedRatio,
+    behavioralChanges,
+    impactEntries: impactEntries.slice(0, 8),
+  }
 }

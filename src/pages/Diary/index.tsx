@@ -14,13 +14,15 @@ import {
   groupByDay,
   dedupEntries,
   aggregateByTagType,
+  computeGrowthSignals,
   type ParsedEntry,
   type ParsedTag,
   type TagAggregate,
+  type TagTrend,
 } from './mempalace'
 import './diary.css'
 
-type Filter = 'all' | 'skills' | 'patterns' | 'contacts'
+type Filter = 'all' | 'skills' | 'patterns' | 'contacts' | 'growth'
 
 const SKILL_COLOR_CLASSES = ['sg', 'sp', 'sb', 'sa', 'sr', 'spk']
 
@@ -318,7 +320,7 @@ function DiaryScreen({ avatar }: { avatar: DiaryAvatar }) {
   const total = entries?.length ?? 0
 
   return (
-    <div className="screen diary-screen">
+    <div className={`screen diary-screen${filter === 'growth' ? ' dark' : ''}`}>
       <button className="diary-back" onClick={() => navigate('/diary/select')}>
         ← Back to diaries
       </button>
@@ -371,7 +373,7 @@ function DiaryScreen({ avatar }: { avatar: DiaryAvatar }) {
             )}
 
             <div className="filters">
-              {(['all', 'skills', 'patterns', 'contacts'] as Filter[]).map((f) => (
+              {(['all', 'skills', 'patterns', 'contacts', 'growth'] as Filter[]).map((f) => (
                 <button
                   key={f}
                   className={`fbtn${filter === f ? ' on' : ''}`}
@@ -434,8 +436,9 @@ function DiaryScreen({ avatar }: { avatar: DiaryAvatar }) {
               <AggregateView kind="pattern" items={patternAggs} avatarName={avatar.name} />
             )}
             {filter === 'contacts' && (
-              <AggregateView kind="contact" items={contactAggs} avatarName={avatar.name} />
+              <ContactsView items={contactAggs} avatarName={avatar.name} />
             )}
+            {filter === 'growth' && <GrowthView entries={entries} avatarName={avatar.name} />}
           </>
         )}
       </div>
@@ -514,7 +517,15 @@ function nodeSize(count: number, max: number): number {
   return Math.round(60 + t * 84)
 }
 
-type AggKind = 'skill' | 'pattern' | 'contact'
+type AggKind = 'skill' | 'pattern'
+
+const TREND_BADGE: Record<TagTrend, { label: string; cls: string } | null> = {
+  improving: { label: 'improving', cls: 'tb-improving' },
+  resolved: { label: 'resolved', cls: 'tb-resolved' },
+  growing: { label: 'growing', cls: 'tb-growing' },
+  new: { label: 'new', cls: 'tb-new' },
+  stable: null,
+}
 
 const AGG_COPY: Record<AggKind, { title: string; subtitle: string; section: string; empty: string; memorySingular: string; memoryPlural: string }> = {
   skill: {
@@ -533,14 +544,6 @@ const AGG_COPY: Record<AggKind, { title: string; subtitle: string; section: stri
     memorySingular: 'memory',
     memoryPlural: 'memories',
   },
-  contact: {
-    title: 'Contacts',
-    subtitle: 'People {name} keeps returning to in their diary. Each name marks a thread of attention across days.',
-    section: 'Contact Inventory',
-    empty: 'No contacts referenced yet.',
-    memorySingular: 'mention',
-    memoryPlural: 'mentions',
-  },
 }
 
 function AggregateView({
@@ -553,7 +556,7 @@ function AggregateView({
   avatarName: string
 }) {
   const copy = AGG_COPY[kind]
-  const dotClass = kind === 'skill' ? 'dot-skill' : kind === 'pattern' ? 'dot-pattern' : 'dot-contact'
+  const dotClass = kind === 'skill' ? 'dot-skill' : 'dot-pattern'
 
   if (items.length === 0) {
     return (
@@ -600,7 +603,14 @@ function AggregateView({
             <div className="agg-card-head">
               <span className={`agg-card-dot ${dotClass}`} />
               <div className="agg-card-body">
-                <div className="agg-card-title">{item.displayName}</div>
+                <div className="agg-card-title">
+                  {item.displayName}
+                  {TREND_BADGE[item.trend] && (
+                    <span className={`trend-badge ${TREND_BADGE[item.trend]!.cls}`}>
+                      {TREND_BADGE[item.trend]!.label}
+                    </span>
+                  )}
+                </div>
                 {item.description && (
                   <div className="agg-card-desc">{item.description}</div>
                 )}
@@ -626,6 +636,166 @@ function AggregateView({
           </div>
         ))}
       </div>
+    </div>
+  )
+}
+
+function ContactsView({ items, avatarName }: { items: TagAggregate[]; avatarName: string }) {
+  if (items.length === 0) {
+    return (
+      <div className="agg-view">
+        <h2 className="agg-page-title">{avatarName}'s Contacts</h2>
+        <div className="diary-status">No contacts referenced yet.</div>
+      </div>
+    )
+  }
+  const firstName = avatarName.split(' ')[0]
+  return (
+    <div className="agg-view">
+      <h2 className="agg-page-title">{avatarName}'s Contacts</h2>
+      <p className="agg-page-sub">
+        People {firstName} keeps returning to in their diary. Each card collects the recent threads
+        of attention.
+      </p>
+
+      <div className="agg-section-head">Contact Inventory</div>
+
+      <div className="contact-grid">
+        {items.map((c) => (
+          <div key={c.name} className="contact-card">
+            <div className="contact-card-top">
+              <div className="contact-name">{c.displayName}</div>
+              <div className="contact-card-count">
+                <div className="agg-card-count">{c.count}</div>
+                <div className="agg-card-count-label">
+                  {c.count === 1 ? 'entry' : 'entries'}
+                </div>
+              </div>
+            </div>
+            <div className="contact-last">Last: {c.latestDate}</div>
+            <ul className="contact-titles">
+              {c.recentTitles.slice(0, 3).map((t, i) => (
+                <li key={i}>{t}</li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+const TREND_ICON: Record<TagTrend, { sym: string; cls: string; label: string } | null> = {
+  resolved: { sym: '✓', cls: 'ti-resolved', label: 'resolved' },
+  improving: { sym: '↗', cls: 'ti-improving', label: 'improving' },
+  growing: { sym: '↑', cls: 'ti-growing', label: 'growing' },
+  new: { sym: '★', cls: 'ti-new', label: 'new' },
+  stable: null,
+}
+
+function GrowthView({
+  entries,
+  avatarName,
+}: {
+  entries: ParsedEntry[] | null
+  avatarName: string
+}) {
+  const signals = useMemo(() => (entries ? computeGrowthSignals(entries) : null), [entries])
+  if (!signals) return null
+  const firstName = avatarName.split(' ')[0]
+
+  return (
+    <div className="growth-view">
+      <h2 className="growth-page-title">{firstName}'s Growth</h2>
+      <p className="growth-page-sub">
+        How {firstName} has changed across their diary — what was let go, what is forming, what
+        keeps showing up later.
+      </p>
+
+      <div className="growth-cards">
+        <div className="growth-card gc-growth">
+          <div className="gc-value">{signals.growthScore}%</div>
+          <div className="gc-label">Growth Score</div>
+          <div className="gc-sub">Based on {signals.totalEntries} diary entries</div>
+        </div>
+        <div className="growth-card gc-behave">
+          <div className="gc-value">{signals.behavioralChange}%</div>
+          <div className="gc-label">Behavioral Change</div>
+          <div className="gc-sub">
+            {signals.patternsImproving} of {signals.patternsTotal} patterns improving
+          </div>
+        </div>
+        <div className="growth-card gc-impact">
+          <div className="gc-value">{signals.diaryImpact}%</div>
+          <div className="gc-label">Diary Impact</div>
+          <div className="gc-sub">
+            Learnings applied in {signals.diaryImpact}% of entries
+          </div>
+        </div>
+      </div>
+
+      <div className="growth-section-head">Behavioral Changes Over Time</div>
+      {signals.behavioralChanges.length === 0 ? (
+        <div className="diary-status growth-status">No directional changes detected yet.</div>
+      ) : (
+        <div className="growth-list">
+          {signals.behavioralChanges.map((c, i) => {
+            const ic = TREND_ICON[c.kind]
+            if (!ic) return null
+            return (
+              <div key={`${c.type}-${c.name}-${i}`} className="growth-row">
+                <span className={`growth-icon ${ic.cls}`}>{ic.sym}</span>
+                <div className="growth-row-body">
+                  <div className="growth-row-title">
+                    {c.displayName}
+                    <span className={`growth-tag tag-${c.type}`}>{c.type}</span>
+                  </div>
+                  {c.description && <div className="growth-row-desc">{c.description}</div>}
+                </div>
+                <div className="growth-row-side">
+                  <div className="growth-row-stat">
+                    <span className="grs-l">Before</span>
+                    <span className="grs-v">{c.before}x</span>
+                  </div>
+                  <div className="growth-row-stat">
+                    <span className="grs-l">Now</span>
+                    <span className="grs-v">{c.after}x</span>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      <div className="growth-section-head">Diary Entries with Proven Impact</div>
+      {signals.impactEntries.length === 0 ? (
+        <div className="diary-status growth-status">
+          No entries with traceable impact yet — keep writing.
+        </div>
+      ) : (
+        <div className="growth-impact">
+          {signals.impactEntries.map((e, i) => (
+            <div key={i} className="impact-card">
+              <div className="impact-head">
+                <div className="impact-title">{e.title}</div>
+                <span
+                  className={`impact-badge${e.applied > 0 ? ' on' : ' off'}`}
+                >
+                  {e.applied > 0
+                    ? `Applied in ${e.applied} later ${e.applied === 1 ? 'conversation' : 'conversations'}`
+                    : 'Not yet observed'}
+                </span>
+              </div>
+              <div className="impact-meta">
+                {e.date}
+                {e.timestamp ? ` · ${formatTime(e.timestamp) ?? ''}` : ''}
+              </div>
+              <p className="impact-text">{e.text.slice(0, 240)}{e.text.length > 240 ? '…' : ''}</p>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
