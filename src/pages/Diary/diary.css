@@ -126,7 +126,16 @@
 .diary-root .back-btn:hover { color: #85764d; }
 
 /* ============ DIARY ============ */
-.diary-root .diary-screen { flex-direction: column; background: #f6f1e9; min-height: 100vh; color: #2c2a25; }
+.diary-root .diary-screen { flex-direction: column; background: #f6f1e9; min-height: 100vh; color: #2c2a25; transition: background 0.5s ease, color 0.5s ease; }
+.diary-root .diary-screen.dark { background: #0a0908; color: #d4c9b0; }
+.diary-root .diary-screen.dark .diary-name,
+.diary-root .diary-screen.dark .diary-sub,
+.diary-root .diary-screen.dark .diary-count,
+.diary-root .diary-screen.dark .diary-back,
+.diary-root .diary-screen.dark .fbtn { color: #d4c9b0; }
+.diary-root .diary-screen.dark .diary-divider { background: linear-gradient(90deg, transparent, rgba(133,118,77,0.5), transparent); }
+.diary-root .diary-screen.dark .fbtn.on { background: rgba(133,118,77,0.18); color: #f3e8c8; border-color: rgba(133,118,77,0.5); }
+.diary-root .diary-screen.dark .skills-box { background: rgba(133,118,77,0.08); color: #d4c9b0; }
 .diary-root .diary { max-width: 720px; margin: 0 auto; padding: 60px 40px 80px; width: 100%; }
 .diary-root .diary-header { text-align: center; margin-bottom: 50px; }
 .diary-root .diary-circle { width: 58px; height: 58px; border-radius: 50%; background: #85764d; color: #f5f0e8; margin: 0 auto 18px; display: flex; align-items: center; justify-content: center; font-weight: 500; font-size: 17px; letter-spacing: 1px; font-family: 'Cormorant Garamond', serif; }
@@ -264,9 +273,9 @@
   border-radius: 50%;
   box-shadow: 0 0 0 3px rgba(176, 125, 42, 0.16);
 }
-.diary-root .agg-node.dot-skill::before { background: #b07d2a; }
-.diary-root .agg-node.dot-pattern::before { background: #6b5aad; box-shadow: 0 0 0 3px rgba(107, 90, 173, 0.18); }
-.diary-root .agg-node.dot-contact::before { background: #1d7a5a; box-shadow: 0 0 0 3px rgba(29, 122, 90, 0.18); }
+.diary-root .agg-node.dot-skill::before { background: #5DCAA5; box-shadow: 0 0 0 3px rgba(93, 202, 165, 0.18); }
+.diary-root .agg-node.dot-pattern::before { background: #9a85d6; box-shadow: 0 0 0 3px rgba(154, 133, 214, 0.18); }
+.diary-root .agg-node.dot-contact::before { background: #4ea88a; box-shadow: 0 0 0 3px rgba(78, 168, 138, 0.18); }
 .diary-root .agg-node-info { display: flex; flex-direction: column; }
 .diary-root .agg-node-name {
   font-size: 14px;
@@ -317,7 +326,7 @@
   border-radius: 50%;
   margin-top: 12px;
 }
-.diary-root .agg-card-dot.dot-skill { background: #b07d2a; box-shadow: 0 0 0 3px rgba(176, 125, 42, 0.18); }
+.diary-root .agg-card-dot.dot-skill { background: #5DCAA5; box-shadow: 0 0 0 3px rgba(93, 202, 165, 0.18); }
 .diary-root .agg-card-dot.dot-pattern { background: #6b5aad; box-shadow: 0 0 0 3px rgba(107, 90, 173, 0.18); }
 .diary-root .agg-card-dot.dot-contact { background: #1d7a5a; box-shadow: 0 0 0 3px rgba(29, 122, 90, 0.18); }
 
@@ -401,6 +410,260 @@
   color: #3d3a34;
 }
 
+/* ============ TREND BADGES (skills/patterns) ============ */
+.diary-root .trend-badge {
+  display: inline-block;
+  margin-left: 10px;
+  padding: 2px 9px;
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 11px;
+  font-style: italic;
+  letter-spacing: 1px;
+  text-transform: lowercase;
+  border-radius: 999px;
+  vertical-align: middle;
+  border: 0.5px solid transparent;
+}
+.diary-root .trend-badge.tb-improving { color: #b97a18; background: rgba(239, 159, 39, 0.12); border-color: rgba(239, 159, 39, 0.35); }
+.diary-root .trend-badge.tb-resolved  { color: #2f7a59; background: rgba(93, 202, 165, 0.15); border-color: rgba(93, 202, 165, 0.45); }
+.diary-root .trend-badge.tb-growing   { color: #2a5a8a; background: rgba(80, 130, 200, 0.12); border-color: rgba(80, 130, 200, 0.35); }
+.diary-root .trend-badge.tb-new       { color: #8a6b1f; background: rgba(212, 184, 112, 0.18); border-color: rgba(212, 184, 112, 0.5); }
+
+/* ============ CONTACTS (card grid) ============ */
+.diary-root .contact-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 60px;
+}
+.diary-root .contact-card {
+  padding: 22px 22px 18px;
+  background: #efe9dc;
+  border: 0.5px solid #d4cfc4;
+  border-radius: 10px;
+}
+.diary-root .contact-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 4px; }
+.diary-root .contact-name {
+  font-family: 'Caveat', cursive;
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1.1;
+  color: #2c2a25;
+}
+.diary-root .contact-card-count { text-align: right; font-family: 'Cormorant Garamond', serif; }
+.diary-root .contact-last {
+  font-family: 'Cormorant Garamond', serif;
+  font-style: italic;
+  font-size: 13px;
+  color: #8a8578;
+  margin: 4px 0 10px;
+}
+.diary-root .contact-titles {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-family: 'Cormorant Garamond', serif;
+  font-style: italic;
+  font-size: 14px;
+  color: #4a4640;
+  line-height: 1.55;
+}
+.diary-root .contact-titles li { padding: 4px 0; border-top: 0.5px dashed #d4cfc4; }
+.diary-root .contact-titles li:first-child { border-top: none; }
+.diary-root .contact-titles li::before { content: '· '; color: #b07d2a; }
+
+/* ============ GROWTH VIEW (dark) ============ */
+.diary-root .growth-view { margin-top: 8px; }
+.diary-root .growth-page-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 44px;
+  font-weight: 400;
+  color: #d4c9b0;
+  text-align: center;
+  margin: 8px 0 14px;
+  letter-spacing: 0.5px;
+}
+.diary-root .growth-page-sub {
+  font-family: 'Cormorant Garamond', serif;
+  font-style: italic;
+  font-size: 15px;
+  color: #8a7d65;
+  text-align: center;
+  max-width: 520px;
+  margin: 0 auto 30px;
+  line-height: 1.55;
+}
+.diary-root .growth-status { color: #8a7d65; }
+
+.diary-root .growth-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 50px;
+}
+.diary-root .growth-card {
+  padding: 26px 22px 22px;
+  background: rgba(133, 118, 77, 0.07);
+  border: 0.5px solid rgba(133, 118, 77, 0.35);
+  border-radius: 12px;
+  position: relative;
+  overflow: hidden;
+}
+.diary-root .growth-card::after {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent, #85764d), transparent);
+  opacity: 0.55;
+}
+.diary-root .growth-card.gc-growth  { --accent: #5DCAA5; }
+.diary-root .growth-card.gc-behave  { --accent: #EF9F27; }
+.diary-root .growth-card.gc-impact  { --accent: #d4b870; }
+.diary-root .gc-value {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 44px;
+  font-weight: 400;
+  line-height: 1;
+  color: var(--accent, #d4c9b0);
+}
+.diary-root .gc-label {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 11px;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  color: #d4c9b0;
+  margin-top: 10px;
+}
+.diary-root .gc-sub {
+  font-family: 'Cormorant Garamond', serif;
+  font-style: italic;
+  font-size: 13px;
+  color: #8a7d65;
+  margin-top: 6px;
+}
+
+.diary-root .growth-section-head {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 11px;
+  letter-spacing: 5px;
+  text-transform: uppercase;
+  color: #85764d;
+  margin: 30px 0 22px;
+  text-align: center;
+}
+
+.diary-root .growth-list { display: flex; flex-direction: column; gap: 1px; background: rgba(133, 118, 77, 0.2); border-radius: 12px; overflow: hidden; }
+.diary-root .growth-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 20px 22px;
+  background: #0e0c0a;
+}
+.diary-root .growth-icon {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 600;
+}
+.diary-root .growth-icon.ti-resolved { background: rgba(93, 202, 165, 0.18); color: #5DCAA5; border: 0.5px solid rgba(93, 202, 165, 0.45); }
+.diary-root .growth-icon.ti-improving { background: rgba(239, 159, 39, 0.18); color: #EF9F27; border: 0.5px solid rgba(239, 159, 39, 0.45); }
+.diary-root .growth-icon.ti-growing { background: rgba(110, 165, 230, 0.16); color: #8ec0f0; border: 0.5px solid rgba(110, 165, 230, 0.4); }
+.diary-root .growth-icon.ti-new { background: rgba(212, 184, 112, 0.18); color: #d4b870; border: 0.5px solid rgba(212, 184, 112, 0.45); }
+
+.diary-root .growth-row-body { flex: 1; min-width: 0; }
+.diary-root .growth-row-title {
+  font-family: 'Caveat', cursive;
+  font-size: 24px;
+  color: #f3e8c8;
+  line-height: 1.15;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diary-root .growth-tag {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 0.5px solid rgba(133, 118, 77, 0.5);
+  color: #b8a574;
+}
+.diary-root .growth-tag.tag-skill { color: #5DCAA5; border-color: rgba(93, 202, 165, 0.5); }
+.diary-root .growth-tag.tag-pattern { color: #9a85d6; border-color: rgba(154, 133, 214, 0.5); }
+.diary-root .growth-row-desc {
+  font-family: 'Cormorant Garamond', serif;
+  font-style: italic;
+  font-size: 14px;
+  color: #a09b90;
+  line-height: 1.55;
+  margin-top: 4px;
+}
+.diary-root .growth-row-side {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-family: 'Cormorant Garamond', serif;
+  min-width: 80px;
+  text-align: right;
+}
+.diary-root .growth-row-stat { display: flex; justify-content: flex-end; gap: 6px; font-size: 13px; color: #d4c9b0; }
+.diary-root .growth-row-stat .grs-l { color: #6a6050; letter-spacing: 1px; font-size: 10px; text-transform: uppercase; align-self: center; }
+.diary-root .growth-row-stat .grs-v { font-variant-numeric: tabular-nums; }
+
+.diary-root .growth-impact {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: 60px;
+}
+.diary-root .impact-card {
+  padding: 20px 22px;
+  background: #0e0c0a;
+  border: 0.5px solid rgba(133, 118, 77, 0.28);
+  border-radius: 12px;
+}
+.diary-root .impact-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 6px; }
+.diary-root .impact-title { font-family: 'Caveat', cursive; font-size: 24px; color: #f3e8c8; line-height: 1.15; }
+.diary-root .impact-badge {
+  font-family: 'Cormorant Garamond', serif;
+  font-style: italic;
+  font-size: 11px;
+  letter-spacing: 1px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+  border: 0.5px solid transparent;
+}
+.diary-root .impact-badge.on  { color: #5DCAA5; background: rgba(93, 202, 165, 0.14); border-color: rgba(93, 202, 165, 0.4); }
+.diary-root .impact-badge.off { color: #8a8275; background: rgba(133, 118, 77, 0.1); border-color: rgba(133, 118, 77, 0.3); }
+.diary-root .impact-meta {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #6a6050;
+  margin-bottom: 10px;
+}
+.diary-root .impact-text {
+  font-family: 'Cormorant Garamond', serif;
+  font-style: italic;
+  font-size: 15px;
+  line-height: 1.6;
+  color: #b8ad96;
+  margin: 0;
+}
+
 @media (max-width: 700px) {
   .diary-root .select-title { font-size: 28px; }
   .diary-root .diary { padding: 50px 22px 60px; }
@@ -411,4 +674,9 @@
   .diary-root .agg-graph { height: 300px; }
   .diary-root .agg-card { flex-wrap: wrap; padding: 14px 16px; }
   .diary-root .agg-card-side { text-align: left; width: 100%; margin-top: 6px; }
+  .diary-root .contact-grid { grid-template-columns: 1fr; }
+  .diary-root .growth-cards { grid-template-columns: 1fr; }
+  .diary-root .growth-row { flex-wrap: wrap; }
+  .diary-root .growth-row-side { width: 100%; text-align: left; flex-direction: row; gap: 18px; }
+  .diary-root .growth-row-stat { justify-content: flex-start; }
 }
