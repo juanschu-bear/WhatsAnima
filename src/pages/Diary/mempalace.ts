@@ -79,6 +79,7 @@ export function parseEntry(raw: RawEntry): ParsedEntry {
   let title = ''
   let body = content
   let tags: ParsedTag[] = []
+  let hadTagsLine = false
 
   // Tags: last line starting with "Tags:"
   for (let i = lines.length - 1; i >= 0; i--) {
@@ -88,6 +89,7 @@ export function parseEntry(raw: RawEntry): ParsedEntry {
       tags = tagStr.split(',').map((t) => classifyTag(t)).filter((t) => t.value.length > 0)
       lines.splice(i, 1)
       body = lines.join('\n').trim()
+      hadTagsLine = true
       break
     }
   }
@@ -97,9 +99,29 @@ export function parseEntry(raw: RawEntry): ParsedEntry {
     title = bodyLines[0].slice(6).trim()
     body = bodyLines.slice(1).join('\n').trim()
   } else {
-    const words = body.split(/\s+/).filter(Boolean)
-    title = words.slice(0, 5).join(' ')
-    if (words.length > 5) title += '…'
+    // New format: first non-empty line is the title (entry has Tags or
+    // looks structured — first line short, more body follows).
+    const bodyLines = body.split(/\r?\n/)
+    const firstIdx = bodyLines.findIndex((l) => l.trim().length > 0)
+    const firstLine = firstIdx >= 0 ? bodyLines[firstIdx].trim() : ''
+    const rest = firstIdx >= 0
+      ? bodyLines.slice(firstIdx + 1).join('\n').trim()
+      : ''
+    const looksLikeTitle =
+      firstLine.length > 0 &&
+      firstLine.length <= 120 &&
+      rest.length > 0 &&
+      !/^[*#>\-]/.test(firstLine)
+
+    if (hadTagsLine || looksLikeTitle) {
+      // Strip leading markdown bold/heading markers if present
+      title = firstLine.replace(/^\*\*(.+?)\*\*$/, '$1').replace(/^#+\s*/, '').trim()
+      body = rest
+    } else {
+      // Old / unstructured entry — short excerpt as title, leave body intact
+      const flat = body.replace(/\s+/g, ' ').trim()
+      title = flat.length > 30 ? flat.slice(0, 30).trimEnd() + '…' : flat
+    }
   }
 
   return {
