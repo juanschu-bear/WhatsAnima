@@ -179,11 +179,17 @@ export interface DayGroup {
   entries: ParsedEntry[]
 }
 
+function dayKey(date: string): string {
+  const m = date.match(/^(\d{4}-\d{2}-\d{2})/)
+  return m ? m[1] : date
+}
+
 export function groupByDay(entries: ParsedEntry[]): DayGroup[] {
   const map = new Map<string, ParsedEntry[]>()
   for (const e of entries) {
-    if (!map.has(e.date)) map.set(e.date, [])
-    map.get(e.date)!.push(e)
+    const k = dayKey(e.date)
+    if (!map.has(k)) map.set(k, [])
+    map.get(k)!.push(e)
   }
   for (const list of map.values()) {
     list.sort((a, b) => (a.timestamp ?? '').localeCompare(b.timestamp ?? ''))

@@ -411,7 +411,7 @@ function DiaryScreen({ avatar }: { avatar: DiaryAvatar }) {
                           setOpenDays((prev) => ({ ...prev, [g.date]: !prev[g.date] }))
                         }
                       >
-                        <span className="dg-date">{g.date}</span>
+                        <span className="dg-date">{formatLongDate(g.date)}</span>
                         <span className="dg-line" />
                         <span className="dg-n">
                           {g.entries.length} {g.entries.length === 1 ? 'entry' : 'entries'}
@@ -446,13 +446,23 @@ function DiaryScreen({ avatar }: { avatar: DiaryAvatar }) {
   )
 }
 
+const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const MONTHS_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+
 function formatPillDate(date: string): string {
   const m = date.match(/^(\d{4})-(\d{2})-(\d{2})/)
   if (!m) return date
   const [, , mm, dd] = m
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
   const idx = parseInt(mm, 10) - 1
-  return `${months[idx] ?? mm} ${parseInt(dd, 10)}`
+  return `${MONTHS_SHORT[idx] ?? mm} ${parseInt(dd, 10)}`
+}
+
+function formatLongDate(date: string): string {
+  const m = date.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (!m) return date
+  const [, yyyy, mm, dd] = m
+  const idx = parseInt(mm, 10) - 1
+  return `${MONTHS_LONG[idx] ?? mm} ${parseInt(dd, 10)}, ${yyyy}`
 }
 
 function formatTime(ts?: string): string | null {
@@ -628,7 +638,7 @@ function AggregateView({
             <div className="agg-mem-list">
               {item.memories.map((m, i) => (
                 <div key={i} className="agg-mem-row">
-                  <div className="agg-mem-date">{m.date}</div>
+                  <div className="agg-mem-date">{formatLongDate(m.date)}</div>
                   <div className="agg-mem-text">{m.excerpt}</div>
                 </div>
               ))}
@@ -672,7 +682,7 @@ function ContactsView({ items, avatarName }: { items: TagAggregate[]; avatarName
                 </div>
               </div>
             </div>
-            <div className="contact-last">Last: {c.latestDate}</div>
+            <div className="contact-last">Last: {formatLongDate(c.latestDate)}</div>
             <ul className="contact-titles">
               {c.recentTitles.slice(0, 3).map((t, i) => (
                 <li key={i}>{t}</li>
@@ -788,7 +798,7 @@ function GrowthView({
                 </span>
               </div>
               <div className="impact-meta">
-                {e.date}
+                {formatLongDate(e.date)}
                 {e.timestamp ? ` · ${formatTime(e.timestamp) ?? ''}` : ''}
               </div>
               <p className="impact-text">{e.text.slice(0, 240)}{e.text.length > 240 ? '…' : ''}</p>
