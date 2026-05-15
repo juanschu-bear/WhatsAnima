@@ -61,13 +61,18 @@ export async function fetchAvatars(): Promise<ApiAvatar[]> {
 }
 
 function classifyTag(raw: string): ParsedTag {
-  const trimmed = raw.trim()
+  // Strip surrounding whitespace, markdown emphasis, backticks, brackets, hashes
+  const trimmed = raw
+    .replace(/^[\s*_`#\[\(]+/, '')
+    .replace(/[\s*_`\]\)]+$/, '')
+    .trim()
+  if (!trimmed) return { type: 'other', value: '', raw: '' }
   const slashIdx = trimmed.indexOf('/')
   if (slashIdx === -1) return { type: 'other', value: trimmed, raw: trimmed }
-  const type = trimmed.slice(0, slashIdx).toLowerCase()
-  const value = trimmed.slice(slashIdx + 1)
+  const type = trimmed.slice(0, slashIdx).toLowerCase().trim()
+  const value = trimmed.slice(slashIdx + 1).trim()
   if (type === 'skill' || type === 'pattern' || type === 'contact') {
-    return { type, value, raw: trimmed }
+    return { type, value, raw: `${type}/${value}` }
   }
   return { type: 'other', value: trimmed, raw: trimmed }
 }
@@ -81,12 +86,16 @@ export function parseEntry(raw: RawEntry): ParsedEntry {
   let tags: ParsedTag[] = []
   let hadTagsLine = false
 
-  // Tags: last line starting with "Tags:"
+  // Tags: last line that, after stripping markdown markers, starts with "tags:"
+  const TAGS_RE = /^\s*[*_]{0,2}\s*tags?\s*[*_]{0,2}\s*:\s*[*_]{0,2}\s*(.*?)\s*[*_]{0,2}\s*$/i
   for (let i = lines.length - 1; i >= 0; i--) {
-    const l = lines[i].trim()
-    if (l.toLowerCase().startsWith('tags:')) {
-      const tagStr = l.slice(5).trim()
-      tags = tagStr.split(',').map((t) => classifyTag(t)).filter((t) => t.value.length > 0)
+    const m = lines[i].match(TAGS_RE)
+    if (m) {
+      const tagStr = m[1].trim()
+      tags = tagStr
+        .split(/[,;]/)
+        .map((t) => classifyTag(t))
+        .filter((t) => t.value.length > 0)
       lines.splice(i, 1)
       body = lines.join('\n').trim()
       hadTagsLine = true
