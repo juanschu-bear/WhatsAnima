@@ -1850,25 +1850,52 @@ export default function VideoCall() {
       }
       opmSpeakerNameRef.current = dailyUserName
       console.log('[VideoCall] startSession request', requestBody)
-      const response = await fetch('/api/video-call', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...requestBody,
-          backendBaseUrl: LIVE_CALL_API_BASE,
-        }),
-      })
 
-      if (!response.ok) {
-        throw new Error(`Session start failed (${response.status})`)
-      }
-
-      const payload = await response.json() as {
+      // Check for prewarmed session from IncomingCallOverlay
+      let payload: {
         session_id?: string
         join_url?: string
         status?: string
         persona?: string
         replica_id?: string
+      } | null = null
+
+      if (incomingCallId) {
+        try {
+          const prewarmKey = `wa_incoming_call_prewarm:${incomingCallId}`
+          const prewarmed = sessionStorage.getItem(prewarmKey)
+          if (prewarmed) {
+            const parsed = JSON.parse(prewarmed)
+            if (parsed.session_id && parsed.join_url) {
+              payload = parsed
+              sessionStorage.removeItem(prewarmKey)
+              console.log('[VideoCall] Using prewarmed session', payload)
+            }
+          }
+        } catch { /* ignore */ }
+      }
+
+      if (!payload) {
+        const response = await fetch('/api/video-call', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...requestBody,
+            backendBaseUrl: LIVE_CALL_API_BASE,
+          }),
+        })
+
+        if (!response.ok) {
+          throw new Error(`Session start failed (${response.status})`)
+        }
+
+        payload = await response.json() as {
+          session_id?: string
+          join_url?: string
+          status?: string
+          persona?: string
+          replica_id?: string
+        }
       }
       console.log('[VideoCall] startSession response', payload)
 
