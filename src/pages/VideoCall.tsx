@@ -753,7 +753,8 @@ export default function VideoCall() {
     meetingToken.length > 0 &&
     typeof window !== 'undefined' &&
     Boolean(window.sessionStorage.getItem(`wa_meeting_context:${meetingToken}`))
-  const shouldSkipLanguageSelection = Boolean(meetingToken) || hasMeetingContext
+  const incomingCallId = String(searchParams.get('incomingCallId') || '').trim()
+  const shouldSkipLanguageSelection = Boolean(meetingToken) || hasMeetingContext || Boolean(incomingCallId)
   const isMeetingMode = meetingToken.length > 0
   const isMeetingGuest = isMeetingMode && !meetingHostControl
   const forcedSessionId = String(searchParams.get('session_id') || '').trim()
@@ -1378,8 +1379,18 @@ export default function VideoCall() {
     if (phase !== 'setup' || error) return
 
     meetingAutoStartRef.current = true
-    languageRef.current = 'en'
-    setLanguage('en')
+    let autoLang: 'en' | 'es' | 'de' = 'en'
+    if (incomingCallId) {
+      try {
+        const ctx = sessionStorage.getItem(`wa_incoming_call_context:${incomingCallId}`)
+        if (ctx) {
+          const parsed = JSON.parse(ctx)
+          if (parsed.language === 'es' || parsed.language === 'de') autoLang = parsed.language
+        }
+      } catch { /* ignore */ }
+    }
+    languageRef.current = autoLang
+    setLanguage(autoLang)
     void startCall()
   }, [conversation, error, loadingConversation, loadingPersonas, phase, shouldSkipLanguageSelection])
 
