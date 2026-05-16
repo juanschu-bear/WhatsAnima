@@ -51,7 +51,7 @@ const COPY: Record<Locale, {
   },
   es: {
     welcome: (name) => `Bienvenido ${name}, tus avatares estan listos!`,
-    intro: '"Hablen como hablarian con un amigo inteligente. Sin filtros. Sin formalidades. Como si estuvieran en su sala tomando cafe. Porque las mejores conversaciones pasan cuando te olvidas de quien se supone que eres y simplemente eres tu." — Prof. Ryan Cox',
+    intro: 'Imaginalo como una primera cita con tus avatares. Cuentales quien eres, y ellos te contaran que saben hacer. Despues ya se conocen y podemos empezar.\n\n"Hablen como hablarian con un amigo inteligente. Sin filtros. Sin formalidades. Como si estuvieran en su sala tomando cafe. Porque las mejores conversaciones pasan cuando te olvidas de quien se supone que eres y simplemente eres tu." — Prof. Ryan Cox',
     startOnboarding: 'Empezar a conocer',
     startingOnboarding: 'Iniciando…',
     startChat: 'Iniciar chat',
