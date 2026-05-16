@@ -126,7 +126,7 @@ export function parseEntry(raw: RawEntry): ParsedEntry {
 
   return {
     date: raw.date,
-    timestamp: raw.timestamp ?? raw.created_at ?? raw.ts,
+    timestamp: raw.timestamp ?? raw.created_at ?? raw.ts ?? raw.date,
     title,
     text: body,
     tags,
