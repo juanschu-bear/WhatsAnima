@@ -384,6 +384,18 @@ export default function Onboarding() {
             <p className="mt-4 text-sm italic text-white/50">{copy.quote}</p>
           )}
 
+          <div className="mt-6 flex items-center gap-3 rounded-2xl bg-white/5 px-4 py-3">
+            <div className="flex items-center gap-2">
+              <div className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold ${avatars.some(a => !a.onboardingCompleted) ? 'bg-[#00a884] text-[#08111a]' : 'bg-white/10 text-white/40'}`}>1</div>
+              <span className={`text-xs font-medium ${avatars.some(a => !a.onboardingCompleted) ? 'text-white' : 'text-white/40'}`}>Conoce a tus avatares</span>
+            </div>
+            <div className="h-px flex-1 bg-white/10" />
+            <div className="flex items-center gap-2">
+              <div className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold ${avatars.every(a => a.onboardingCompleted) ? 'bg-[#00a884] text-[#08111a]' : 'bg-white/10 text-white/40'}`}>2</div>
+              <span className={`text-xs font-medium ${avatars.every(a => a.onboardingCompleted) ? 'text-white' : 'text-white/40'}`}>Empieza a chatear</span>
+            </div>
+          </div>
+
           {error ? (
             <div className="mt-6 rounded-2xl border border-red-400/20 bg-red-500/15 px-4 py-3 text-sm text-red-200">
               {error}
@@ -397,7 +409,7 @@ export default function Onboarding() {
               return (
                 <div
                   key={`${avatar.ownerId}-${avatar.avatarName}`}
-                  className="rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(6,14,24,0.95),rgba(6,10,18,0.98))] p-4"
+                  className={`rounded-[24px] border p-4 ${completed ? 'border-white/10 bg-[linear-gradient(180deg,rgba(6,14,24,0.95),rgba(6,10,18,0.98))]' : 'border-[#00a884]/30 bg-[linear-gradient(180deg,rgba(6,14,24,0.95),rgba(6,10,18,0.98))] shadow-[0_0_20px_rgba(0,168,132,0.15)]'}`}
                 >
                   <img
                     src={resolveAvatarUrl(avatar.avatarName)}
@@ -436,6 +448,12 @@ export default function Onboarding() {
                 </div>
               )
             })}
+          </div>
+
+          <div className="mt-6 rounded-2xl border border-[#00a884]/20 bg-[#00a884]/5 px-4 py-3">
+            <p className="text-xs leading-relaxed text-[#00a884]/90">
+              <span className="font-semibold">Tip:</span> Haz una videollamada con cada avatar para conocerlos. Despues podras chatear con ellos cuando quieras. Si ya estas en el chat, pulsa los tres puntos arriba a la derecha y selecciona "Home" para volver aqui. Para las siguientes llamadas, recomendamos seleccionar el modo "Side by side" en la pantalla inicial.
+            </p>
           </div>
         </div>
       </div>
