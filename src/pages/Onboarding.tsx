@@ -22,6 +22,7 @@ type Locale = 'en' | 'es' | 'de'
 const COPY: Record<Locale, {
   welcome: (name: string) => string
   intro: string
+  quote: string
   startOnboarding: string
   startingOnboarding: string
   startChat: string
@@ -37,6 +38,7 @@ const COPY: Record<Locale, {
   en: {
     welcome: (name) => `Welcome ${name}, your avatars are ready!`,
     intro: 'Think of it like a first date with your avatars. Tell them who you are, and they will tell you what they bring to the table. After that you know each other, and we can get going.',
+    quote: '',
     startOnboarding: 'Start getting to know',
     startingOnboarding: 'Starting…',
     startChat: 'Start chat',
@@ -51,7 +53,8 @@ const COPY: Record<Locale, {
   },
   es: {
     welcome: (name) => `Bienvenido ${name}, tus avatares estan listos!`,
-    intro: 'Imaginalo como una primera cita con tus avatares. Cuentales quien eres, y ellos te contaran que saben hacer. Despues ya se conocen y podemos empezar.\n\n"Hablen como hablarian con un amigo inteligente. Sin filtros. Sin formalidades. Como si estuvieran en su sala tomando cafe. Porque las mejores conversaciones pasan cuando te olvidas de quien se supone que eres y simplemente eres tu." — Prof. Ryan Cox',
+    intro: 'Imaginalo como una primera cita con tus avatares. Cuentales quien eres, y ellos te contaran que saben hacer. Despues ya se conocen y podemos empezar.',
+    quote: '"Hablen como hablarian con un amigo inteligente. Sin filtros. Sin formalidades. Como si estuvieran en su sala tomando cafe. Porque las mejores conversaciones pasan cuando te olvidas de quien se supone que eres y simplemente eres tu." Prof. Ryan Cox',
     startOnboarding: 'Empezar a conocer',
     startingOnboarding: 'Iniciando…',
     startChat: 'Iniciar chat',
@@ -67,6 +70,7 @@ const COPY: Record<Locale, {
   de: {
     welcome: (name) => `Willkommen ${name}, deine Avatare sind bereit!`,
     intro: 'Stell es dir vor wie ein erstes Date mit deinen Avataren. Erzaehl ihnen wer du bist, und sie erzaehlen dir was sie drauf haben. Danach kennt ihr euch, und es kann losgehen.',
+    quote: '',
     startOnboarding: 'Kennenlernen starten',
     startingOnboarding: 'Starte Kennenlernen…',
     startChat: 'Chat starten',
@@ -346,6 +350,9 @@ export default function Onboarding() {
         <div className="brand-panel rounded-[30px] p-8 sm:p-10">
           <h1 className="text-3xl font-bold tracking-tight">{copy.welcome(welcomeName)}</h1>
           <p className="mt-3 text-sm text-white/70">{copy.intro}</p>
+          {copy.quote && (
+            <p className="mt-4 text-sm italic text-white/50">{copy.quote}</p>
+          )}
 
           {error ? (
             <div className="mt-6 rounded-2xl border border-red-400/20 bg-red-500/15 px-4 py-3 text-sm text-red-200">
