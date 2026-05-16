@@ -51,7 +51,7 @@ const COPY: Record<Locale, {
   },
   es: {
     welcome: (name) => `Bienvenido ${name}, tus avatares estan listos!`,
-    intro: 'Imaginalo como una primera cita con tus avatares. Cuentales quien eres, y ellos te contaran que saben hacer. Despues ya se conocen y podemos empezar.',
+    intro: '"Hablen como hablarian con un amigo inteligente. Sin filtros. Sin formalidades. Como si estuvieran en su sala tomando cafe. Porque las mejores conversaciones pasan cuando te olvidas de quien se supone que eres y simplemente eres tu." — Prof. Ryan Cox',
     startOnboarding: 'Empezar a conocer',
     startingOnboarding: 'Iniciando…',
     startChat: 'Iniciar chat',
@@ -84,17 +84,17 @@ const COPY: Record<Locale, {
 const AVATAR_DESCRIPTIONS: Record<Locale, Record<string, string>> = {
   en: {
     'Trace Flores': 'Business strategy, behavioral patterns, and memory. Helps you prioritize, recognize patterns, and find your next move.',
-    'Prof. Brian Cox': 'Science and physics made accessible. Explains complex topics clearly for curious minds of any age.',
+    'Prof. Ryan Cox': 'Science and physics made accessible. Explains complex topics clearly for curious minds of any age.',
     'Elena Navarro': 'Sales strategy, presentation skills, and structured communication. Helps you sell better and get your point across.',
   },
   es: {
     'Trace Flores': 'Estratega de negocios, patrones de comportamiento y memoria. Te ayuda a priorizar, reconocer patrones y encontrar tu proximo paso.',
-    'Prof. Brian Cox': 'Experto en ciencia y fisica accesible. Explica temas complejos de forma clara para mentes curiosas de cualquier edad.',
+    'Prof. Ryan Cox': 'Experto en ciencia y fisica accesible. Explica temas complejos de forma clara para mentes curiosas de cualquier edad.',
     'Elena Navarro': 'Eleva tus ventas y te apoya a ir al punto y ejecutar.',
   },
   de: {
     'Trace Flores': 'Business-Strategie, Verhaltensmuster und Erinnerung. Hilft dir Prioritaeten zu setzen, Muster zu erkennen und den naechsten Schritt zu finden.',
-    'Prof. Brian Cox': 'Wissenschaft und Physik verstaendlich erklaert. Komplexe Themen klar aufbereitet fuer neugierige Koepfe jeden Alters.',
+    'Prof. Ryan Cox': 'Wissenschaft und Physik verstaendlich erklaert. Komplexe Themen klar aufbereitet fuer neugierige Koepfe jeden Alters.',
     'Elena Navarro': 'Verkaufsstrategie, Praesentationsskills und strukturierte Kommunikation. Hilft dir besser zu verkaufen und auf den Punkt zu kommen.',
   },
 }

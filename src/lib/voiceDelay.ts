@@ -40,9 +40,9 @@ const TITLE_PREFIXES = /^(dr\.?|prof\.?|professor|mr\.?|mrs\.?|ms\.?|sir|herr|fr
  * Strips common title prefixes (Dr., Prof., etc.) and returns the first word.
  *
  * "Juan Schubert"     → "Juan"
- * "Dr. Brian Cox"     → "Brian"
- * "Prof. Brian Cox"   → "Brian"
- * "Brian"             → "Brian"
+ * "Dr. Ryan Cox"     → "Ryan"
+ * "Prof. Ryan Cox"   → "Ryan"
+ * "Ryan"             → "Ryan"
  */
 export function getAvatarFirstName(displayName: string | null | undefined): string {
   if (!displayName) return 'Avatar'

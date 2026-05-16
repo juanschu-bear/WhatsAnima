@@ -39,7 +39,7 @@ export const DIARY_AVATARS: DiaryAvatar[] = [
   {
     number: '04',
     wing: 'WING IV',
-    name: 'Prof. Brian Cox',
+    name: 'Prof. Ryan Cox',
     initials: 'BC',
     expertise: 'Science Communicator & Educator',
     agentId: 'prof.-brian-cox',
