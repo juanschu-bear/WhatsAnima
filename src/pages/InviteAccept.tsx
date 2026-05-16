@@ -218,7 +218,7 @@ export default function InviteAccept() {
 
     const trimmedName = name.trim()
 
-    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+    const { error: signUpError } = await supabase.auth.signUp({
       email: email.trim(),
       password: password.trim(),
       options: {
