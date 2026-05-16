@@ -406,7 +406,7 @@ function getYouTubeChannelSearchQuery(profile: YouTubeRecommendationProfile, use
   if (profile === 'adri') {
     return `site:youtube.com adrikastelpro ${topic}`.trim()
   }
-  return `site:youtube.com "Ryan Cox" youtube.com/@profryancoxofficial ${topic}`.trim()
+  return `site:youtube.com "Brian Cox" youtube.com/@profbriancoxofficial ${topic}`.trim()
 }
 
 function extractAnthropicText(result: any): string {
@@ -493,7 +493,7 @@ function buildYouTubeWebSearchInstruction(profile: YouTubeRecommendationProfile)
   const channelRestriction =
     profile === 'adri'
       ? 'site:youtube.com adrikastelpro'
-      : 'site:youtube.com "Ryan Cox" youtube.com/@profryancoxofficial'
+      : 'site:youtube.com "Brian Cox" youtube.com/@profbriancoxofficial'
   return `\n\n[YOUTUBE WEB SEARCH BEHAVIOR]
 When the user asks for your videos, recommendations, YouTube links, or related examples:
 - You do have videos available and you can share one.

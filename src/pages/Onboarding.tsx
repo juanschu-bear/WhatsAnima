@@ -85,20 +85,28 @@ const COPY: Record<Locale, {
   },
 }
 
+const DISPLAY_NAME_MAP: Record<string, string> = {
+  'Prof. Brian Cox': 'Prof. Ryan Cox',
+}
+
+function displayName(name: string): string {
+  return DISPLAY_NAME_MAP[name] || name
+}
+
 const AVATAR_DESCRIPTIONS: Record<Locale, Record<string, string>> = {
   en: {
     'Trace Flores': 'Business strategy, behavioral patterns, and memory. Helps you prioritize, recognize patterns, and find your next move.',
-    'Prof. Ryan Cox': 'Science and physics made accessible. Explains complex topics clearly for curious minds of any age.',
+    'Prof. Brian Cox': 'Science and physics made accessible. Explains complex topics clearly for curious minds of any age.',
     'Elena Navarro': 'Sales strategy, presentation skills, and structured communication. Helps you sell better and get your point across.',
   },
   es: {
     'Trace Flores': 'Estratega de negocios, patrones de comportamiento y memoria. Te ayuda a priorizar, reconocer patrones y encontrar tu proximo paso.',
-    'Prof. Ryan Cox': 'Experto en ciencia y fisica accesible. Explica temas complejos de forma clara para mentes curiosas de cualquier edad.',
+    'Prof. Brian Cox': 'Experto en ciencia y fisica accesible. Explica temas complejos de forma clara para mentes curiosas de cualquier edad.',
     'Elena Navarro': 'Estratega de ventas, presentacion y comunicacion estructurada. Eleva tus ventas y te apoya a ir al punto y ejecutar.',
   },
   de: {
     'Trace Flores': 'Business-Strategie, Verhaltensmuster und Erinnerung. Hilft dir Prioritaeten zu setzen, Muster zu erkennen und den naechsten Schritt zu finden.',
-    'Prof. Ryan Cox': 'Wissenschaft und Physik verstaendlich erklaert. Komplexe Themen klar aufbereitet fuer neugierige Koepfe jeden Alters.',
+    'Prof. Brian Cox': 'Wissenschaft und Physik verstaendlich erklaert. Komplexe Themen klar aufbereitet fuer neugierige Koepfe jeden Alters.',
     'Elena Navarro': 'Verkaufsstrategie, Praesentationsskills und strukturierte Kommunikation. Hilft dir besser zu verkaufen und auf den Punkt zu kommen.',
   },
 }
@@ -374,7 +382,7 @@ export default function Onboarding() {
                     alt={avatar.avatarName}
                     className="h-20 w-20 rounded-full object-cover ring-2 ring-white/10"
                   />
-                  <h2 className="mt-4 text-lg font-semibold text-white">{avatar.avatarName}</h2>
+                  <h2 className="mt-4 text-lg font-semibold text-white">{displayName(avatar.avatarName)}</h2>
                   {AVATAR_DESCRIPTIONS[locale]?.[avatar.avatarName] && (
                     <p className="mt-1.5 text-xs leading-relaxed text-white/55">
                       {AVATAR_DESCRIPTIONS[locale][avatar.avatarName]}
