@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
-  acceptOnboardingInvitation,
   getOnboardingInvitation,
   type InvitationRecord,
 } from '../lib/api'
@@ -144,8 +143,6 @@ export default function InviteAccept() {
   const [submitting, setSubmitting] = useState(false)
   const [showVerificationScreen, setShowVerificationScreen] = useState(false)
 
-  const [accepted, setAccepted] = useState(false)
-  const acceptedRef = useRef(false)
 
   const locale = useMemo<Locale>(() => pickLocale(invitation?.language), [invitation?.language])
   const copy = COPY[locale]
@@ -360,7 +357,7 @@ export default function InviteAccept() {
             <>
               <h1 className="text-3xl font-bold tracking-tight">{copy.verificationTitle}</h1>
               <p className="mt-3 text-sm text-white/70">{copy.verificationBody}</p>
-              {accepted || primaryAvatarName ? (
+              {primaryAvatarName ? (
                 <p className="mt-6 text-center text-xs text-white/50">{primaryAvatarName}</p>
               ) : null}
             </>
