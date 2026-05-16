@@ -243,7 +243,6 @@ export default function InviteAccept() {
       return
     }
 
-    const userId = String(signUpData?.user?.id || '').trim()
     // Invitation acceptance moved to Onboarding.tsx (after email verification)
 
     setSubmitting(false)
