@@ -81,9 +81,6 @@ const COPY: Record<Locale, {
   },
 }
 
-function pickLocale(value: string | null | undefined): Locale {
-  const normalized = String(value || '').trim().toLowerCase()
-
 const AVATAR_DESCRIPTIONS: Record<Locale, Record<string, string>> = {
   en: {
     'Trace Flores': 'Business strategy, behavioral patterns, and memory. Helps you prioritize, recognize patterns, and find your next move.',
@@ -101,6 +98,9 @@ const AVATAR_DESCRIPTIONS: Record<Locale, Record<string, string>> = {
     'Elena Navarro': 'Verkaufsstrategie, Praesentationsskills und strukturierte Kommunikation. Hilft dir besser zu verkaufen und auf den Punkt zu kommen.',
   },
 }
+
+function pickLocale(value: string | null | undefined): Locale {
+  const normalized = String(value || '').trim().toLowerCase()
   if (normalized.startsWith('es')) return 'es'
   if (normalized.startsWith('de')) return 'de'
   return 'en'
