@@ -337,6 +337,15 @@ export default function Onboarding() {
 
       // User stays on onboarding page. IncomingCallOverlay will show the
       // ringing UI and navigate directly into the call when they answer.
+      // Set flag so VideoCall navigates back to /onboarding after call ends.
+      try {
+        sessionStorage.setItem(
+          `wa_onboarding_call:${conversationId}`,
+          JSON.stringify({ avatarName: avatar.avatarName, ownerId: avatar.ownerId }),
+        )
+      } catch {
+        // ignore storage errors
+      }
       setBusyAvatar(null)
     } catch (callError) {
       setError(callError instanceof Error ? callError.message : copy.callFailed)

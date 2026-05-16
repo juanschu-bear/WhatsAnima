@@ -1751,6 +1751,9 @@ export default function VideoCall() {
       } catch {
         // ignore storage errors
       }
+      if (!isOnboardingCall && incomingCallId) {
+        isOnboardingCall = true
+      }
       if (isOnboardingCall) {
         navigate('/onboarding', { replace: true })
         return
