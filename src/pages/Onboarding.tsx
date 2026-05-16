@@ -88,9 +88,9 @@ const AVATAR_DESCRIPTIONS: Record<Locale, Record<string, string>> = {
     'Elena Navarro': 'Sales strategy, presentation skills, and structured communication. Helps you sell better and get your point across.',
   },
   es: {
-    'Trace Flores': 'Estrategia de negocios, patrones de comportamiento y memoria. Te ayuda a priorizar, reconocer patrones y encontrar tu proximo paso.',
-    'Prof. Brian Cox': 'Ciencia y fisica accesible. Explica temas complejos de forma clara para mentes curiosas de cualquier edad.',
-    'Elena Navarro': 'Estrategia de ventas, presentacion y comunicacion estructurada. Te ayuda a vender mejor y a ir al punto.',
+    'Trace Flores': 'Estratega de negocios, patrones de comportamiento y memoria. Te ayuda a priorizar, reconocer patrones y encontrar tu proximo paso.',
+    'Prof. Brian Cox': 'Experto en ciencia y fisica accesible. Explica temas complejos de forma clara para mentes curiosas de cualquier edad.',
+    'Elena Navarro': 'Eleva tus ventas y te apoya a ir al punto y ejecutar.',
   },
   de: {
     'Trace Flores': 'Business-Strategie, Verhaltensmuster und Erinnerung. Hilft dir Prioritaeten zu setzen, Muster zu erkennen und den naechsten Schritt zu finden.',
