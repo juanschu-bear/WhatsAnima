@@ -247,22 +247,7 @@ export default function InviteAccept() {
     }
 
     const userId = String(signUpData?.user?.id || '').trim()
-    if (userId && !acceptedRef.current) {
-      try {
-        await acceptOnboardingInvitation({
-          inviteCode,
-          userId,
-          userEmail: email.trim(),
-          inviteeName: trimmedName,
-        })
-        acceptedRef.current = true
-        setAccepted(true)
-      } catch (acceptError) {
-        setError(acceptError instanceof Error ? acceptError.message : 'Could not activate invitation.')
-        setSubmitting(false)
-        return
-      }
-    }
+    // Invitation acceptance moved to Onboarding.tsx (after email verification)
 
     setSubmitting(false)
     setShowVerificationScreen(true)

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import {
+  acceptOnboardingInvitation,
   createContactForOwner,
   findContactByEmailForOwner,
   findOrCreateConversation,
@@ -162,6 +163,18 @@ export default function Onboarding() {
       setLoading(true)
       setError(null)
       try {
+        // Accept invitation if not yet accepted (idempotent on backend)
+        try {
+          await acceptOnboardingInvitation({
+            inviteCode,
+            userId: user.id,
+            userEmail: user.email || null,
+            inviteeName: welcomeName || null,
+          })
+        } catch {
+          // Already accepted or other non-fatal error, continue loading
+        }
+
         const { data: accessRows, error: accessError } = await supabase
           .from('wa_user_avatar_access')
           .select('owner_id, avatar_name')
