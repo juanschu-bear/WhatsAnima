@@ -26,6 +26,7 @@ import {
   DiarySelectRoute,
   DiaryAvatarRoute,
 } from './pages/Diary'
+import ReadoutsPage from './pages/Readouts'
 import IncomingCallOverlay from './components/IncomingCallOverlay'
 
 export default function App() {
@@ -53,6 +54,7 @@ export default function App() {
           <Route path="/video-call/:conversationId" element={<VideoCall />} />
           <Route path="/opm-monitor" element={<OPMPerceptionPanelPreviewScreen />} />
           <Route path="/diary" element={<DiaryEntryRoute />} />
+          <Route path="/readouts" element={<ReadoutsPage />} />
           <Route path="/diary/select" element={<DiarySelectRoute />} />
           <Route path="/diary/:agentId" element={<DiaryAvatarRoute />} />
           <Route
