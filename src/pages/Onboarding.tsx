@@ -83,6 +83,24 @@ const COPY: Record<Locale, {
 
 function pickLocale(value: string | null | undefined): Locale {
   const normalized = String(value || '').trim().toLowerCase()
+
+const AVATAR_DESCRIPTIONS: Record<Locale, Record<string, string>> = {
+  en: {
+    'Trace Flores': 'Business strategy, behavioral patterns, and memory. Helps you prioritize, recognize patterns, and find your next move.',
+    'Prof. Brian Cox': 'Science and physics made accessible. Explains complex topics clearly for curious minds of any age.',
+    'Elena Navarro': 'Sales strategy, presentation skills, and structured communication. Helps you sell better and get your point across.',
+  },
+  es: {
+    'Trace Flores': 'Estrategia de negocios, patrones de comportamiento y memoria. Te ayuda a priorizar, reconocer patrones y encontrar tu proximo paso.',
+    'Prof. Brian Cox': 'Ciencia y fisica accesible. Explica temas complejos de forma clara para mentes curiosas de cualquier edad.',
+    'Elena Navarro': 'Estrategia de ventas, presentacion y comunicacion estructurada. Te ayuda a vender mejor y a ir al punto.',
+  },
+  de: {
+    'Trace Flores': 'Business-Strategie, Verhaltensmuster und Erinnerung. Hilft dir Prioritaeten zu setzen, Muster zu erkennen und den naechsten Schritt zu finden.',
+    'Prof. Brian Cox': 'Wissenschaft und Physik verstaendlich erklaert. Komplexe Themen klar aufbereitet fuer neugierige Koepfe jeden Alters.',
+    'Elena Navarro': 'Verkaufsstrategie, Praesentationsskills und strukturierte Kommunikation. Hilft dir besser zu verkaufen und auf den Punkt zu kommen.',
+  },
+}
   if (normalized.startsWith('es')) return 'es'
   if (normalized.startsWith('de')) return 'de'
   return 'en'
@@ -350,7 +368,12 @@ export default function Onboarding() {
                     className="h-20 w-20 rounded-full object-cover ring-2 ring-white/10"
                   />
                   <h2 className="mt-4 text-lg font-semibold text-white">{avatar.avatarName}</h2>
-                  <p className="mt-1 inline-flex rounded-full border border-white/15 bg-white/5 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/70">
+                  {AVATAR_DESCRIPTIONS[locale]?.[avatar.avatarName] && (
+                    <p className="mt-1.5 text-xs leading-relaxed text-white/55">
+                      {AVATAR_DESCRIPTIONS[locale][avatar.avatarName]}
+                    </p>
+                  )}
+                  <p className="mt-2 inline-flex rounded-full border border-white/15 bg-white/5 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/70">
                     {avatar.provider === 'keyframe' ? copy.elite : copy.premium}
                   </p>
 
