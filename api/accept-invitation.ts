@@ -41,8 +41,8 @@ export default async function handler(req: any, res: any) {
       return res.status(404).json({ error: 'Invitation not found' })
     }
 
-    if (invitation.status !== 'pending') {
-      return res.status(400).json({ error: 'Invitation is no longer pending' })
+    if (invitation.status !== 'pending' && invitation.status !== 'accepted') {
+      return res.status(400).json({ error: 'Invitation is no longer available' })
     }
 
     if (invitation.expires_at && new Date(invitation.expires_at).getTime() <= Date.now()) {

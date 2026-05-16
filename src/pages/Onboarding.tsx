@@ -450,9 +450,12 @@ export default function Onboarding() {
             })}
           </div>
 
-          <div className="mt-6 rounded-2xl border border-[#00a884]/20 bg-[#00a884]/5 px-4 py-3">
-            <p className="text-xs leading-relaxed text-[#00a884]/90">
+          <div className="mt-6 rounded-2xl border border-[#00a884]/20 bg-[#00a884]/5 px-5 py-4">
+            <p className="text-sm leading-relaxed text-[#00a884]/90">
               <span className="font-semibold">Tip:</span> Haz una videollamada con cada avatar para conocerlos. Despues podras chatear con ellos cuando quieras. Si ya estas en el chat, pulsa los tres puntos arriba a la derecha y selecciona "Home" para volver aqui. Para las siguientes llamadas, recomendamos seleccionar el modo "Side by side" en la pantalla inicial.
+            </p>
+            <p className="mt-3 text-sm leading-relaxed text-[#00a884]/90">
+              <span className="font-semibold">Ojo:</span> El avatar siempre hablara en el idioma que selecciones en la pantalla inicial del call. Solo en la primera llamada de presentacion se adapta automaticamente. En las demas, asegurate de elegir el idioma correcto antes de iniciar.
             </p>
           </div>
         </div>
