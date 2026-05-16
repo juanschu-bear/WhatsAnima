@@ -1843,6 +1843,7 @@ export default function VideoCall() {
         contact_name: conversation.wa_contacts?.display_name || null,
         meeting_token: meetingToken || undefined,
         meeting_guest_join_only: isMeetingGuest,
+        incoming_call_id: incomingCallId || undefined,
       }
       opmSpeakerNameRef.current = dailyUserName
       console.log('[VideoCall] startSession request', requestBody)
