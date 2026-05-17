@@ -9,6 +9,17 @@ function initials(name: string): string {
   return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
 }
 
+function cleanMd(text: string): string {
+  return text
+    .replace(/\*\*/g, '')
+    .replace(/\*/g, '')
+    .replace(/^#+\s*/gm, '')
+    .replace(/^TÍTULO:\s*/i, '')
+    .replace(/^TITLE:\s*/i, '')
+    .replace(/^NARRATIVE:\s*/i, '')
+    .trim()
+}
+
 function fmtDate(iso: string): string {
   const d = new Date(iso)
   const day = d.getDate()
@@ -149,6 +160,7 @@ function UsersView({ avatar, onBack, onSelect, locale }: {
 }) {
   return (
     <div className="ro-page ro-slide-in">
+      <button className="ro-back" onClick={onBack}>&#8592; {t(locale, 'readoutsBack')}</button>
       <div className="ro-breadcrumb">
         <button onClick={onBack}>{t(locale, 'readoutsReadouts')}</button>
         <span className="ro-bc-sep">&#8250;</span>
@@ -183,6 +195,7 @@ function SessionsView({ avatar, user, onBack, onSelect, locale }: {
 }) {
   return (
     <div className="ro-page ro-slide-in">
+      <button className="ro-back" onClick={onBack}>&#8592; {t(locale, 'readoutsBack')}</button>
       <div className="ro-breadcrumb">
         <button onClick={() => { onBack(); }}>{avatar.avatar_name}</button>
         <span className="ro-bc-sep">&#8250;</span>
@@ -216,10 +229,12 @@ function DetailView({ session, readout, avatar, user, onBack, locale }: {
 
   return (
     <div className="ro-detail ro-fade-in">
+      <button className="ro-back" onClick={onBack}>&#8592; {t(locale, 'readoutsBack')}</button>
+
       <div className="ro-breadcrumb">
         {avatar && <><button onClick={onBack}>{avatar.avatar_name}</button><span className="ro-bc-sep">&#8250;</span></>}
         {user && <><button onClick={onBack}>{user.user_name}</button><span className="ro-bc-sep">&#8250;</span></>}
-        <span className="ro-bc-current">{readout.title}</span>
+        <span className="ro-bc-current">{cleanMd(readout.title)}</span>
       </div>
 
       <div className="ro-topline"><div className="ro-topdot" />{t(locale, 'readoutsSessionReadout')}</div>
@@ -228,7 +243,7 @@ function DetailView({ session, readout, avatar, user, onBack, locale }: {
         {readout.contact_name || session.user_name} &middot; {readout.avatar_name || session.avatar_name} &middot; {fmtDate(session.created_at)} &middot; {durationMin} min
       </div>
 
-      <h1>{readout.title.split(/(\s)/).map((word, i, arr) => {
+      <h1>{cleanMd(readout.title).split(/(\s)/).map((word, i, arr) => {
         if (i === arr.length - 1) return <em key={i}>{word}</em>
         return word
       })}</h1>
@@ -239,14 +254,14 @@ function DetailView({ session, readout, avatar, user, onBack, locale }: {
       </div>
 
       <div className="ro-narr">
-        {readout.narrative_blocks.map((block, i) => <p key={`n-${i}`}>{block}</p>)}
+        {readout.narrative_blocks.map((block, i) => <p key={`n-${i}`}>{cleanMd(block)}</p>)}
       </div>
 
       {readout.signal_moments.map((moment: SignalMoment, i: number) => (
         <div key={`sm-${i}`} className="ro-smom">
           <div className="ro-smom-time">{moment.time}</div>
-          <div className="ro-smom-title">{moment.title}</div>
-          <p>{moment.body}</p>
+          <div className="ro-smom-title">{cleanMd(moment.title)}</div>
+          <p>{cleanMd(moment.body)}</p>
           <span className={`ro-stag ${tagClass(moment.tag)}`}>{moment.tag}</span>
         </div>
       ))}
@@ -254,7 +269,7 @@ function DetailView({ session, readout, avatar, user, onBack, locale }: {
       {readout.perception_notes.map((note, i) => (
         <div key={`pn-${i}`} className="ro-pnote">
           <div className="ro-pnote-label">{t(locale, 'readoutsBehavioralObs')}</div>
-          <p>{note}</p>
+          <p>{cleanMd(note)}</p>
         </div>
       ))}
 
@@ -279,7 +294,7 @@ function DetailView({ session, readout, avatar, user, onBack, locale }: {
             <div className="ro-closing-dot" />
             <span className="ro-closing-label">{t(locale, 'readoutsFinalReading')} {readout.avatar_name || session.avatar_name}</span>
           </div>
-          <p>{readout.closing_read}</p>
+          <p>{cleanMd(readout.closing_read)}</p>
         </div>
       )}
 
