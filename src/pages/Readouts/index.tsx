@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
+import { getStoredLocale, t } from '../../lib/i18n'
 import { fetchReadoutSessions, type ReadoutSession, type ReadoutData, type SignalMoment } from './data'
 import './readouts.css'
 
@@ -33,6 +34,7 @@ export default function ReadoutsPage() {
   const [sessions, setSessions] = useState<ReadoutSession[]>([])
   const [loading, setLoading] = useState(false)
   const [selectedSession, setSelectedSession] = useState<ReadoutSession | null>(null)
+  const locale = getStoredLocale()
 
   useEffect(() => {
     if (!user?.id) return
@@ -61,13 +63,14 @@ export default function ReadoutsPage() {
 
   return (
     <div className="readouts-root">
-      {view === 'cover' && <CoverView onOpen={openList} />}
+      {view === 'cover' && <CoverView onOpen={openList} locale={locale} />}
       {view === 'list' && (
         <ListView
           sessions={sessions}
           loading={loading}
           onBack={() => goBack('cover')}
           onSelect={openDetail}
+          locale={locale}
         />
       )}
       {view === 'detail' && selectedSession?.readout_json && (
@@ -75,19 +78,22 @@ export default function ReadoutsPage() {
           session={selectedSession}
           readout={selectedSession.readout_json}
           onBack={() => goBack('list')}
+          locale={locale}
         />
       )}
     </div>
   )
 }
 
-function CoverView({ onOpen }: { onOpen: () => void }) {
+function CoverView({ onOpen, locale }: { onOpen: () => void; locale: ReturnType<typeof getStoredLocale> }) {
   const [opening, setOpening] = useState(false)
 
   function handleOpen() {
     setOpening(true)
     setTimeout(onOpen, 1100)
   }
+
+  const titleLines = t(locale, 'readoutsTitle').split('\n')
 
   return (
     <div className={`ro-cover ${opening ? 'opening' : ''}`} onClick={handleOpen}>
@@ -97,16 +103,13 @@ function CoverView({ onOpen }: { onOpen: () => void }) {
             <div className="ro-premium-ribbon">PREMIUM</div>
             <span className="ro-brand">O N I O K O</span>
             <div className="ro-book-line" />
-            <div className="ro-book-title">Lecturas<br />de Session</div>
-            <div className="ro-book-sub">
-              Cada conversacion deja huellas invisibles. Aqui viven las lecturas que tus avatares
-              escriben despues de cada encuentro. No son resumenes. Son radiografias.
-            </div>
+            <div className="ro-book-title">{titleLines.map((line, i) => <span key={i}>{line}{i < titleLines.length - 1 && <br />}</span>)}</div>
+            <div className="ro-book-sub">{t(locale, 'readoutsSubtitle')}</div>
             <div className="ro-book-year">2 0 2 6</div>
           </div>
         </div>
       </div>
-      <span className="ro-tap">tap to open</span>
+      <span className="ro-tap">{t(locale, 'readoutsTap')}</span>
     </div>
   )
 }
@@ -116,34 +119,32 @@ function ListView({
   loading,
   onBack,
   onSelect,
+  locale,
 }: {
   sessions: ReadoutSession[]
   loading: boolean
   onBack: () => void
   onSelect: (s: ReadoutSession) => void
+  locale: ReturnType<typeof getStoredLocale>
 }) {
   return (
     <div className="ro-list">
       <button className="ro-back" onClick={onBack}>
-        &#8592; Volver
+        &#8592; {t(locale, 'readoutsBack')}
       </button>
       <h2>
-        Tus <em>lecturas</em>
+        {t(locale, 'readoutsYourReadouts')} <em>{t(locale, 'readoutsReadouts')}</em>
       </h2>
-      <p className="ro-list-intro">
-        No son resumenes. Son radiografias de lo que paso entre lineas.
-      </p>
+      <p className="ro-list-intro">{t(locale, 'readoutsIntro')}</p>
       <div className="ro-premium-badge">
         <div className="ro-premium-dot" />
-        Premium feature, actualmente activo para tu cuenta
+        {t(locale, 'readoutsPremium')}
       </div>
 
-      {loading && <div className="ro-empty">Cargando lecturas...</div>}
+      {loading && <div className="ro-empty">{t(locale, 'readoutsLoading')}</div>}
 
       {!loading && sessions.length === 0 && (
-        <div className="ro-empty">
-          Todavia no hay lecturas. Haz una videollamada de mas de un minuto y tu avatar escribira una lectura conductual automaticamente.
-        </div>
+        <div className="ro-empty">{t(locale, 'readoutsEmpty')}</div>
       )}
 
       {sessions.map((s) => (
@@ -176,22 +177,24 @@ function DetailView({
   session,
   readout,
   onBack,
+  locale,
 }: {
   session: ReadoutSession
   readout: ReadoutData
   onBack: () => void
+  locale: ReturnType<typeof getStoredLocale>
 }) {
   const durationMin = Math.round(session.call_duration_seconds / 60)
 
   return (
     <div className="ro-detail">
       <button className="ro-back" onClick={onBack}>
-        &#8592; Volver a lecturas
+        &#8592; {t(locale, 'readoutsBackToReadouts')}
       </button>
 
       <div className="ro-topline">
         <div className="ro-topdot" />
-        Lectura de session
+        {t(locale, 'readoutsSessionReadout')}
       </div>
 
       <div className="ro-ctx">
@@ -240,7 +243,7 @@ function DetailView({
       {readout.perception_notes.length > 0 &&
         readout.perception_notes.map((note, i) => (
           <div key={`pn-${i}`} className="ro-pnote">
-            <div className="ro-pnote-label">Observacion conductual</div>
+            <div className="ro-pnote-label">{t(locale, 'readoutsBehavioralObs')}</div>
             <p>{note}</p>
           </div>
         ))}
@@ -250,7 +253,7 @@ function DetailView({
           <div className="ro-divider" />
           <div className="ro-nxst">
             <h2>
-              Lo que viene <em>despues</em>
+              {t(locale, 'readoutsNextSteps')} <em>{t(locale, 'readoutsNextStepsEm')}</em>
             </h2>
             {readout.next_steps.map((step, i) => (
               <div key={`ns-${i}`} className="ro-nxi">
@@ -275,14 +278,14 @@ function DetailView({
           <div className="ro-closing-header">
             <div className="ro-closing-dot" />
             <span className="ro-closing-label">
-              Lectura final de {readout.avatar_name || session.avatar_name}
+              {t(locale, 'readoutsFinalReading')} {readout.avatar_name || session.avatar_name}
             </span>
           </div>
           <p>{readout.closing_read}</p>
         </div>
       )}
 
-      <div className="ro-footer">ONIOKO &middot; Observational Perception Models</div>
+      <div className="ro-footer">{t(locale, 'readoutsFooter')}</div>
     </div>
   )
 }
