@@ -58,6 +58,18 @@ function parseReadout(raw: unknown): ReadoutData | null {
 }
 
 export async function fetchReadoutsByAvatar(): Promise<AvatarGroup[]> {
+  // Determine current user
+  const { data: { user } } = await supabase.auth.getUser()
+  const userEmail = user?.email || ''
+
+  // Check if user is an owner
+  const { data: ownerCheck } = await supabase
+    .from('wa_owners')
+    .select('id')
+    .eq('email', userEmail)
+    .maybeSingle()
+  const isOwner = !!ownerCheck
+
   // Load ALL avatars from wa_owners
   const { data: owners } = await supabase
     .from('wa_owners')
@@ -66,14 +78,28 @@ export async function fetchReadoutsByAvatar(): Promise<AvatarGroup[]> {
     .order('display_name')
 
   // Load readouts
-  const { data: summaries, error } = await supabase
+  let query = supabase
     .from('wa_session_summaries')
     .select('session_id, avatar_name, user_name, call_duration_seconds, created_at, readout_json')
     .not('readout_json', 'is', null)
     .order('created_at', { ascending: false })
     .limit(200)
 
+  const { data: summaries, error } = await query
+
   if (error) console.error('[Readouts] fetch failed:', error)
+
+  // If not owner, find user's contact names to filter
+  let allowedNames: Set<string> | null = null
+  if (!isOwner && userEmail) {
+    const { data: contacts } = await supabase
+      .from('wa_contacts')
+      .select('display_name')
+      .eq('email', userEmail)
+    if (contacts) {
+      allowedNames = new Set(contacts.map(c => String(c.display_name || '').trim()).filter(Boolean))
+    }
+  }
 
   // Build readout map by avatar name
   const readoutMap = new Map<string, Map<string, ReadoutSession[]>>()
@@ -84,6 +110,9 @@ export async function fetchReadoutsByAvatar(): Promise<AvatarGroup[]> {
 
     const avatarName = String(s.avatar_name || 'Unknown')
     const userName = String(s.user_name || readout.contact_name || 'Participante')
+
+    // Filter: non-owners only see their own sessions
+    if (allowedNames && !allowedNames.has(userName)) continue
 
     if (!readoutMap.has(avatarName)) readoutMap.set(avatarName, new Map())
     const userMap = readoutMap.get(avatarName)!
@@ -125,12 +154,14 @@ export async function fetchReadoutsByAvatar(): Promise<AvatarGroup[]> {
     groups.push({ avatar_name: name, users, total_sessions: totalSessions })
   }
 
-  // Sort: avatars with sessions first, then alphabetical
-  groups.sort((a, b) => {
+  // Non-owners: hide avatars with 0 sessions
+  const filtered = isOwner ? groups : groups.filter(g => g.total_sessions > 0)
+
+  filtered.sort((a, b) => {
     if (a.total_sessions > 0 && b.total_sessions === 0) return -1
     if (a.total_sessions === 0 && b.total_sessions > 0) return 1
     return a.avatar_name.localeCompare(b.avatar_name)
   })
 
-  return groups
+  return filtered
 }

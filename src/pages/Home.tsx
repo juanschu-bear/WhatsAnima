@@ -248,6 +248,14 @@ export default function Home() {
               )}
               <button
                 type="button"
+                onClick={() => navigate('/readouts')}
+                className="min-h-[52px] rounded-2xl border border-[#2dd4bf]/20 bg-[#2dd4bf]/5 px-4 py-3 text-sm font-medium text-[#2dd4bf]/80 transition hover:border-[#2dd4bf]/40 hover:text-[#2dd4bf]"
+              >
+                Readouts
+                <span className="ml-2 text-[9px] uppercase tracking-wider opacity-60">Premium</span>
+              </button>
+              <button
+                type="button"
                 onClick={() => navigate('/settings')}
                 className="min-h-[52px] rounded-2xl border border-white/10 bg-[#1f2c34]/80 px-4 py-3 text-sm font-medium transition hover:border-[#00a884]/60 hover:text-[#00a884]"
               >
