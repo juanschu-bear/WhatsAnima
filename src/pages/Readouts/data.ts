@@ -30,58 +30,83 @@ export interface ReadoutSession {
   user_name: string
   call_duration_seconds: number
   created_at: string
-  readout_json: ReadoutData | null
+  readout_json: ReadoutData
 }
 
-export async function fetchReadoutSessions(userId: string): Promise<ReadoutSession[]> {
-  if (!userId) return []
+export interface UserGroup {
+  user_name: string
+  sessions: ReadoutSession[]
+  total_minutes: number
+  last_session: string
+}
 
-  const { data: contacts } = await supabase
-    .from('wa_contacts')
-    .select('id')
-    .eq('email', (await supabase.auth.getUser()).data.user?.email || '')
+export interface AvatarGroup {
+  avatar_name: string
+  users: UserGroup[]
+  total_sessions: number
+}
 
-  if (!contacts || contacts.length === 0) return []
+function parseReadout(raw: unknown): ReadoutData | null {
+  let readout = raw as ReadoutData | string | null
+  if (typeof readout === 'string') {
+    try { readout = JSON.parse(readout) as ReadoutData } catch { return null }
+  }
+  if (!readout || typeof readout !== 'object' || !readout.title || !readout.narrative_blocks?.length) {
+    return null
+  }
+  return readout
+}
 
-  const contactIds = contacts.map((c: { id: string }) => c.id)
-
-  const { data: conversations } = await supabase
-    .from('wa_conversations')
-    .select('id, owner_id, contact_id')
-    .in('contact_id', contactIds)
-
-  if (!conversations || conversations.length === 0) return []
-
+export async function fetchReadoutsByAvatar(): Promise<AvatarGroup[]> {
   const { data: summaries, error } = await supabase
     .from('wa_session_summaries')
     .select('session_id, avatar_name, user_name, call_duration_seconds, created_at, readout_json')
     .not('readout_json', 'is', null)
     .order('created_at', { ascending: false })
-    .limit(50)
+    .limit(200)
 
   if (error || !summaries) {
-    console.error('[Readouts] Failed to fetch sessions:', error)
+    console.error('[Readouts] fetch failed:', error)
     return []
   }
 
-  return summaries
-    .map((s: Record<string, unknown>) => {
-      let readout = s.readout_json as ReadoutData | string | null
-      if (typeof readout === 'string') {
-        try { readout = JSON.parse(readout) as ReadoutData } catch { readout = null }
-      }
-      // Filter out empty/invalid readouts
-      if (!readout || typeof readout !== 'object' || !readout.title || !readout.narrative_blocks?.length) {
-        return null
-      }
-      return {
-        session_id: String(s.session_id || ''),
-        avatar_name: String(s.avatar_name || ''),
-        user_name: String(s.user_name || 'Participante'),
-        call_duration_seconds: Number(s.call_duration_seconds || 0),
-        created_at: String(s.created_at || ''),
-        readout_json: readout,
-      }
+  const avatarMap = new Map<string, Map<string, ReadoutSession[]>>()
+
+  for (const s of summaries) {
+    const readout = parseReadout(s.readout_json)
+    if (!readout) continue
+
+    const avatarName = String(s.avatar_name || 'Unknown')
+    const userName = String(s.user_name || readout.contact_name || 'Participante')
+
+    if (!avatarMap.has(avatarName)) avatarMap.set(avatarName, new Map())
+    const userMap = avatarMap.get(avatarName)!
+    if (!userMap.has(userName)) userMap.set(userName, [])
+
+    userMap.get(userName)!.push({
+      session_id: String(s.session_id || ''),
+      avatar_name: avatarName,
+      user_name: userName,
+      call_duration_seconds: Number(s.call_duration_seconds || 0),
+      created_at: String(s.created_at || ''),
+      readout_json: readout,
     })
-    .filter((s): s is ReadoutSession => s !== null)
+  }
+
+  const groups: AvatarGroup[] = []
+  for (const [avatarName, userMap] of avatarMap) {
+    const users: UserGroup[] = []
+    let totalSessions = 0
+    for (const [userName, sessions] of userMap) {
+      const totalMin = sessions.reduce((sum, s) => sum + Math.round(s.call_duration_seconds / 60), 0)
+      const lastSession = sessions[0]?.created_at || ''
+      users.push({ user_name: userName, sessions, total_minutes: totalMin, last_session: lastSession })
+      totalSessions += sessions.length
+    }
+    users.sort((a, b) => b.last_session.localeCompare(a.last_session))
+    groups.push({ avatar_name: avatarName, users, total_sessions: totalSessions })
+  }
+
+  groups.sort((a, b) => b.total_sessions - a.total_sessions)
+  return groups
 }
