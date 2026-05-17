@@ -458,6 +458,15 @@ export default function Onboarding() {
               <span className="font-semibold">Ojo:</span> El avatar siempre hablara en el idioma que selecciones en la pantalla inicial del call. Solo en la primera llamada de presentacion se adapta automaticamente. En las demas, asegurate de elegir el idioma correcto antes de iniciar.
             </p>
           </div>
+
+          <div className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-500/5 px-5 py-4">
+            <p className="text-sm leading-relaxed text-amber-200/90">
+              <span className="font-semibold">Tu tiempo:</span> Tienes 3 avatares x 30 minutos = <span className="font-semibold text-white">90 minutos de videollamadas</span> para explorar la experiencia. Cada avatar tiene su propio contador de 30 minutos. Los mensajes de texto, voz y video en el chat son ilimitados. Solo las videollamadas en vivo tienen limite.
+            </p>
+            <p className="mt-3 text-sm leading-relaxed text-red-300/90">
+              <span className="font-semibold">Importante:</span> Siempre termina tus videollamadas con el boton rojo "Leave". No cierres la ventana ni el navegador sin pulsar "Leave" primero, porque los minutos seguiran contando.
+            </p>
+          </div>
         </div>
       </div>
     </div>
