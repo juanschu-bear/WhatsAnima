@@ -992,8 +992,8 @@ export function useVideoRecording({
       return normalizeOpmResponse(mockResults)
     }
 
-    const useProxy = true  // Always proxy through Vercel to avoid CORS
-    const uploadUrl = '/api/ingest-video'
+    const useProxy = !!opts.orientation
+    const uploadUrl = useProxy ? '/api/ingest-video' : `${opmUrl}/analyze`
     console.log(
       '[OPM]',
       useProxy ? 'Proxy upload via /api/ingest-video' : 'Direct upload to OPM',
