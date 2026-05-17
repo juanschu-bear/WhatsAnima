@@ -99,8 +99,8 @@ function CoverView({ onOpen }: { onOpen: () => void }) {
             <div className="ro-book-line" />
             <div className="ro-book-title">Lecturas<br />de Session</div>
             <div className="ro-book-sub">
-              Cada conversacion deja huellas invisibles. Aqui viven las radiografias que tus avatares
-              escriben despues de cada encuentro.
+              Cada conversacion deja huellas invisibles. Aqui viven las lecturas que tus avatares
+              escriben despues de cada encuentro. No son resumenes. Son radiografias.
             </div>
             <div className="ro-book-year">2 0 2 6</div>
           </div>
