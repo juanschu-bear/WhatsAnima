@@ -58,6 +58,14 @@ function parseReadout(raw: unknown): ReadoutData | null {
 }
 
 export async function fetchReadoutsByAvatar(): Promise<AvatarGroup[]> {
+  // Load ALL avatars from wa_owners
+  const { data: owners } = await supabase
+    .from('wa_owners')
+    .select('id, display_name')
+    .is('deleted_at', null)
+    .order('display_name')
+
+  // Load readouts
   const { data: summaries, error } = await supabase
     .from('wa_session_summaries')
     .select('session_id, avatar_name, user_name, call_duration_seconds, created_at, readout_json')
@@ -65,22 +73,20 @@ export async function fetchReadoutsByAvatar(): Promise<AvatarGroup[]> {
     .order('created_at', { ascending: false })
     .limit(200)
 
-  if (error || !summaries) {
-    console.error('[Readouts] fetch failed:', error)
-    return []
-  }
+  if (error) console.error('[Readouts] fetch failed:', error)
 
-  const avatarMap = new Map<string, Map<string, ReadoutSession[]>>()
+  // Build readout map by avatar name
+  const readoutMap = new Map<string, Map<string, ReadoutSession[]>>()
 
-  for (const s of summaries) {
+  for (const s of (summaries || [])) {
     const readout = parseReadout(s.readout_json)
     if (!readout) continue
 
     const avatarName = String(s.avatar_name || 'Unknown')
     const userName = String(s.user_name || readout.contact_name || 'Participante')
 
-    if (!avatarMap.has(avatarName)) avatarMap.set(avatarName, new Map())
-    const userMap = avatarMap.get(avatarName)!
+    if (!readoutMap.has(avatarName)) readoutMap.set(avatarName, new Map())
+    const userMap = readoutMap.get(avatarName)!
     if (!userMap.has(userName)) userMap.set(userName, [])
 
     userMap.get(userName)!.push({
@@ -93,20 +99,38 @@ export async function fetchReadoutsByAvatar(): Promise<AvatarGroup[]> {
     })
   }
 
+  // Build groups for ALL avatars
   const groups: AvatarGroup[] = []
-  for (const [avatarName, userMap] of avatarMap) {
+  const seenNames = new Set<string>()
+
+  for (const owner of (owners || [])) {
+    const name = String(owner.display_name || '').trim()
+    if (!name || seenNames.has(name)) continue
+    seenNames.add(name)
+
+    const userMap = readoutMap.get(name)
     const users: UserGroup[] = []
     let totalSessions = 0
-    for (const [userName, sessions] of userMap) {
-      const totalMin = sessions.reduce((sum, s) => sum + Math.round(s.call_duration_seconds / 60), 0)
-      const lastSession = sessions[0]?.created_at || ''
-      users.push({ user_name: userName, sessions, total_minutes: totalMin, last_session: lastSession })
-      totalSessions += sessions.length
+
+    if (userMap) {
+      for (const [userName, sessions] of userMap) {
+        const totalMin = sessions.reduce((sum, s) => sum + Math.round(s.call_duration_seconds / 60), 0)
+        const lastSession = sessions[0]?.created_at || ''
+        users.push({ user_name: userName, sessions, total_minutes: totalMin, last_session: lastSession })
+        totalSessions += sessions.length
+      }
+      users.sort((a, b) => b.last_session.localeCompare(a.last_session))
     }
-    users.sort((a, b) => b.last_session.localeCompare(a.last_session))
-    groups.push({ avatar_name: avatarName, users, total_sessions: totalSessions })
+
+    groups.push({ avatar_name: name, users, total_sessions: totalSessions })
   }
 
-  groups.sort((a, b) => b.total_sessions - a.total_sessions)
+  // Sort: avatars with sessions first, then alphabetical
+  groups.sort((a, b) => {
+    if (a.total_sessions > 0 && b.total_sessions === 0) return -1
+    if (a.total_sessions === 0 && b.total_sessions > 0) return 1
+    return a.avatar_name.localeCompare(b.avatar_name)
+  })
+
   return groups
 }

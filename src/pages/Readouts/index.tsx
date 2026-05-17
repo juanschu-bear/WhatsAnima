@@ -118,13 +118,21 @@ function AvatarsView({ data, loading, onBack, onSelect, locale }: {
 
       <div className="ro-avatar-grid">
         {data.map((a, i) => (
-          <div key={a.avatar_name} className="ro-avatar-card" onClick={() => onSelect(a)} style={{ animationDelay: `${i * 0.08}s` }}>
+          <div
+            key={a.avatar_name}
+            className="ro-avatar-card"
+            onClick={() => a.total_sessions > 0 ? onSelect(a) : undefined}
+            style={{
+              animationDelay: `${i * 0.08}s`,
+              opacity: a.total_sessions > 0 ? 1 : 0.4,
+              cursor: a.total_sessions > 0 ? 'pointer' : 'default',
+            }}
+          >
             <div className="ro-ac-ring"><div className="ro-ac-ring-in">{initials(a.avatar_name)}</div></div>
             <h3>{a.avatar_name}</h3>
             <div className="ro-ac-stats">
               <span>{a.total_sessions} {a.total_sessions === 1 ? 'session' : 'sessions'}</span>
-              <span>&middot;</span>
-              <span>{a.users.length} {a.users.length === 1 ? 'contact' : 'contacts'}</span>
+              {a.users.length > 0 && <><span>&middot;</span><span>{a.users.length} {a.users.length === 1 ? 'contact' : 'contacts'}</span></>}
             </div>
             <div className="ro-ac-glow" />
           </div>
