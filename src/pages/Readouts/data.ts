@@ -97,7 +97,7 @@ export async function fetchReadoutsByAvatar(): Promise<AvatarGroup[]> {
         .select('owner_id')
         .eq('email', userEmail)
       if (contacts) {
-        const ownerIds = [...new Set(contacts.map(c => c.owner_id))]
+        const ownerIds = [...new Set(contacts.map(c => c.owner_id).filter(Boolean))]
         if (ownerIds.length > 0) {
           const { data: ownerNames } = await supabase
             .from('wa_owners')
