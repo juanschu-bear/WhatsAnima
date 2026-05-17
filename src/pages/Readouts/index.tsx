@@ -94,8 +94,9 @@ function CoverView({ onOpen, locale }: { onOpen: () => void; locale: ReturnType<
   const titleLines = t(locale, 'readoutsTitle').split('\n')
 
   return (
-    <div className={`ro-cover ${opening ? 'opening' : ''}`} onClick={handleOpen}>
-      <div className="ro-book-3d">
+    <div className={`ro-cover ${opening ? 'opening' : ''}`}>
+      <button className="ro-back" style={{ position: 'absolute', top: 24, left: 24, zIndex: 10 }} onClick={(e) => { e.stopPropagation(); window.history.back() }}>&#8592; {t(locale, 'readoutsBack')}</button>
+      <div className="ro-book-3d" onClick={handleOpen} style={{ cursor: 'pointer' }}>
         <div className="ro-book-obj">
           <div className="ro-book-face">
             <div className="ro-premium-ribbon">PREMIUM</div>
