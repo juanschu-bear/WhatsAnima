@@ -376,25 +376,17 @@ export default function Onboarding() {
 
   return (
     <div className="brand-scene min-h-screen text-white">
-      <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-4xl flex-col px-6 py-10">
-        <div className="brand-panel rounded-[30px] p-8 sm:p-10">
-          <div className="flex items-start justify-between">
-            <div>
-              <h1 className="text-3xl font-bold tracking-tight">{copy.welcome(welcomeName)}</h1>
-              <p className="mt-3 text-sm text-white/70">{copy.intro}</p>
-            </div>
-            <button
-              onClick={signOut}
-              className="shrink-0 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/50 transition hover:bg-white/10 hover:text-white/80"
-            >
-              Logout
-            </button>
+      <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-6xl flex-col px-6 py-10">
+        <div className="brand-panel rounded-[30px] p-10 sm:p-14">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">{copy.welcome(welcomeName)}</h1>
+            <p className="mt-4 text-sm text-white/70">{copy.intro}</p>
           </div>
           {copy.quote && (
-            <p className="mt-4 text-sm italic text-white/50">{copy.quote}</p>
+            <p className="mt-6 text-sm italic text-white/50">{copy.quote}</p>
           )}
 
-          <div className="mt-6 flex items-center gap-3 rounded-2xl bg-white/5 px-4 py-3">
+          <div className="mt-8 flex items-center gap-3 rounded-2xl bg-white/5 px-4 py-3">
             <div className="flex items-center gap-2">
               <div className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold ${avatars.some(a => !a.onboardingCompleted) ? 'bg-[#00a884] text-[#08111a]' : 'bg-white/10 text-white/40'}`}>1</div>
               <span className={`text-xs font-medium ${avatars.some(a => !a.onboardingCompleted) ? 'text-white' : 'text-white/40'}`}>Conoce a tus avatares</span>
@@ -412,7 +404,7 @@ export default function Onboarding() {
             </div>
           ) : null}
 
-          <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {avatars.map((avatar) => {
               const isBusy = busyAvatar === avatar.ownerId
               const completed = avatar.onboardingCompleted
@@ -460,7 +452,7 @@ export default function Onboarding() {
             })}
           </div>
 
-          <div className="mt-6 rounded-2xl border border-[#00a884]/20 bg-[#00a884]/5 px-5 py-4">
+          <div className="mt-8 rounded-2xl border border-[#00a884]/20 bg-[#00a884]/5 px-5 py-4">
             <p className="text-sm leading-relaxed text-[#00a884]/90">
               <span className="font-semibold">Tip:</span> Haz una videollamada con cada avatar para conocerlos. Despues podras chatear con ellos cuando quieras. Si ya estas en el chat, pulsa los tres puntos arriba a la derecha y selecciona "Home" para volver aqui. Para las siguientes llamadas, recomendamos seleccionar el modo "Side by side" en la pantalla inicial.
             </p>
@@ -469,13 +461,22 @@ export default function Onboarding() {
             </p>
           </div>
 
-          <div className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-500/5 px-5 py-4">
+          <div className="mt-6 rounded-2xl border border-amber-400/20 bg-amber-500/5 px-5 py-4">
             <p className="text-sm leading-relaxed text-amber-200/90">
               <span className="font-semibold">Tu tiempo:</span> Tienes 3 avatares x 30 minutos = <span className="font-semibold text-white">90 minutos de videollamadas</span> para explorar la experiencia. Cada avatar tiene su propio contador de 30 minutos. Los mensajes de texto, voz y video en el chat son ilimitados. Solo las videollamadas en vivo tienen limite.
             </p>
             <p className="mt-3 text-sm leading-relaxed text-red-300/90">
               <span className="font-semibold">Importante:</span> Siempre termina tus videollamadas con el boton rojo "Leave". No cierres la ventana ni el navegador sin pulsar "Leave" primero, porque los minutos seguiran contando.
             </p>
+          </div>
+
+          <div className="mt-10 flex justify-end">
+            <button
+              onClick={signOut}
+              className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs text-white/40 transition hover:bg-white/10 hover:text-white/70"
+            >
+              Logout
+            </button>
           </div>
         </div>
       </div>
