@@ -73,13 +73,20 @@ export default function ReadoutsPage() {
           locale={locale}
         />
       )}
-      {view === 'detail' && selectedSession?.readout_json && (
-        <DetailView
-          session={selectedSession}
-          readout={selectedSession.readout_json}
-          onBack={() => goBack('list')}
-          locale={locale}
-        />
+      {view === 'detail' && selectedSession && (
+        selectedSession.readout_json ? (
+          <DetailView
+            session={selectedSession}
+            readout={selectedSession.readout_json}
+            onBack={() => goBack('list')}
+            locale={locale}
+          />
+        ) : (
+          <div className="readouts-root" style={{ padding: '48px 24px' }}>
+            <button className="ro-back" onClick={() => goBack('list')}>&#8592; {t(locale, 'readoutsBackToReadouts')}</button>
+            <p style={{ color: 'rgba(226,234,243,0.4)', marginTop: 32 }}>{t(locale, 'readoutsEmpty')}</p>
+          </div>
+        )
       )}
     </div>
   )

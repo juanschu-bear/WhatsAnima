@@ -64,12 +64,24 @@ export async function fetchReadoutSessions(userId: string): Promise<ReadoutSessi
     return []
   }
 
-  return summaries.map((s: Record<string, unknown>) => ({
-    session_id: String(s.session_id || ''),
-    avatar_name: String(s.avatar_name || ''),
-    user_name: String(s.user_name || ''),
-    call_duration_seconds: Number(s.call_duration_seconds || 0),
-    created_at: String(s.created_at || ''),
-    readout_json: s.readout_json as ReadoutData | null,
-  }))
+  return summaries
+    .map((s: Record<string, unknown>) => {
+      let readout = s.readout_json as ReadoutData | string | null
+      if (typeof readout === 'string') {
+        try { readout = JSON.parse(readout) as ReadoutData } catch { readout = null }
+      }
+      // Filter out empty/invalid readouts
+      if (!readout || typeof readout !== 'object' || !readout.title || !readout.narrative_blocks?.length) {
+        return null
+      }
+      return {
+        session_id: String(s.session_id || ''),
+        avatar_name: String(s.avatar_name || ''),
+        user_name: String(s.user_name || 'Participante'),
+        call_duration_seconds: Number(s.call_duration_seconds || 0),
+        created_at: String(s.created_at || ''),
+        readout_json: readout,
+      }
+    })
+    .filter((s): s is ReadoutSession => s !== null)
 }
