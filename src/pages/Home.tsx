@@ -204,9 +204,9 @@ export default function Home() {
             <button
               type="button"
               onClick={() => navigate('/avatars')}
-              className="flex items-center justify-center gap-2 rounded-2xl border border-white/12 bg-gradient-to-r from-[#0f1c24] to-[#162029] px-6 py-3.5 text-center text-sm font-semibold text-white/90 shadow-[0_0_20px_rgba(45,212,191,0.08),inset_0_1px_0_rgba(255,255,255,0.04)] transition hover:shadow-[0_0_30px_rgba(45,212,191,0.15)] hover:border-white/20"
+              className="flex items-center justify-center gap-2 rounded-2xl border border-white/15 bg-gradient-to-r from-[#1a2a30] via-[#1e3338] to-[#1a2a30] px-6 py-3.5 text-center text-sm font-semibold text-white shadow-[0_0_20px_rgba(45,212,191,0.1),inset_0_1px_0_rgba(255,255,255,0.08)] transition hover:shadow-[0_0_35px_rgba(45,212,191,0.2)] hover:border-[#2dd4bf]/30"
             >
-              <svg className="h-5 w-5 text-[#2dd4bf]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <svg className="h-5 w-5 text-[#5eead4]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
               </svg>
               Chat
@@ -253,10 +253,10 @@ export default function Home() {
               <button
                 type="button"
                 onClick={() => navigate('/readouts')}
-                className="min-h-[52px] rounded-2xl border border-[#c4aa6a]/20 bg-gradient-to-r from-[#1a1610]/80 to-[#1f1c14]/80 px-4 py-3 text-sm font-medium text-[#e0c87e]/90 shadow-[0_0_15px_rgba(196,170,106,0.06)] transition hover:border-[#c4aa6a]/40 hover:shadow-[0_0_25px_rgba(196,170,106,0.12)] hover:text-[#e0c87e]"
+                className="min-h-[52px] rounded-2xl border border-[#d4b86a]/25 bg-gradient-to-r from-[#2a2418] via-[#332c1a] to-[#2a2418] px-4 py-3 text-sm font-medium text-[#f0d890] shadow-[0_0_18px_rgba(224,200,126,0.08),inset_0_1px_0_rgba(240,216,144,0.06)] transition hover:shadow-[0_0_30px_rgba(224,200,126,0.18)] hover:border-[#e0c87e]/40 hover:text-[#f5e4a8]"
               >
                 Insights
-                <span className="ml-2 text-[9px] uppercase tracking-wider text-[#a0a8b4]/60">Premium</span>
+                <span className="ml-2 text-[9px] uppercase tracking-wider text-[#c0c8d0]/50">Premium</span>
               </button>
               <button
                 type="button"
