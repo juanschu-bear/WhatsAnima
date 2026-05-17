@@ -185,14 +185,12 @@ export async function fetchReadoutsByAvatar(): Promise<AvatarGroup[]> {
     groups.push({ avatar_name: name, users, total_sessions: totalSessions })
   }
 
-  // Non-owners: hide avatars with 0 sessions
-  const filtered = isOwner ? groups : groups.filter(g => g.total_sessions > 0)
-
-  filtered.sort((a, b) => {
+  // Show all avatars for everyone (dimmed if 0 sessions)
+  groups.sort((a, b) => {
     if (a.total_sessions > 0 && b.total_sessions === 0) return -1
     if (a.total_sessions === 0 && b.total_sessions > 0) return 1
     return a.avatar_name.localeCompare(b.avatar_name)
   })
 
-  return filtered
+  return groups
 }
