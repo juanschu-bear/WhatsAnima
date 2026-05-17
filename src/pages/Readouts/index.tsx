@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
 import { fetchReadoutSessions, type ReadoutSession, type ReadoutData, type SignalMoment } from './data'
 import './readouts.css'
@@ -7,12 +7,6 @@ type View = 'cover' | 'list' | 'detail'
 
 function getInitials(name: string): string {
   return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
-}
-
-function formatDuration(seconds: number): string {
-  const m = Math.floor(seconds / 60)
-  const s = seconds % 60
-  return `${m}:${String(s).padStart(2, '0')}`
 }
 
 function formatDate(iso: string): string {
