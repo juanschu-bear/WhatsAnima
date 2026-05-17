@@ -734,7 +734,7 @@ export function useVideoRecording({
           }
 
           const chunks: BlobPart[] = []
-          const canvasRecOpts: MediaRecorderOptions = { videoBitsPerSecond: 500_000 }
+          const canvasRecOpts: MediaRecorderOptions = { videoBitsPerSecond: 3_000_000 }
           if (mimeType) canvasRecOpts.mimeType = mimeType
           const recorder = new MediaRecorder(canvasStream, canvasRecOpts)
           recorder.ondataavailable = (event) => {
@@ -838,7 +838,7 @@ export function useVideoRecording({
     }
 
     const mimeType = pickVideoMimeType()
-    const recorderOpts: MediaRecorderOptions = { videoBitsPerSecond: 500_000 }
+    const recorderOpts: MediaRecorderOptions = { videoBitsPerSecond: 3_000_000 }
     if (mimeType) recorderOpts.mimeType = mimeType
     const recorder = new MediaRecorder(videoStreamRef.current, recorderOpts)
 
