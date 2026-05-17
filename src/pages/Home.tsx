@@ -241,7 +241,10 @@ export default function Home() {
               </button>
               <button
                 type="button"
-                onClick={() => window.location.reload()}
+                onClick={() => { 
+                  if ('caches' in window) { caches.keys().then(names => names.forEach(name => caches.delete(name))) }
+                  window.location.href = window.location.pathname + '?v=' + Date.now()
+                }}
                 className="min-h-[52px] rounded-2xl border border-white/8 bg-[#1f2c34]/40 px-4 py-3 text-sm font-medium text-white/35 transition hover:border-[#2dd4bf]/20 hover:text-white/60 hover:shadow-[0_0_20px_rgba(45,212,191,0.06)]"
               >
                 ↻ Refresh <span className="text-[10px] text-white/20">(for updates)</span>
