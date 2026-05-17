@@ -204,9 +204,9 @@ export default function Home() {
             <button
               type="button"
               onClick={() => navigate('/avatars')}
-              className="flex items-center justify-center gap-2 rounded-2xl border border-white/15 bg-gradient-to-r from-[#1a2a30] via-[#1e3338] to-[#1a2a30] px-6 py-3.5 text-center text-sm font-semibold text-white shadow-[0_0_20px_rgba(45,212,191,0.1),inset_0_1px_0_rgba(255,255,255,0.08)] transition hover:shadow-[0_0_35px_rgba(45,212,191,0.2)] hover:border-[#2dd4bf]/30"
+              className="flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#00a884] via-[#00c896] to-[#00a884] px-6 py-3.5 text-center text-sm font-bold text-[#0b141a] shadow-[0_4px_25px_rgba(0,168,132,0.25),inset_0_1px_0_rgba(255,255,255,0.15)] transition hover:shadow-[0_8px_40px_rgba(0,200,150,0.35)] hover:brightness-110"
             >
-              <svg className="h-5 w-5 text-[#5eead4]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
               </svg>
               Chat
