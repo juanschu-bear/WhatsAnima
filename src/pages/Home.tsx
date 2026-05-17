@@ -59,35 +59,9 @@ export default function Home() {
         return
       }
 
-      // Not an owner — find their most recent conversation via email
-      if (user!.email) {
-        try {
-          const { data: contacts } = await supabase
-            .from('wa_contacts')
-            .select('id')
-            .eq('email', user!.email)
-          const contactIds = (contacts ?? []).map((c: { id: string }) => c.id)
-          if (contactIds.length > 0) {
-            const { data: conv } = await supabase
-              .from('wa_conversations')
-              .select('id')
-              .in('contact_id', contactIds)
-              .order('updated_at', { ascending: false })
-              .limit(1)
-              .maybeSingle()
-
-            if (conv) {
-              navigate(`/chat/${conv.id}`, { replace: true })
-              return
-            }
-          }
-        } catch {
-          // Fallback to avatar select
-        }
-      }
-
-      // Contact without conversation — go to avatar select
-      navigate('/avatars', { replace: true })
+      // Not an owner — show the Home screen (don't auto-redirect to chat)
+      setIsOwner(false)
+      setChecking(false)
     }
 
     routeByRole().catch(() => setChecking(false))
@@ -204,7 +178,7 @@ export default function Home() {
             <button
               type="button"
               onClick={() => navigate('/avatars')}
-              className="flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#00a884] via-[#00c896] to-[#00a884] px-6 py-3.5 text-center text-sm font-bold text-[#0b141a] shadow-[0_4px_25px_rgba(0,168,132,0.25),inset_0_1px_0_rgba(255,255,255,0.15)] transition hover:shadow-[0_8px_40px_rgba(0,200,150,0.35)] hover:brightness-110"
+              className="flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#0d8c6f] via-[#10a37f] to-[#0d8c6f] px-6 py-3.5 text-center text-sm font-bold text-white shadow-[0_4px_30px_rgba(16,163,127,0.25),inset_0_1px_0_rgba(255,255,255,0.12)] transition hover:shadow-[0_8px_45px_rgba(16,163,127,0.4)] hover:brightness-110"
             >
               <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
