@@ -141,7 +141,11 @@ export default function Home() {
           <p className="brand-kicker mt-3 text-[11px] text-white/80 sm:text-sm">
             Observational Perception Messaging
           </p>
-          <p className="mt-8 max-w-2xl text-lg text-white/80 sm:text-xl">
+          <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-[#e0c87e]/15 bg-[#e0c87e]/5 px-4 py-1.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-[#e0c87e] animate-pulse" />
+            <span className="text-[10px] font-medium uppercase tracking-[0.15em] text-[#e0c87e]/70">Beta</span>
+          </div>
+          <p className="mt-6 max-w-2xl text-lg text-white/80 sm:text-xl">
             Your AI twin is ready.
           </p>
           <div className="mt-5 w-full max-w-sm">
@@ -200,9 +204,9 @@ export default function Home() {
             <button
               type="button"
               onClick={() => navigate('/avatars')}
-              className="flex items-center justify-center gap-2 rounded-2xl bg-[#00a884] px-6 py-3 text-center text-sm font-semibold text-[#0b141a] transition hover:brightness-110"
+              className="flex items-center justify-center gap-2 rounded-2xl border border-white/12 bg-gradient-to-r from-[#0f1c24] to-[#162029] px-6 py-3.5 text-center text-sm font-semibold text-white/90 shadow-[0_0_20px_rgba(45,212,191,0.08),inset_0_1px_0_rgba(255,255,255,0.04)] transition hover:shadow-[0_0_30px_rgba(45,212,191,0.15)] hover:border-white/20"
             >
-              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <svg className="h-5 w-5 text-[#2dd4bf]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
               </svg>
               Chat
@@ -249,10 +253,10 @@ export default function Home() {
               <button
                 type="button"
                 onClick={() => navigate('/readouts')}
-                className="min-h-[52px] rounded-2xl border border-[#2dd4bf]/20 bg-[#2dd4bf]/5 px-4 py-3 text-sm font-medium text-[#2dd4bf]/80 transition hover:border-[#2dd4bf]/40 hover:text-[#2dd4bf]"
+                className="min-h-[52px] rounded-2xl border border-[#c4aa6a]/20 bg-gradient-to-r from-[#1a1610]/80 to-[#1f1c14]/80 px-4 py-3 text-sm font-medium text-[#e0c87e]/90 shadow-[0_0_15px_rgba(196,170,106,0.06)] transition hover:border-[#c4aa6a]/40 hover:shadow-[0_0_25px_rgba(196,170,106,0.12)] hover:text-[#e0c87e]"
               >
-                Readouts
-                <span className="ml-2 text-[9px] uppercase tracking-wider opacity-60">Premium</span>
+                Insights
+                <span className="ml-2 text-[9px] uppercase tracking-wider text-[#a0a8b4]/60">Premium</span>
               </button>
               <button
                 type="button"
