@@ -1399,6 +1399,14 @@ export default function VideoCall() {
     livekitRoomRef.current = null
     if (room) {
       try {
+        room.localParticipant?.videoTrackPublications?.forEach((pub) => {
+          pub.track?.stop()
+        })
+        room.localParticipant?.audioTrackPublications?.forEach((pub) => {
+          pub.track?.stop()
+        })
+      } catch { /* ignore */ }
+      try {
         room.unregisterTextStreamHandler(LIVEKIT_TRANSCRIPTION_TOPIC)
       } catch {
         // ignore

@@ -176,6 +176,13 @@ export default function IncomingCallOverlay() {
     setBusy(true)
     try {
       const payload = await respondToOutboundCall(call.id, action)
+      if (action === 'decline') {
+        // Clean up prewarmed session if any
+        try {
+          sessionStorage.removeItem(`${INCOMING_CALL_PREWARM_PREFIX}${call.id}`)
+          sessionStorage.removeItem(`${INCOMING_CALL_CONTEXT_PREFIX}${call.id}`)
+        } catch { /* ignore */ }
+      }
       setCall(null)
       if (action === 'accept') {
         try {
