@@ -242,9 +242,9 @@ export default function Home() {
               <button
                 type="button"
                 onClick={() => window.location.reload()}
-                className="min-h-[52px] rounded-2xl border border-white/6 bg-[#1f2c34]/40 px-4 py-3 text-xs font-medium text-white/30 transition hover:border-white/15 hover:text-white/50"
+                className="min-h-[52px] rounded-2xl border border-white/8 bg-[#1f2c34]/40 px-4 py-3 text-sm font-medium text-white/35 transition hover:border-[#2dd4bf]/20 hover:text-white/60 hover:shadow-[0_0_20px_rgba(45,212,191,0.06)]"
               >
-                ↻ Refresh
+                ↻ Refresh <span className="text-[10px] text-white/20">(for updates)</span>
               </button>
             </div>
           </div>
