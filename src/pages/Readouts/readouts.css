@@ -81,8 +81,8 @@
 
 .ro-premium-ribbon {
   position: absolute; top: 28px; right: -4px;
-  background: linear-gradient(135deg, #2dd4bf, #22b8a0);
-  color: #0a0d11; font-size: 9px; font-weight: 600;
+  background: linear-gradient(135deg, #e0c87e, #c4aa6a);
+  color: #1a1610; font-size: 9px; font-weight: 600;
   letter-spacing: 0.1em; padding: 5px 14px 5px 12px;
   border-radius: 3px 0 0 3px;
   box-shadow: 2px 2px 8px rgba(0,0,0,0.3);
