@@ -217,13 +217,20 @@ export default function Home() {
                   Dashboard
                 </button>
               )}
-              <button
-                type="button"
-                onClick={() => navigate('/perception')}
-                className="min-h-[52px] rounded-2xl border border-white/10 bg-[#1f2c34]/80 px-4 py-3 text-sm font-medium transition hover:border-[#00a884]/60 hover:text-[#00a884]"
-              >
-                Perception
-              </button>
+              {isOwner ? (
+                <button
+                  type="button"
+                  onClick={() => navigate('/perception')}
+                  className="min-h-[52px] rounded-2xl border border-white/10 bg-[#1f2c34]/80 px-4 py-3 text-sm font-medium transition hover:border-[#00a884]/60 hover:text-[#00a884]"
+                >
+                  Perception
+                </button>
+              ) : (
+                <div className="flex min-h-[52px] flex-col items-center justify-center rounded-2xl border border-white/6 bg-[#1f2c34]/40 px-4 py-3 text-sm font-medium text-white/25">
+                  Perception
+                  <span className="text-[10px] font-normal text-white/15">Avatar owners only</span>
+                </div>
+              )}
               {isOwner && (
                 <button
                   type="button"
@@ -232,6 +239,12 @@ export default function Home() {
                 >
                   Meeting
                 </button>
+              )}
+              {!isOwner && (
+                <div className="flex min-h-[52px] flex-col items-center justify-center rounded-2xl border border-white/6 bg-[#1f2c34]/40 px-4 py-3 text-sm font-medium text-white/25">
+                  Meeting
+                  <span className="text-[10px] font-normal text-white/15">Available soon</span>
+                </div>
               )}
               <button
                 type="button"
