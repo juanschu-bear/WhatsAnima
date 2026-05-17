@@ -126,7 +126,7 @@ function isKeyframeDisplayName(value: string) {
 
 export default function Onboarding() {
   const navigate = useNavigate()
-  const { user } = useAuth()
+  const { user, signOut } = useAuth()
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -378,8 +378,18 @@ export default function Onboarding() {
     <div className="brand-scene min-h-screen text-white">
       <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-4xl flex-col px-6 py-10">
         <div className="brand-panel rounded-[30px] p-8 sm:p-10">
-          <h1 className="text-3xl font-bold tracking-tight">{copy.welcome(welcomeName)}</h1>
-          <p className="mt-3 text-sm text-white/70">{copy.intro}</p>
+          <div className="flex items-start justify-between">
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight">{copy.welcome(welcomeName)}</h1>
+              <p className="mt-3 text-sm text-white/70">{copy.intro}</p>
+            </div>
+            <button
+              onClick={signOut}
+              className="shrink-0 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/50 transition hover:bg-white/10 hover:text-white/80"
+            >
+              Logout
+            </button>
+          </div>
           {copy.quote && (
             <p className="mt-4 text-sm italic text-white/50">{copy.quote}</p>
           )}
