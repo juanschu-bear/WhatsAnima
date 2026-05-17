@@ -13,14 +13,17 @@
   min-height: 100vh;
   display: flex; flex-direction: column;
   justify-content: center; align-items: center;
-  background: radial-gradient(ellipse at 50% 45%, rgba(30,26,20,0.6) 0%, #0a0d11 70%);
+  background:
+    radial-gradient(ellipse at 50% 60%, rgba(25,20,15,0.8) 0%, transparent 70%),
+    radial-gradient(ellipse at 50% 100%, rgba(40,32,22,0.4) 0%, transparent 50%),
+    linear-gradient(180deg, #0a0d11 0%, #13110e 60%, #1a1610 100%);
   cursor: pointer;
 }
 
-.ro-book-3d { perspective: 1200px; margin-bottom: 48px; }
+.ro-book-3d { perspective: 1400px; margin-bottom: 48px; }
 
 .ro-book-obj {
-  width: 300px; height: 420px;
+  width: 380px; height: 520px;
   transform: rotateY(-8deg) rotateX(2deg);
   transition: transform 0.6s ease;
   position: relative;
@@ -112,6 +115,27 @@
 }
 
 @keyframes roPulse { 0%,100%{opacity:0.2}50%{opacity:0.45} }
+
+/* Book opening animation */
+.ro-cover.opening .ro-book-obj {
+  animation: bookOpen 1.2s ease forwards;
+}
+
+@keyframes bookOpen {
+  0% { transform: rotateY(-8deg) rotateX(2deg); }
+  40% { transform: rotateY(-30deg) rotateX(0deg) scale(1.05); }
+  70% { transform: rotateY(-120deg) rotateX(0deg) scale(1.02); }
+  100% { transform: rotateY(-180deg) rotateX(0deg) scale(0.9); opacity: 0; }
+}
+
+.ro-cover.opening {
+  animation: coverFade 1.2s ease forwards;
+}
+
+@keyframes coverFade {
+  0%, 60% { opacity: 1; }
+  100% { opacity: 0; }
+}
 
 /* ===== SESSION LIST ===== */
 .ro-list { max-width: 760px; margin: 0 auto; padding: 48px 24px 80px; }

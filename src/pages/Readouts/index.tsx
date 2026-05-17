@@ -82,8 +82,15 @@ export default function ReadoutsPage() {
 }
 
 function CoverView({ onOpen }: { onOpen: () => void }) {
+  const [opening, setOpening] = useState(false)
+
+  function handleOpen() {
+    setOpening(true)
+    setTimeout(onOpen, 1100)
+  }
+
   return (
-    <div className="ro-cover" onClick={onOpen}>
+    <div className={`ro-cover ${opening ? 'opening' : ''}`} onClick={handleOpen}>
       <div className="ro-book-3d">
         <div className="ro-book-obj">
           <div className="ro-book-face">
