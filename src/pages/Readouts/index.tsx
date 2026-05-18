@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { getStoredLocale, t } from '../../lib/i18n'
+import { trackFeature, trackPageView } from '../../lib/analytics'
 import { fetchReadoutsByAvatar, type AvatarGroup, type UserGroup, type ReadoutSession, type ReadoutData, type SignalMoment } from './data'
 import './readouts.css'
 
@@ -55,10 +56,10 @@ export default function ReadoutsPage() {
   }, [])
 
   function go(v: View) { setView(v); window.scrollTo({ top: 0, behavior: 'smooth' }) }
-  function openAvatars() { go('avatars') }
+  function openAvatars() { trackFeature('insights_opened'); go('avatars') }
   function openUsers(a: AvatarGroup) { setSelAvatar(a); go('users') }
   function openSessions(u: UserGroup) { setSelUser(u); go('sessions') }
-  function openDetail(s: ReadoutSession) { setSelSession(s); go('detail') }
+  function openDetail(s: ReadoutSession) { setSelSession(s); trackFeature('insight_viewed', { avatar_name: s.avatar_name, session_id: s.session_id }); go('detail') }
 
   return (
     <div className="readouts-root">

@@ -1,5 +1,7 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { useEffect } from 'react'
 import { AuthProvider } from './contexts/AuthContext'
+import { initAnalytics, cleanup } from './lib/analytics'
 import ProtectedRoute from './components/ProtectedRoute'
 import OwnerRoute from './components/OwnerRoute'
 import Home from './pages/Home'
@@ -30,6 +32,11 @@ import ReadoutsPage from './pages/Readouts'
 import IncomingCallOverlay from './components/IncomingCallOverlay'
 
 export default function App() {
+  useEffect(() => {
+    initAnalytics()
+    return cleanup
+  }, [])
+
   return (
     <BrowserRouter>
       <AuthProvider>

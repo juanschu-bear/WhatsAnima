@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { trackPageView } from '../lib/analytics'
 import { supabase } from '../lib/supabase'
 
 export default function Home() {
@@ -90,6 +91,8 @@ export default function Home() {
       setSavingAccount(false)
     }
   }
+
+  useEffect(() => { if (!checking) trackPageView('/') }, [checking])
 
   if (checking) {
     return (
