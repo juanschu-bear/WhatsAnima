@@ -12,6 +12,7 @@ import {
 import { useNavigate, useParams } from 'react-router-dom'
 import { getConversation, listMessages, listPerceptionLogs, sendMessage, listAllOwners, listOwnersForUser, findContactByEmail, findOrCreateConversation, createContactForOwner, findContactByEmailForOwner, findLatestConversationForOwnerAndEmail, postAvatarReply, requestOutboundCall } from '../lib/api'
 import { resolveAvatarUrl } from '../lib/avatars'
+import { trackMessageSent, trackPageView } from '../lib/analytics'
 import { supabase } from '../lib/supabase'
 import { t } from '../lib/i18n'
 import {

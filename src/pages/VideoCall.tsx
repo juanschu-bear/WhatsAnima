@@ -16,6 +16,7 @@ import type {
 } from 'livekit-client'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { trackCallStart, trackCallEnd, trackCallError, trackPageView } from '../lib/analytics'
 import { useAuth } from '../contexts/AuthContext'
 import { resolveAvatarUrl } from '../lib/avatars'
 import { getConversation, sendMessage, checkUsage, incrementCallUsage } from '../lib/api'
@@ -799,6 +800,42 @@ export default function VideoCall() {
     tick()
     const id = window.setInterval(tick, 1000)
     return () => window.clearInterval(id)
+  }, [phase])
+
+  // --- Auto-timeout: 20min max call, 18min warning ---
+  const [callWarningShown, setCallWarningShown] = useState(false)
+  const MAX_CALL_SECONDS = 20 * 60
+  const WARNING_SECONDS = 18 * 60
+
+  useEffect(() => {
+    if (phase !== 'connected') return
+    if (callDurationSec >= MAX_CALL_SECONDS) {
+      console.log('[AUTO-TIMEOUT] Max call duration reached, leaving call')
+      void leaveCall()
+    } else if (callDurationSec >= WARNING_SECONDS && !callWarningShown) {
+      setCallWarningShown(true)
+    }
+  }, [callDurationSec, phase, callWarningShown])
+
+  // --- Silence detection: 1 min no audio from either side ---
+  const lastAudioActivityRef = useRef<number>(Date.now())
+
+  useEffect(() => {
+    if (phase !== 'connected') return
+    // Update on any audio-related state change
+    lastAudioActivityRef.current = Date.now()
+  }, [livekitRemoteAudio, callDurationSec])
+
+  useEffect(() => {
+    if (phase !== 'connected') return
+    const silenceCheck = window.setInterval(() => {
+      const silenceMs = Date.now() - lastAudioActivityRef.current
+      if (silenceMs > 60_000) {
+        console.log('[SILENCE-TIMEOUT] No audio activity for 60s, leaving call')
+        void leaveCall()
+      }
+    }, 10_000)
+    return () => window.clearInterval(silenceCheck)
   }, [phase])
 
   useEffect(() => {
@@ -1722,6 +1759,7 @@ export default function VideoCall() {
   }
 
   async function leaveCall() {
+    trackCallEnd(personaName, callDurationSec, 'user')
     const callObject = callObjectRef.current
     callObjectRef.current = null
 
@@ -2970,8 +3008,9 @@ export default function VideoCall() {
               {formatDisplayName(personaName)}
             </h1>
             {phase === 'connected' ? (
-              <p className="mt-1 font-mono text-xs tabular-nums text-[#70f0de]/90">
+              <p className={`mt-1 font-mono text-xs tabular-nums ${callWarningShown ? 'text-red-400 animate-pulse' : 'text-[#70f0de]/90'}`}>
                 {formatCallDuration(callDurationSec)}
+                {callWarningShown && <span className="ml-2 text-[10px]">⚠ 2 min remaining</span>}
               </p>
             ) : null}
           </div>
