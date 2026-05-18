@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { getStoredLocale, t } from '../../lib/i18n'
-import { trackFeature, trackPageView } from '../../lib/analytics'
+import { trackFeature } from '../../lib/analytics'
 import { fetchReadoutsByAvatar, type AvatarGroup, type UserGroup, type ReadoutSession, type ReadoutData, type SignalMoment } from './data'
 import './readouts.css'
 

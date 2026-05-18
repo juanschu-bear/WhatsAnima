@@ -16,7 +16,7 @@ import type {
 } from 'livekit-client'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { trackCallStart, trackCallEnd, trackCallError, trackPageView } from '../lib/analytics'
+import { trackCallEnd } from '../lib/analytics'
 import { useAuth } from '../contexts/AuthContext'
 import { resolveAvatarUrl } from '../lib/avatars'
 import { getConversation, sendMessage, checkUsage, incrementCallUsage } from '../lib/api'
