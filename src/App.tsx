@@ -8,6 +8,7 @@ import Home from './pages/Home'
 import Login from './pages/Login'
 import Signup from './pages/Signup'
 import Dashboard from './pages/Dashboard'
+import Analytics from './pages/Analytics'
 import Invite from './pages/Invite'
 import InviteAccept from './pages/InviteAccept'
 import Onboarding from './pages/Onboarding'
@@ -89,6 +90,14 @@ export default function App() {
             element={
               <OwnerRoute>
                 <Dashboard />
+              </OwnerRoute>
+            }
+          />
+          <Route
+            path="/analytics"
+            element={
+              <OwnerRoute>
+                <Analytics />
               </OwnerRoute>
             }
           />
