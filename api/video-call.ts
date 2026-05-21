@@ -11,6 +11,29 @@ const LIVE_CALL_API_BASE =
 const JUAN_LOCKED_PERSONA_ID = 'p021059f477c'
 const JUAN_LOCKED_REPLICA_ID = 'r441d437f4e0'
 
+function resolveSafeTimezone(value: unknown): string {
+  const normalized = normalizeTemporalTimezone(String(value || 'UTC').trim() || 'UTC')
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: normalized }).format(new Date())
+    return normalized
+  } catch {
+    return 'UTC'
+  }
+}
+
+function safeBuildCurrentTimeContext(timezone: string, languageCode: 'en' | 'es' | 'de') {
+  try {
+    return buildCurrentTimeContext(timezone, languageCode)
+  } catch (error) {
+    console.warn('[video-call] current_time_context_failed', {
+      timezone,
+      languageCode,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return buildCurrentTimeContext('UTC', languageCode)
+  }
+}
+
 function normalizeBackendBaseUrl(value: string) {
   const normalized = value.replace(/\/+$/, '').replace(/\/api$/, '')
   if (normalized === 'https://anima.onioko.com') {
@@ -150,7 +173,7 @@ export default async function handler(req: any, res: any) {
   const contactId = String(body.contact_id || body.contactId || '').trim()
   const userId = String(body.user_id || body.userId || '').trim()
   const contactName = String(body.contact_name || body.contactName || '').trim()
-  const timezone = normalizeTemporalTimezone(String(body.timezone || 'UTC').trim() || 'UTC')
+  const timezone = resolveSafeTimezone(body.timezone)
   const incomingCallId = String(body.incoming_call_id || body.incomingCallId || '').trim()
   const meetingToken = String(body.meeting_token || body.meetingToken || '').trim()
   const meetingGuestJoinOnly = Boolean(body.meeting_guest_join_only)
@@ -182,7 +205,7 @@ export default async function handler(req: any, res: any) {
   }
   const normalizedLanguageCode = normalizeLanguageCode(body.language)
   const languageInstruction = buildLiveLanguageInstruction(normalizedLanguageCode)
-  const currentTimeContext = buildCurrentTimeContext(timezone, normalizedLanguageCode)
+  const currentTimeContext = safeBuildCurrentTimeContext(timezone, normalizedLanguageCode)
   let finalInstruction = languageInstruction
   requestBody.language_instruction = finalInstruction
   requestBody.system_prompt_append = `${currentTimeContext}\n\n${finalInstruction}`
@@ -212,14 +235,18 @@ export default async function handler(req: any, res: any) {
 
   const { client: supabase } = getSupabaseAdmin()
   if (supabase && conversationId) {
-    await syncChannelState({
-      supabase,
-      conversationId,
-      channel: 'video',
-      timezone,
-      callStatus: 'starting',
-      messageText: String(body.persona_name || body.persona || ''),
-    })
+    try {
+      await syncChannelState({
+        supabase,
+        conversationId,
+        channel: 'video',
+        timezone,
+        callStatus: 'starting',
+        messageText: String(body.persona_name || body.persona || ''),
+      })
+    } catch (error) {
+      console.warn('[video-call] prestart channel sync failed', error)
+    }
   }
 
   if (supabase && conversationId) {
@@ -636,7 +663,14 @@ export default async function handler(req: any, res: any) {
     })
     const responseStatus = response.status
     const text = await response.text()
-    const payload = text ? JSON.parse(text) : {}
+    let payload: any = {}
+    if (text) {
+      try {
+        payload = JSON.parse(text)
+      } catch {
+        payload = { raw: text }
+      }
+    }
 
     if ((responseStatus ?? 500) >= 400) {
       return res.status(responseStatus ?? 500).json(payload)
@@ -671,14 +705,18 @@ export default async function handler(req: any, res: any) {
         console.error('[video-call] audit write failed', error)
       }
 
-      await syncChannelState({
-        supabase,
-        conversationId: conversationId || `session:${String(payload.session_id)}`,
-        channel: 'video',
-        timezone,
-        callStatus: 'active',
-        sessionId: String(payload.session_id),
-      })
+      try {
+        await syncChannelState({
+          supabase,
+          conversationId: conversationId || `session:${String(payload.session_id)}`,
+          channel: 'video',
+          timezone,
+          callStatus: 'active',
+          sessionId: String(payload.session_id),
+        })
+      } catch (error) {
+        console.error('[video-call] poststart channel sync failed', error)
+      }
     }
 
     return res.status(200).json(payload)
