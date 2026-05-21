@@ -6,6 +6,7 @@ import type {
   RemoteParticipant,
   LocalTrackPublication,
   LocalParticipant,
+  LocalAudioTrack,
   LocalVideoTrack,
   RemoteVideoTrack,
   RemoteAudioTrack,
@@ -613,6 +614,43 @@ interface LivekitTranscriptBlock {
   lastUpdatedAt: number
 }
 
+function pickMeetingRecordingMimeType() {
+  if (typeof MediaRecorder === 'undefined') return ''
+  const candidates = [
+    'video/webm;codecs=vp9,opus',
+    'video/webm;codecs=vp8,opus',
+    'video/webm',
+    'video/mp4',
+    '',
+  ]
+  return candidates.find((candidate) => candidate === '' || MediaRecorder.isTypeSupported(candidate)) || ''
+}
+
+function drawMeetingRecordingPlaceholder(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  label: string,
+  subtitle: string,
+) {
+  const gradient = ctx.createLinearGradient(x, y, x, y + height)
+  gradient.addColorStop(0, 'rgba(17, 24, 39, 1)')
+  gradient.addColorStop(1, 'rgba(3, 7, 18, 1)')
+  ctx.fillStyle = gradient
+  ctx.fillRect(x, y, width, height)
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)'
+  ctx.lineWidth = 2
+  ctx.strokeRect(x + 1, y + 1, width - 2, height - 2)
+  ctx.fillStyle = 'rgba(255,255,255,0.88)'
+  ctx.font = '600 30px system-ui, sans-serif'
+  ctx.fillText(label, x + 28, y + 48)
+  ctx.fillStyle = 'rgba(255,255,255,0.56)'
+  ctx.font = '400 18px system-ui, sans-serif'
+  ctx.fillText(subtitle, x + 28, y + 78)
+}
+
 const LIVEKIT_AGENT_IDENTITY_PATTERNS = [/^keyframe-avatar-agent/i, /^agent[-_]/i, /-agent$/i]
 
 function readLivekitRoomDisplayName(metadata: string | undefined | null): string {
@@ -688,6 +726,10 @@ export default function VideoCall() {
   const [livekitRemoteVideo, setLivekitRemoteVideo] = useState<RemoteVideoTrack | null>(null)
   const [livekitRemoteAudio, setLivekitRemoteAudio] = useState<RemoteAudioTrack | null>(null)
   const [livekitLocalVideo, setLivekitLocalVideo] = useState<LocalVideoTrack | null>(null)
+  const localMeetingRecorderRef = useRef<MediaRecorder | null>(null)
+  const localMeetingRecordingCleanupRef = useRef<(() => void) | null>(null)
+  const localMeetingRecordingStopResolverRef = useRef<(() => void) | null>(null)
+  const localMeetingRecordingChunksRef = useRef<Blob[]>([])
   const livekitRemoteIdentityRef = useRef<string | null>(null)
   const livekitLocalIdentityRef = useRef<string | null>(null)
   const [livekitRemoteName, setLivekitRemoteName] = useState<string>('')
@@ -923,12 +965,254 @@ export default function VideoCall() {
     creatorModeRef.current = creatorMode
   }, [creatorMode])
 
+  useEffect(() => {
+    return () => {
+      localMeetingRecordingCleanupRef.current?.()
+      localMeetingRecordingCleanupRef.current = null
+      if (recordingUrl?.startsWith('blob:')) {
+        URL.revokeObjectURL(recordingUrl)
+      }
+    }
+  }, [recordingUrl])
+
   const getLocalAudioTrack = () => {
     const callObject = callObjectRef.current
     if (!callObject || typeof callObject.participants !== 'function') return null
     const participants = callObject.participants() || {}
     const local = participants.local || Object.values(participants).find((p) => p?.local)
     return getParticipantTrack(local, 'audio')
+  }
+
+  const getLivekitLocalAudioTrack = () => {
+    const room = livekitRoomRef.current
+    if (!room) return null
+    for (const publication of room.localParticipant.trackPublications.values()) {
+      const track = publication.track
+      if (track?.kind === Track.Kind.Audio) {
+        return track as LocalAudioTrack
+      }
+    }
+    return null
+  }
+
+  const stopLocalMeetingRecording = async () => {
+    const recorder = localMeetingRecorderRef.current
+    if (!recorder || recorder.state === 'inactive') {
+      localMeetingRecordingCleanupRef.current?.()
+      localMeetingRecordingCleanupRef.current = null
+      localMeetingRecorderRef.current = null
+      return
+    }
+    await new Promise<void>((resolve) => {
+      localMeetingRecordingStopResolverRef.current = resolve
+      recorder.stop()
+    })
+  }
+
+  const startLocalMeetingRecording = async () => {
+    if (typeof MediaRecorder === 'undefined') {
+      throw new Error('Recording is not supported in this browser.')
+    }
+
+    const remoteVideoTrack = livekitRemoteVideo
+    const localVideoTrack = livekitLocalVideo
+    if (!remoteVideoTrack && !localVideoTrack) {
+      throw new Error('No video tracks are available yet.')
+    }
+
+    localMeetingRecordingCleanupRef.current?.()
+    localMeetingRecordingCleanupRef.current = null
+    localMeetingRecordingChunksRef.current = []
+
+    if (recordingUrl?.startsWith('blob:')) {
+      URL.revokeObjectURL(recordingUrl)
+    }
+    setRecordingUrl(null)
+
+    const remoteVideoEl = remoteVideoTrack ? document.createElement('video') : null
+    const localVideoEl = localVideoTrack ? document.createElement('video') : null
+    const attachedTracks: Array<{ track: { detach?: (element?: Element) => void }; element: HTMLMediaElement }> = []
+
+    const prepareVideoElement = async (
+      element: HTMLVideoElement | null,
+      track: RemoteVideoTrack | LocalVideoTrack | null,
+      muted: boolean,
+    ) => {
+      if (!element || !track) return
+      element.autoplay = true
+      element.playsInline = true
+      element.muted = muted
+      track.attach(element)
+      attachedTracks.push({ track, element })
+      try {
+        await element.play()
+      } catch {
+        /* ignore autoplay failures for hidden elements */
+      }
+    }
+
+    await Promise.all([
+      prepareVideoElement(remoteVideoEl, remoteVideoTrack, true),
+      prepareVideoElement(localVideoEl, localVideoTrack, true),
+    ])
+
+    const canvas = document.createElement('canvas')
+    canvas.width = 1280
+    canvas.height = 720
+    const ctx = canvas.getContext('2d')
+    if (!ctx) {
+      throw new Error('Unable to initialize the recording canvas.')
+    }
+
+    const canvasStream = canvas.captureStream(30)
+    const audioContext = new AudioContext()
+    const audioDestination = audioContext.createMediaStreamDestination()
+    let hasMixedAudio = false
+
+    const connectAudioTrack = (mediaTrack: MediaStreamTrack | null | undefined) => {
+      if (!mediaTrack) return
+      const source = audioContext.createMediaStreamSource(new MediaStream([mediaTrack]))
+      source.connect(audioDestination)
+      hasMixedAudio = true
+    }
+
+    connectAudioTrack((livekitRemoteAudio as any)?.mediaStreamTrack as MediaStreamTrack | undefined)
+    connectAudioTrack((getLivekitLocalAudioTrack() as any)?.mediaStreamTrack as MediaStreamTrack | undefined)
+
+    if (hasMixedAudio) {
+      for (const track of audioDestination.stream.getAudioTracks()) {
+        canvasStream.addTrack(track)
+      }
+    }
+
+    const drawFrame = () => {
+      ctx.fillStyle = '#030712'
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+      const remoteReady = Boolean(remoteVideoEl && remoteVideoEl.readyState >= 2)
+      const localReady = Boolean(localVideoEl && localVideoEl.readyState >= 2 && isCameraEnabled)
+
+      if (viewMode === 'side-by-side') {
+        const gap = 24
+        const tileWidth = (canvas.width - gap * 3) / 2
+        const tileHeight = canvas.height - gap * 2
+
+        if (remoteReady && remoteVideoEl) {
+          ctx.drawImage(remoteVideoEl, gap, gap, tileWidth, tileHeight)
+        } else {
+          drawMeetingRecordingPlaceholder(ctx, gap, gap, tileWidth, tileHeight, livekitRemoteName || 'Avatar', 'Waiting for video')
+        }
+
+        if (localReady && localVideoEl) {
+          ctx.save()
+          ctx.translate(canvas.width - gap, 0)
+          ctx.scale(-1, 1)
+          ctx.drawImage(localVideoEl, gap, gap, tileWidth, tileHeight)
+          ctx.restore()
+        } else {
+          drawMeetingRecordingPlaceholder(
+            ctx,
+            gap * 2 + tileWidth,
+            gap,
+            tileWidth,
+            tileHeight,
+            livekitLocalName || 'You',
+            isCameraEnabled ? 'Waiting for camera' : 'Camera off',
+          )
+        }
+      } else {
+        if (remoteReady && remoteVideoEl) {
+          ctx.drawImage(remoteVideoEl, 0, 0, canvas.width, canvas.height)
+        } else {
+          drawMeetingRecordingPlaceholder(ctx, 0, 0, canvas.width, canvas.height, livekitRemoteName || 'Avatar', 'Waiting for video')
+        }
+
+        const pipWidth = 280
+        const pipHeight = 210
+        const pipX = canvas.width - pipWidth - 28
+        const pipY = canvas.height - pipHeight - 28
+
+        if (localReady && localVideoEl) {
+          ctx.save()
+          ctx.translate(pipX + pipWidth, pipY)
+          ctx.scale(-1, 1)
+          ctx.drawImage(localVideoEl, 0, 0, pipWidth, pipHeight)
+          ctx.restore()
+          ctx.strokeStyle = 'rgba(255,255,255,0.22)'
+          ctx.lineWidth = 2
+          ctx.strokeRect(pipX, pipY, pipWidth, pipHeight)
+        } else {
+          drawMeetingRecordingPlaceholder(
+            ctx,
+            pipX,
+            pipY,
+            pipWidth,
+            pipHeight,
+            livekitLocalName || 'You',
+            isCameraEnabled ? 'Waiting for camera' : 'Camera off',
+          )
+        }
+      }
+
+      const stamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      ctx.fillStyle = 'rgba(0,0,0,0.58)'
+      ctx.fillRect(24, 24, 170, 40)
+      ctx.fillStyle = '#ffffff'
+      ctx.font = '600 18px system-ui, sans-serif'
+      ctx.fillText(`REC ${stamp}`, 40, 50)
+
+      localMeetingRecordingCleanupRef.current = cleanup
+      frameHandle = window.requestAnimationFrame(drawFrame)
+    }
+
+    let frameHandle: number | null = null
+    const cleanup = () => {
+      if (frameHandle !== null) {
+        window.cancelAnimationFrame(frameHandle)
+        frameHandle = null
+      }
+      for (const { track, element } of attachedTracks) {
+        track.detach?.(element)
+        element.pause()
+        element.srcObject = null
+        element.removeAttribute('src')
+      }
+      canvasStream.getTracks().forEach((track) => track.stop())
+      void audioContext.close().catch(() => undefined)
+    }
+
+    const mimeType = pickMeetingRecordingMimeType()
+    const recorder = mimeType
+      ? new MediaRecorder(canvasStream, { mimeType })
+      : new MediaRecorder(canvasStream)
+
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        localMeetingRecordingChunksRef.current.push(event.data)
+      }
+    }
+
+    recorder.onstop = () => {
+      const blob = new Blob(localMeetingRecordingChunksRef.current, {
+        type: recorder.mimeType || mimeType || 'video/webm',
+      })
+      cleanup()
+      localMeetingRecordingCleanupRef.current = null
+      localMeetingRecorderRef.current = null
+      setRecordingActive(false)
+      if (blob.size > 0) {
+        const objectUrl = URL.createObjectURL(blob)
+        setRecordingUrl(objectUrl)
+        setRecordingId(`local-${Date.now()}`)
+      }
+      localMeetingRecordingStopResolverRef.current?.()
+      localMeetingRecordingStopResolverRef.current = null
+    }
+
+    drawFrame()
+    recorder.start(1000)
+    localMeetingRecorderRef.current = recorder
+    setRecordingActive(true)
   }
 
   const stopOpmAudioCapture = () => {
@@ -2942,27 +3226,11 @@ export default function VideoCall() {
     setRecordingBusy(true)
     setRecordingError(null)
     try {
-      const response = await fetch(
-        `${LIVE_CALL_API_BASE}/api/recording/${encodeURIComponent(activeSessionId)}/${action}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({}),
-        },
-      )
-      const payload = await response.json().catch(() => ({})) as {
-        error?: string
-        detail?: string
-        recording_id?: string | null
-        recording_url?: string | null
-        status?: string | null
+      if (action === 'start') {
+        await startLocalMeetingRecording()
+      } else {
+        await stopLocalMeetingRecording()
       }
-      if (!response.ok) {
-        throw new Error(payload.detail || payload.error || `Unable to ${action} recording`)
-      }
-      setRecordingActive(action === 'start')
-      if (payload.recording_id) setRecordingId(payload.recording_id)
-      if (payload.recording_url) setRecordingUrl(payload.recording_url)
     } catch (error) {
       setRecordingError(error instanceof Error ? error.message : `Unable to ${action} recording`)
     } finally {
