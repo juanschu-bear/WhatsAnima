@@ -691,9 +691,13 @@ export default function VideoCall() {
 
   const [conversation, setConversation] = useState<ConversationData | null>(null)
   const [loadingConversation, setLoadingConversation] = useState(true)
-  const [personas, setPersonas] = useState<BackendPersona[]>(FALLBACK_PERSONAS)
+  const [_personas, setPersonas] = useState<BackendPersona[]>(FALLBACK_PERSONAS)
   const [loadingPersonas, setLoadingPersonas] = useState(true)
-  const [language, setLanguage] = useState<SupportedLanguage>('en')
+  const [language, setLanguage] = useState<SupportedLanguage>(() => {
+    if (typeof window === 'undefined') return 'en'
+    const stored = window.localStorage.getItem('wa_preferred_language')
+    return normalizeLanguageCode(stored)
+  })
   const [creatorMode, setCreatorMode] = useState(false)
   const [selectedPersona, setSelectedPersona] = useState('MAXIM')
   const [viewMode, setViewMode] = useState<ViewMode>('speaker')
@@ -973,6 +977,9 @@ export default function VideoCall() {
 
   useEffect(() => {
     languageRef.current = normalizeLanguageCode(language)
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('wa_preferred_language', language)
+    }
   }, [language])
 
   useEffect(() => {
@@ -3380,9 +3387,6 @@ export default function VideoCall() {
 
   const owner = conversation.wa_owners
   const personaName = personaOverrideEnabled ? selectedPersona : owner.display_name || selectedPersona
-  const replicaId = owner.tavus_replica_id?.trim() || FALLBACK_REPLICA_ID
-  const selectedPersonaDetails = personas.find((persona) => persona.name === selectedPersona) ?? null
-  const selectedLanguage = LANGUAGES.find((item) => item.code === language)
   const mobileLandscape = isLandscape && (isNarrowViewport || isShortViewport)
   const effectiveViewMode: ViewMode = mobileLandscape ? 'side-by-side' : viewMode
 
@@ -3500,90 +3504,48 @@ export default function VideoCall() {
                           : statusText}
                       </p>
                       {phase === 'setup' && !shouldSkipLanguageSelection ? (
-                        <div className="mt-6 w-full max-w-xl rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(6,14,24,0.95),rgba(6,10,18,0.98))] p-4 shadow-[0_28px_90px_rgba(0,0,0,0.45)] backdrop-blur-2xl sm:rounded-[28px] sm:p-5">
-                          <p className="text-xs uppercase tracking-[0.26em] text-white/45">
-                            {personaOverrideEnabled ? 'Persona override (testing)' : 'Avatar identity'}
-                          </p>
-                          {personaOverrideEnabled ? (
-                            <label className="mt-3 block">
-                              <select
-                                value={selectedPersona}
-                                onChange={(event) => setSelectedPersona(event.target.value)}
-                                className="min-h-12 w-full appearance-none rounded-[20px] border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-medium text-white outline-none transition focus:border-[#79f5e4]/40"
-                                disabled={loadingPersonas}
-                              >
-                                {personas.map((persona) => (
-                                  <option key={persona.id || persona.name} value={persona.name} className="bg-[#0b1520] text-white">
-                                    {persona.name} {persona.role ? `- ${persona.role}` : ''}
-                                  </option>
-                                ))}
-                              </select>
+                        <div className="mt-6 w-full max-w-md rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(6,14,24,0.95),rgba(6,10,18,0.98))] p-4 shadow-[0_28px_90px_rgba(0,0,0,0.45)] backdrop-blur-2xl sm:rounded-[28px] sm:p-5">
+                          <div className="flex items-center justify-between gap-4">
+                            <label htmlFor="vc-language" className="text-sm font-medium text-white/80">
+                              Language
                             </label>
-                          ) : (
-                            <div className="mt-3 rounded-[20px] border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-medium text-white/92">
-                              {owner.display_name || 'Owner avatar'}
-                            </div>
-                          )}
-                          {personaOverrideEnabled && selectedPersonaDetails?.role ? (
-                            <p className="mt-2 text-sm text-white/60">{selectedPersonaDetails.role}</p>
-                          ) : null}
-                          <p className="mt-4 text-xs uppercase tracking-[0.26em] text-white/45">Session language</p>
-                          <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                            {LANGUAGES.map((item) => {
-                              const active = language === item.code
-                              return (
-                                <button
-                                  key={item.code}
-                                  type="button"
-                                  onClick={() => {
-                                    languageRef.current = normalizeLanguageCode(item.code)
-                                    setLanguage(item.code)
-                                  }}
-                                  className={`rounded-[20px] border px-4 py-4 text-left transition ${
-                                    active
-                                      ? `border-white/20 bg-gradient-to-br ${item.accent} text-[#041018]`
-                                      : 'border-white/10 bg-white/[0.03] text-white/78 hover:bg-white/[0.06]'
-                                  }`}
-                                >
-                                  <div className="text-sm font-semibold">{item.label}</div>
-                                  <div className={`mt-1 text-xs ${active ? 'text-[#08252a]/80' : 'text-white/45'}`}>
-                                    Join with this language
-                                  </div>
-                                </button>
-                              )
-                            })}
+                            <select
+                              id="vc-language"
+                              value={language}
+                              onChange={(event) => {
+                                const code = event.target.value as SupportedLanguage
+                                languageRef.current = normalizeLanguageCode(code)
+                                setLanguage(code)
+                              }}
+                              className="min-h-10 appearance-none rounded-[14px] border border-white/10 bg-white/[0.04] px-3 py-2 pr-8 text-sm font-medium text-white outline-none transition focus:border-[#79f5e4]/40"
+                            >
+                              {LANGUAGES.map((item) => (
+                                <option key={item.code} value={item.code} className="bg-[#0b1520] text-white">
+                                  {item.label}
+                                </option>
+                              ))}
+                            </select>
                           </div>
 
-                          <div className="mt-4 rounded-[20px] border border-white/10 bg-white/[0.03] px-4 py-4 text-left">
-                            <div className="flex items-start justify-between gap-4">
-                              <div>
-                                <p className="text-sm font-semibold text-white">Record this call</p>
-                                <p className="mt-1 text-xs leading-5 text-white/58">
-                                  Tavus recordings are opt-in. If enabled, the call will be recorded from the start.
-                                  Keyframe calls record locally in your browser.
-                                </p>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => setRecordingRequested((current) => !current)}
-                                className={`relative inline-flex h-7 w-12 shrink-0 rounded-full border transition ${
-                                  recordingRequested
-                                    ? 'border-[#79f5e4]/40 bg-[#79f5e4]/25'
-                                    : 'border-white/12 bg-white/8'
+                          <div className="mt-3 flex items-center justify-between gap-4 border-t border-white/8 pt-3">
+                            <span className="text-sm font-medium text-white/80">Record this call</span>
+                            <button
+                              type="button"
+                              onClick={() => setRecordingRequested((current) => !current)}
+                              className={`relative inline-flex h-7 w-12 shrink-0 rounded-full border transition ${
+                                recordingRequested
+                                  ? 'border-[#79f5e4]/40 bg-[#79f5e4]/25'
+                                  : 'border-white/12 bg-white/8'
+                              }`}
+                              aria-pressed={recordingRequested}
+                              aria-label={recordingRequested ? 'Disable recording for this call' : 'Enable recording for this call'}
+                            >
+                              <span
+                                className={`absolute top-0.5 h-5.5 w-5.5 rounded-full bg-white shadow transition ${
+                                  recordingRequested ? 'left-[1.45rem]' : 'left-0.5'
                                 }`}
-                                aria-pressed={recordingRequested}
-                                aria-label={recordingRequested ? 'Disable recording for this call' : 'Enable recording for this call'}
-                              >
-                                <span
-                                  className={`absolute top-0.5 h-5.5 w-5.5 rounded-full bg-white shadow transition ${
-                                    recordingRequested ? 'left-[1.45rem]' : 'left-0.5'
-                                  }`}
-                                />
-                              </button>
-                            </div>
-                            <p className={`mt-3 text-xs font-medium ${recordingRequested ? 'text-[#9af8ea]' : 'text-white/45'}`}>
-                              {recordingRequested ? 'Recording enabled for the next call.' : 'Recording disabled by default.'}
-                            </p>
+                              />
+                            </button>
                           </div>
 
                           <button
@@ -3593,9 +3555,6 @@ export default function VideoCall() {
                           >
                             Start live call
                           </button>
-                          <p className="mt-3 text-center text-[11px] text-white/42">
-                            Owner avatar: {owner.display_name || 'Unconfigured'} · Session persona: {personaName} · Language: {selectedLanguage?.label ?? 'English'} · Replica: {replicaId}
-                          </p>
                         </div>
                       ) : null}
                     </div>
