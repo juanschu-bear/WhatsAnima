@@ -2137,8 +2137,7 @@ export default function VideoCall() {
     const replicaId = lockJuanPersona
       ? JUAN_LOCKED_REPLICA_ID
       : (owner.tavus_replica_id?.trim() || FALLBACK_REPLICA_ID)
-    const enableGlueForExtendedJuan =
-      ownerEmail === 'mwg.jmschubert@gmail.com' || ownerDisplayName === 'juan schubert (extended)'
+    const enableGlueForTavus = true
 
     const existingCall = callObjectRef.current
     if (existingCall) {
@@ -2182,7 +2181,7 @@ export default function VideoCall() {
         persona: personaName,
         replica_id: replicaId,
         language: languageCode,
-        glue_enabled: enableGlueForExtendedJuan,
+        glue_enabled: enableGlueForTavus,
         ...(isUnlimitedDurationUser ? {} : { max_call_duration: 120 }),
         user_name: buildUserName(user, conversation),
         conversation_id: resolvedConversationId,
