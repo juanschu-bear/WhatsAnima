@@ -203,6 +203,9 @@ export default async function handler(req: any, res: any) {
   if (typeof body.persona_override === 'boolean') {
     requestBody.persona_override = body.persona_override
   }
+  if (body.record === true) {
+    requestBody.record = true
+  }
   if (typeof body.glue_enabled === 'boolean') {
     requestBody.glue_enabled = body.glue_enabled
   }

@@ -703,6 +703,7 @@ export default function VideoCall() {
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [isMicEnabled, setIsMicEnabled] = useState(true)
   const [isCameraEnabled, setIsCameraEnabled] = useState(true)
+  const [recordingRequested, setRecordingRequested] = useState(false)
   const [recordingActive, setRecordingActive] = useState(false)
   const [recordingBusy, setRecordingBusy] = useState(false)
   const [_recordingId, setRecordingId] = useState<string | null>(null)
@@ -712,6 +713,9 @@ export default function VideoCall() {
   const [postCallStatus, setPostCallStatus] = useState<'preparing' | 'ready' | 'failed' | 'timeout' | 'unavailable'>('preparing')
   const [postCallRecordingUrl, setPostCallRecordingUrl] = useState<string | null>(null)
   const [postCallError, setPostCallError] = useState<string | null>(null)
+  const [postCallProgressPct, setPostCallProgressPct] = useState(0)
+  const [postCallElapsedSec, setPostCallElapsedSec] = useState(0)
+  const recordingUrlRef = useRef<string | null>(null)
   const pendingNavigationRef = useRef<(() => void) | null>(null)
   const pollAbortRef = useRef<AbortController | null>(null)
   const [_joinUrl, setJoinUrl] = useState<string | null>(null)
@@ -771,6 +775,8 @@ export default function VideoCall() {
   const languageRef = useRef<SupportedLanguage>('en')
   const creatorModeRef = useRef(false)
   const tavusConversationIdRef = useRef<string | null>(null)
+  const recordingRequestedRef = useRef(false)
+  const serverRecordingExpectedRef = useRef(false)
   const lastOpmContextRef = useRef<string | null>(null)
   const lastOpmContextAtRef = useRef<number>(0)
   const guardrailContextSentRef = useRef(false)
@@ -811,6 +817,14 @@ export default function VideoCall() {
   useEffect(() => {
     sessionIdRef.current = sessionId
   }, [sessionId])
+
+  useEffect(() => {
+    recordingRequestedRef.current = recordingRequested
+  }, [recordingRequested])
+
+  useEffect(() => {
+    recordingUrlRef.current = recordingUrl
+  }, [recordingUrl])
 
   useEffect(() => {
     const email = String(user?.email || '').trim().toLowerCase()
@@ -1999,6 +2013,9 @@ export default function VideoCall() {
     )
     setStatusText(hasAvatarVideo ? 'Connected' : 'Avatar joining...')
     setPhase('connected')
+    if (serverRecordingExpectedRef.current) {
+      setRecordingActive(true)
+    }
     if (hasAvatarVideo || tavusAvatarReady) {
       injectParticipantsContext(callObject)
     }
@@ -2066,7 +2083,7 @@ export default function VideoCall() {
     teardownLivekit()
     setIsLivekit(false)
 
-    const stopRecordingPromise = recordingActive ? toggleRecording(true) : Promise.resolve()
+    const stopRecordingPromise = recordingActive && isLivekit ? toggleRecording(true) : Promise.resolve()
     const shouldEndMeetingSession = !isMeetingMode || meetingHostControl
     const endSessionPromise = shouldEndMeetingSession ? endBackendSession('leave_button') : Promise.resolve()
     const leaveRoomPromise = (async () => {
@@ -2101,9 +2118,15 @@ export default function VideoCall() {
 
     pendingNavigationRef.current = () => navigate(navTarget.path, { replace: navTarget.replace })
 
-    if (finalSessionId) {
+    if (finalSessionId && serverRecordingExpectedRef.current) {
       setPostCallActive(true)
       void pollRecordingUntilReady(finalSessionId)
+    } else if (recordingUrlRef.current) {
+      setPostCallActive(true)
+      setPostCallStatus('ready')
+      setPostCallRecordingUrl(recordingUrlRef.current)
+      setPostCallProgressPct(100)
+      setPostCallElapsedSec(0)
     } else {
       pendingNavigationRef.current?.()
       pendingNavigationRef.current = null
@@ -2166,11 +2189,13 @@ export default function VideoCall() {
     lastLatencyLoggedAtRef.current = null
     lastActiveSpeakerIdRef.current = null
     toolCallCooldownRef.current = {}
+    serverRecordingExpectedRef.current = false
     setPhase('starting')
     setStatusText(isMeetingGuest ? 'Joining live meeting...' : 'Connecting...')
 
     try {
       const languageCode = normalizeLanguageCode(languageRef.current)
+      const wantsRecording = recordingRequestedRef.current
       const isUnlimitedDurationUser = UNLIMITED_DURATION_EMAILS.has(String(user?.email || '').toLowerCase())
       const dailyUserName = (
         isMeetingMode
@@ -2183,6 +2208,7 @@ export default function VideoCall() {
         replica_id: replicaId,
         language: languageCode,
         glue_enabled: enableGlueForExtendedJuan,
+        ...(wantsRecording ? { record: true } : {}),
         ...(isUnlimitedDurationUser ? {} : { max_call_duration: 120 }),
         user_name: buildUserName(user, conversation),
         conversation_id: resolvedConversationId,
@@ -2254,6 +2280,7 @@ export default function VideoCall() {
 
       const rawJoinUrl = String(payload.join_url || '').trim()
       const isLivekitJoin = rawJoinUrl.toLowerCase().startsWith('livekit://')
+      serverRecordingExpectedRef.current = !isLivekitJoin && wantsRecording
 
       sessionIdRef.current = payload.session_id
       callStartAtRef.current = Date.now()
@@ -2651,6 +2678,20 @@ export default function VideoCall() {
         joinedRef.current = true
         setPhase('connected')
         setStatusText('Connected')
+        if (wantsRecording) {
+          setRecordingBusy(true)
+          try {
+            await startLocalMeetingRecording()
+          } catch (recordingStartError) {
+            setRecordingError(
+              recordingStartError instanceof Error
+                ? recordingStartError.message
+                : 'Unable to start recording',
+            )
+          } finally {
+            setRecordingBusy(false)
+          }
+        }
         return
       }
 
@@ -3217,8 +3258,14 @@ export default function VideoCall() {
   }
 
   async function toggleRecording(forceStop = false) {
-    // Tavus auto-records via Tavus's own recording feature; nothing to toggle.
-    if (!isLivekit) return
+    if (!isLivekit) {
+      setRecordingError(
+        recordingActive
+          ? 'This Tavus call is already recording.'
+          : 'For Tavus, recording must be enabled before the call starts.',
+      )
+      return
+    }
     const activeSessionId = sessionIdRef.current
     if (!activeSessionId) return
 
@@ -3246,13 +3293,19 @@ export default function VideoCall() {
     setPostCallStatus('preparing')
     setPostCallRecordingUrl(null)
     setPostCallError(null)
+    setPostCallProgressPct(0)
+    setPostCallElapsedSec(0)
 
     const startedAt = Date.now()
     const maxMs = 180_000
+    const typicalMs = 60_000
     const intervalMs = 3000
 
     while (!controller.signal.aborted) {
-      if (Date.now() - startedAt > maxMs) {
+      const elapsedMs = Date.now() - startedAt
+      setPostCallElapsedSec(Math.max(0, Math.floor(elapsedMs / 1000)))
+      setPostCallProgressPct(Math.min(95, Math.round((elapsedMs / typicalMs) * 100)))
+      if (elapsedMs > maxMs) {
         setPostCallStatus('timeout')
         return
       }
@@ -3274,6 +3327,7 @@ export default function VideoCall() {
           if (status === 'ready' && data.recording_url) {
             setPostCallRecordingUrl(data.recording_url)
             setPostCallStatus('ready')
+            setPostCallProgressPct(100)
             return
           }
           if (status === 'failed' || status === 'error') {
@@ -3292,6 +3346,9 @@ export default function VideoCall() {
     pollAbortRef.current?.abort()
     pollAbortRef.current = null
     setPostCallActive(false)
+    setPostCallProgressPct(0)
+    setPostCallElapsedSec(0)
+    serverRecordingExpectedRef.current = false
     const navTo = pendingNavigationRef.current
     pendingNavigationRef.current = null
     if (navTo) navTo()
@@ -3497,6 +3554,38 @@ export default function VideoCall() {
                             })}
                           </div>
 
+                          <div className="mt-4 rounded-[20px] border border-white/10 bg-white/[0.03] px-4 py-4 text-left">
+                            <div className="flex items-start justify-between gap-4">
+                              <div>
+                                <p className="text-sm font-semibold text-white">Record this call</p>
+                                <p className="mt-1 text-xs leading-5 text-white/58">
+                                  Tavus recordings are opt-in. If enabled, the call will be recorded from the start.
+                                  Keyframe calls record locally in your browser.
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setRecordingRequested((current) => !current)}
+                                className={`relative inline-flex h-7 w-12 shrink-0 rounded-full border transition ${
+                                  recordingRequested
+                                    ? 'border-[#79f5e4]/40 bg-[#79f5e4]/25'
+                                    : 'border-white/12 bg-white/8'
+                                }`}
+                                aria-pressed={recordingRequested}
+                                aria-label={recordingRequested ? 'Disable recording for this call' : 'Enable recording for this call'}
+                              >
+                                <span
+                                  className={`absolute top-0.5 h-5.5 w-5.5 rounded-full bg-white shadow transition ${
+                                    recordingRequested ? 'left-[1.45rem]' : 'left-0.5'
+                                  }`}
+                                />
+                              </button>
+                            </div>
+                            <p className={`mt-3 text-xs font-medium ${recordingRequested ? 'text-[#9af8ea]' : 'text-white/45'}`}>
+                              {recordingRequested ? 'Recording enabled for the next call.' : 'Recording disabled by default.'}
+                            </p>
+                          </div>
+
                           <button
                             type="button"
                             onClick={() => void startCall()}
@@ -3619,7 +3708,7 @@ export default function VideoCall() {
               <div className="vc-status-pill pointer-events-none absolute inset-x-0 top-0 flex justify-center px-3 pt-4 sm:px-4 sm:pt-5">
                 <div className="flex items-center gap-2 rounded-full border border-white/10 bg-black/28 px-3 py-2 text-[11px] font-medium tracking-[0.22em] text-white/78 backdrop-blur-xl sm:px-4 sm:text-xs">
                   <span>{statusText}</span>
-                  {recordingActive || (!isLivekit && phase === 'connected') ? (
+                  {recordingActive ? (
                     <span className="inline-flex items-center gap-1 rounded-full border border-red-400/30 bg-red-500/18 px-2 py-0.5 text-[10px] tracking-[0.14em] text-red-100">
                       <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-300" />
                       REC
@@ -3748,21 +3837,30 @@ export default function VideoCall() {
               </button>
             ) : null}
 
-            {isLivekit ? (
-              <button
-                type="button"
-                onClick={() => void toggleRecording(false)}
-                disabled={recordingBusy || phase !== 'connected'}
-                className={`vc-text-btn flex h-14 min-w-[6.5rem] touch-manipulation items-center justify-center rounded-full border px-4 text-sm font-semibold transition ${
-                  recordingActive
-                    ? 'border-red-400/30 bg-red-500/18 text-red-100 hover:bg-red-500/24'
-                    : 'border-white/12 bg-white/6 text-white hover:bg-white/10'
-                } disabled:opacity-60`}
-                aria-label={recordingActive ? 'Stop recording' : 'Start recording'}
-              >
-                {recordingBusy ? '...' : recordingActive ? 'Stop Rec' : 'Record'}
-              </button>
-            ) : null}
+            <button
+              type="button"
+              onClick={() => void toggleRecording(false)}
+              disabled={recordingBusy || phase !== 'connected' || !isLivekit}
+              className={`vc-text-btn flex h-14 min-w-[6.5rem] touch-manipulation items-center justify-center rounded-full border px-4 text-sm font-semibold transition ${
+                recordingActive
+                  ? 'border-red-400/30 bg-red-500/18 text-red-100 hover:bg-red-500/24'
+                  : 'border-white/12 bg-white/6 text-white hover:bg-white/10'
+              } disabled:opacity-60`}
+              aria-label={
+                isLivekit
+                  ? (recordingActive ? 'Stop recording' : 'Start recording')
+                  : (recordingActive ? 'Recording enabled for this Tavus call' : 'Recording must be enabled before starting a Tavus call')
+              }
+              title={
+                isLivekit
+                  ? undefined
+                  : recordingActive
+                    ? 'This Tavus call is being recorded.'
+                    : 'Enable recording before starting a Tavus call.'
+              }
+            >
+              {recordingBusy ? '...' : recordingActive ? 'Recording On' : 'Record'}
+            </button>
 
             {recordingError ? (
               <span className="text-xs text-red-300/90 max-w-[12rem] truncate" title={recordingError}>
@@ -3798,9 +3896,15 @@ export default function VideoCall() {
           <div className="w-full max-w-md rounded-[28px] border border-white/12 bg-[linear-gradient(180deg,rgba(12,18,26,0.96),rgba(6,10,16,0.98))] p-6 text-center shadow-[0_40px_120px_rgba(0,0,0,0.55)] sm:p-7">
             <p className="text-base font-semibold text-white">Call recording</p>
             <p className="mt-2 text-sm leading-6 text-white/72">
-              {postCallStatus === 'preparing' ? 'Preparing your recording...' : null}
+              {postCallStatus === 'preparing'
+                ? (
+                  postCallElapsedSec >= 60
+                    ? 'Your recording is still being processed. This is taking a little longer than usual.'
+                    : 'Your recording is being processed. This usually takes 30-60 seconds.'
+                )
+                : null}
               {postCallStatus === 'ready' ? 'Your recording is ready to download.' : null}
-              {postCallStatus === 'failed' ? 'Recording failed to process.' : null}
+              {postCallStatus === 'failed' ? 'Recording could not be saved.' : null}
               {postCallStatus === 'timeout' ? 'Recording is still processing. You can come back later to download it.' : null}
               {postCallStatus === 'unavailable' ? 'No recording is available for this call.' : null}
             </p>
@@ -3809,8 +3913,17 @@ export default function VideoCall() {
             ) : null}
 
             {postCallStatus === 'preparing' ? (
-              <div className="mt-5 flex items-center justify-center">
-                <span className="h-9 w-9 animate-spin rounded-full border-4 border-white/10 border-t-[#70f0de]" />
+              <div className="mt-5">
+                <div className="h-2.5 overflow-hidden rounded-full bg-white/8">
+                  <div
+                    className="h-full rounded-full bg-[linear-gradient(90deg,#79f5e4,#48c2ff)] transition-[width] duration-500"
+                    style={{ width: `${Math.max(6, postCallProgressPct)}%` }}
+                  />
+                </div>
+                <div className="mt-3 flex items-center justify-between text-xs text-white/52">
+                  <span>{postCallProgressPct}%</span>
+                  <span>{postCallElapsedSec}s elapsed</span>
+                </div>
               </div>
             ) : null}
 
@@ -3821,9 +3934,9 @@ export default function VideoCall() {
                   target="_blank"
                   rel="noreferrer"
                   download
-                  className="min-h-11 rounded-full border border-[#79f5e4]/40 bg-[#79f5e4]/18 px-5 py-2.5 text-sm font-semibold text-[#d6fff5] transition hover:bg-[#79f5e4]/24"
+                  className="min-h-11 rounded-full border border-[#79f5e4]/40 bg-[#79f5e4]/18 px-5 py-2.5 text-sm font-semibold text-[#d6fff5] transition hover:bg-[#79f5e4]/24 sm:min-w-[13rem]"
                 >
-                  Download recording
+                  Download Recording
                 </a>
               ) : null}
               <button
