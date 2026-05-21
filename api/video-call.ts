@@ -604,14 +604,6 @@ export default async function handler(req: any, res: any) {
     }
   }
 
-  const requiresContextEnrichment = Boolean(conversationId || ownerId || meetingToken || incomingCallId)
-  if (requiresContextEnrichment) {
-    // Ensure enriched memory/owner/meeting context is actually applied.
-    // The initial probe happens before enrichment and must not short-circuit the final request.
-    initialBackendPayload = null
-    initialBackendStatus = null
-  }
-
   try {
     console.log('[video-call] tavus_system_prompt_preview', {
       conversationId: conversationId || null,
