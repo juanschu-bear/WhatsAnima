@@ -8,8 +8,8 @@ const LIVE_CALL_API_BASE =
   process.env.LIVE_CALL_API_BASE ||
   process.env.VITE_LIVE_CALL_API_BASE ||
   'https://boardroom-api.onioko.com'
-const JUAN_LOCKED_PERSONA_ID = 'p3ba4e8a40d1'
-const JUAN_LOCKED_REPLICA_ID = 'rf5414018e80'
+const JUAN_LOCKED_PERSONA_ID = 'p021059f477c'
+const JUAN_LOCKED_REPLICA_ID = 'r441d437f4e0'
 
 function normalizeBackendBaseUrl(value: string) {
   const normalized = value.replace(/\/+$/, '').replace(/\/api$/, '')
@@ -179,21 +179,6 @@ export default async function handler(req: any, res: any) {
   } else {
     requestBody.persona_id = body.persona_id
     requestBody.replica_id = body.replica_id
-  }
-  let initialBackendPayload: Record<string, unknown> | null = null
-  let initialBackendStatus: number | null = null
-  try {
-    const initialResponse = await fetch(`${backendBaseUrl}/api/sessions/start`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestBody),
-    })
-    initialBackendStatus = initialResponse.status
-    const initialText = await initialResponse.text()
-    initialBackendPayload = initialText ? JSON.parse(initialText) : {}
-
-  } catch (error) {
-    console.warn('[video-call] initial backend probe failed', error)
   }
   const normalizedLanguageCode = normalizeLanguageCode(body.language)
   const languageInstruction = buildLiveLanguageInstruction(normalizedLanguageCode)
@@ -641,19 +626,14 @@ export default async function handler(req: any, res: any) {
       })
     }
 
-    let responseStatus = initialBackendStatus
-    let payload = initialBackendPayload
-
-    if (!payload) {
-      const response = await fetch(`${backendBaseUrl}/api/sessions/start`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody),
-      })
-      responseStatus = response.status
-      const text = await response.text()
-      payload = text ? JSON.parse(text) : {}
-    }
+    const response = await fetch(`${backendBaseUrl}/api/sessions/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestBody),
+    })
+    const responseStatus = response.status
+    const text = await response.text()
+    const payload = text ? JSON.parse(text) : {}
 
     if ((responseStatus ?? 500) >= 400) {
       return res.status(responseStatus ?? 500).json(payload)

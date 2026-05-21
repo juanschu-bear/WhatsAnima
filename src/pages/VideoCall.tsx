@@ -59,7 +59,7 @@ function normalizeLiveCallApiBase(raw?: string) {
 
 const LIVE_CALL_API_BASE = normalizeLiveCallApiBase(import.meta.env.VITE_LIVE_CALL_API_BASE as string | undefined)
 const FALLBACK_REPLICA_ID = 'r987f6e6f73c'
-const JUAN_LOCKED_REPLICA_ID = 'rf5414018e80'
+const JUAN_LOCKED_REPLICA_ID = 'r441d437f4e0'
 const HEARTBEAT_INTERVAL_MS = 15_000
 const OPM_CONTEXT_POLL_INTERVAL_MS = 5_000
 const ENABLE_LIVE_SESSION_HEARTBEAT = false
