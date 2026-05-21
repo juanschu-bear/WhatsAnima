@@ -691,7 +691,7 @@ export default function VideoCall() {
 
   const [conversation, setConversation] = useState<ConversationData | null>(null)
   const [loadingConversation, setLoadingConversation] = useState(true)
-  const [personas, setPersonas] = useState<BackendPersona[]>(FALLBACK_PERSONAS)
+  const [_personas, setPersonas] = useState<BackendPersona[]>(FALLBACK_PERSONAS)
   const [loadingPersonas, setLoadingPersonas] = useState(true)
   const [language, setLanguage] = useState<SupportedLanguage>(() => {
     if (typeof window === 'undefined') return 'en'
