@@ -670,6 +670,12 @@ export default function VideoCall() {
   const [recordingId, setRecordingId] = useState<string | null>(null)
   const [recordingUrl, setRecordingUrl] = useState<string | null>(null)
   const [recordingError, setRecordingError] = useState<string | null>(null)
+  const [postCallActive, setPostCallActive] = useState(false)
+  const [postCallStatus, setPostCallStatus] = useState<'preparing' | 'ready' | 'failed' | 'timeout' | 'unavailable'>('preparing')
+  const [postCallRecordingUrl, setPostCallRecordingUrl] = useState<string | null>(null)
+  const [postCallError, setPostCallError] = useState<string | null>(null)
+  const pendingNavigationRef = useRef<(() => void) | null>(null)
+  const pollAbortRef = useRef<AbortController | null>(null)
   const [joinUrl, setJoinUrl] = useState<string | null>(null)
   const [participants, setParticipants] = useState<any[]>([])
   const [activeSpeakerId, setActiveSpeakerId] = useState<string | null>(null)
@@ -856,6 +862,13 @@ export default function VideoCall() {
       landscape.removeEventListener('change', apply)
       narrow.removeEventListener('change', apply)
       shortVp.removeEventListener('change', apply)
+    }
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      pollAbortRef.current?.abort()
+      pollAbortRef.current = null
     }
   }, [])
 
@@ -1781,34 +1794,36 @@ export default function VideoCall() {
     await Promise.allSettled([stopRecordingPromise, endSessionPromise, leaveRoomPromise])
     await recordCallSummary()
 
-    if (isMeetingMode) {
-      navigate('/meeting-host', { replace: true })
-      return
-    }
-
-    if (conversationId) {
-      let isOnboardingCall = false
-      try {
-        const flag = sessionStorage.getItem(`wa_onboarding_call:${conversationId}`)
-        if (flag) {
-          isOnboardingCall = true
-          sessionStorage.removeItem(`wa_onboarding_call:${conversationId}`)
+    const finalSessionId = sessionIdRef.current
+    const navTarget: { path: string; replace: boolean } = (() => {
+      if (isMeetingMode) return { path: '/meeting-host', replace: true }
+      if (conversationId) {
+        let isOnboardingCall = false
+        try {
+          const flag = sessionStorage.getItem(`wa_onboarding_call:${conversationId}`)
+          if (flag) {
+            isOnboardingCall = true
+            sessionStorage.removeItem(`wa_onboarding_call:${conversationId}`)
+          }
+        } catch {
+          // ignore storage errors
         }
-      } catch {
-        // ignore storage errors
+        if (!isOnboardingCall && incomingCallId) isOnboardingCall = true
+        if (isOnboardingCall) return { path: '/onboarding', replace: true }
+        return { path: `/chat/${conversationId}`, replace: true }
       }
-      if (!isOnboardingCall && incomingCallId) {
-        isOnboardingCall = true
-      }
-      if (isOnboardingCall) {
-        navigate('/onboarding', { replace: true })
-        return
-      }
-      navigate(`/chat/${conversationId}`, { replace: true })
-      return
-    }
+      return { path: '/', replace: true }
+    })()
 
-    navigate('/', { replace: true })
+    pendingNavigationRef.current = () => navigate(navTarget.path, { replace: navTarget.replace })
+
+    if (finalSessionId) {
+      setPostCallActive(true)
+      void pollRecordingUntilReady(finalSessionId)
+    } else {
+      pendingNavigationRef.current?.()
+      pendingNavigationRef.current = null
+    }
   }
 
   async function startCall() {
@@ -1965,6 +1980,11 @@ export default function VideoCall() {
       setRecordingId(null)
       setRecordingUrl(null)
       setRecordingError(null)
+      setPostCallActive(false)
+      setPostCallRecordingUrl(null)
+      setPostCallError(null)
+      pollAbortRef.current?.abort()
+      pollAbortRef.current = null
       endingSessionRef.current = false
       setStatusText(isMeetingGuest ? 'Joining room...' : 'Avatar joining...')
       setPhase('joining')
@@ -2913,44 +2933,100 @@ export default function VideoCall() {
   }
 
   async function toggleRecording(forceStop = false) {
-    if (!isMeetingMode) return
+    // Tavus auto-records via Tavus's own recording feature; nothing to toggle.
+    if (!isLivekit) return
     const activeSessionId = sessionIdRef.current
-    if (!activeSessionId || !meetingToken) return
+    if (!activeSessionId) return
 
     const action: 'start' | 'stop' = forceStop || recordingActive ? 'stop' : 'start'
     setRecordingBusy(true)
     setRecordingError(null)
     try {
-      const response = await fetch('/api/meeting-recording', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action,
-          session_id: activeSessionId,
-          meeting_token: meetingToken,
-          join_url: joinUrl || undefined,
-          recording_id: recordingId || undefined,
-          backendBaseUrl: LIVE_CALL_API_BASE,
-        }),
-      })
-      const payload = await response.json() as {
+      const response = await fetch(
+        `${LIVE_CALL_API_BASE}/api/recording/${encodeURIComponent(activeSessionId)}/${action}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        },
+      )
+      const payload = await response.json().catch(() => ({})) as {
         error?: string
         detail?: string
-        active?: boolean
         recording_id?: string | null
         recording_url?: string | null
+        status?: string | null
       }
       if (!response.ok) {
         throw new Error(payload.detail || payload.error || `Unable to ${action} recording`)
       }
-      setRecordingActive(Boolean(payload.active))
-      setRecordingId(payload.recording_id || null)
+      setRecordingActive(action === 'start')
+      if (payload.recording_id) setRecordingId(payload.recording_id)
       if (payload.recording_url) setRecordingUrl(payload.recording_url)
     } catch (error) {
       setRecordingError(error instanceof Error ? error.message : `Unable to ${action} recording`)
     } finally {
       setRecordingBusy(false)
     }
+  }
+
+  async function pollRecordingUntilReady(targetSessionId: string) {
+    pollAbortRef.current?.abort()
+    const controller = new AbortController()
+    pollAbortRef.current = controller
+
+    setPostCallStatus('preparing')
+    setPostCallRecordingUrl(null)
+    setPostCallError(null)
+
+    const startedAt = Date.now()
+    const maxMs = 180_000
+    const intervalMs = 3000
+
+    while (!controller.signal.aborted) {
+      if (Date.now() - startedAt > maxMs) {
+        setPostCallStatus('timeout')
+        return
+      }
+      try {
+        const res = await fetch(
+          `${LIVE_CALL_API_BASE}/api/recording/${encodeURIComponent(targetSessionId)}`,
+          { signal: controller.signal },
+        )
+        if (res.status === 404) {
+          setPostCallStatus('unavailable')
+          return
+        }
+        if (res.ok) {
+          const data = await res.json().catch(() => ({})) as {
+            status?: string
+            recording_url?: string | null
+          }
+          const status = String(data.status || '').toLowerCase()
+          if (status === 'ready' && data.recording_url) {
+            setPostCallRecordingUrl(data.recording_url)
+            setPostCallStatus('ready')
+            return
+          }
+          if (status === 'failed' || status === 'error') {
+            setPostCallStatus('failed')
+            return
+          }
+        }
+      } catch (e) {
+        if (controller.signal.aborted) return
+      }
+      await new Promise((resolve) => setTimeout(resolve, intervalMs))
+    }
+  }
+
+  function dismissPostCall() {
+    pollAbortRef.current?.abort()
+    pollAbortRef.current = null
+    setPostCallActive(false)
+    const navTo = pendingNavigationRef.current
+    pendingNavigationRef.current = null
+    if (navTo) navTo()
   }
 
   if (loadingConversation) {
@@ -3275,7 +3351,7 @@ export default function VideoCall() {
               <div className="vc-status-pill pointer-events-none absolute inset-x-0 top-0 flex justify-center px-3 pt-4 sm:px-4 sm:pt-5">
                 <div className="flex items-center gap-2 rounded-full border border-white/10 bg-black/28 px-3 py-2 text-[11px] font-medium tracking-[0.22em] text-white/78 backdrop-blur-xl sm:px-4 sm:text-xs">
                   <span>{statusText}</span>
-                  {recordingActive ? (
+                  {recordingActive || (!isLivekit && phase === 'connected') ? (
                     <span className="inline-flex items-center gap-1 rounded-full border border-red-400/30 bg-red-500/18 px-2 py-0.5 text-[10px] tracking-[0.14em] text-red-100">
                       <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-300" />
                       REC
@@ -3404,7 +3480,7 @@ export default function VideoCall() {
               </button>
             ) : null}
 
-            {isMeetingMode ? (
+            {isLivekit ? (
               <button
                 type="button"
                 onClick={() => void toggleRecording(false)}
@@ -3414,9 +3490,16 @@ export default function VideoCall() {
                     ? 'border-red-400/30 bg-red-500/18 text-red-100 hover:bg-red-500/24'
                     : 'border-white/12 bg-white/6 text-white hover:bg-white/10'
                 } disabled:opacity-60`}
+                aria-label={recordingActive ? 'Stop recording' : 'Start recording'}
               >
                 {recordingBusy ? '...' : recordingActive ? 'Stop Rec' : 'Record'}
               </button>
+            ) : null}
+
+            {recordingError ? (
+              <span className="text-xs text-red-300/90 max-w-[12rem] truncate" title={recordingError}>
+                {recordingError}
+              </span>
             ) : null}
 
             <button
@@ -3441,6 +3524,51 @@ export default function VideoCall() {
           ) : null}
         </div>
       </div>
+
+      {postCallActive ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/72 px-4 backdrop-blur-md">
+          <div className="w-full max-w-md rounded-[28px] border border-white/12 bg-[linear-gradient(180deg,rgba(12,18,26,0.96),rgba(6,10,16,0.98))] p-6 text-center shadow-[0_40px_120px_rgba(0,0,0,0.55)] sm:p-7">
+            <p className="text-base font-semibold text-white">Call recording</p>
+            <p className="mt-2 text-sm leading-6 text-white/72">
+              {postCallStatus === 'preparing' ? 'Preparing your recording...' : null}
+              {postCallStatus === 'ready' ? 'Your recording is ready to download.' : null}
+              {postCallStatus === 'failed' ? 'Recording failed to process.' : null}
+              {postCallStatus === 'timeout' ? 'Recording is still processing. You can come back later to download it.' : null}
+              {postCallStatus === 'unavailable' ? 'No recording is available for this call.' : null}
+            </p>
+            {postCallError ? (
+              <p className="mt-2 text-xs text-red-300/90">{postCallError}</p>
+            ) : null}
+
+            {postCallStatus === 'preparing' ? (
+              <div className="mt-5 flex items-center justify-center">
+                <span className="h-9 w-9 animate-spin rounded-full border-4 border-white/10 border-t-[#70f0de]" />
+              </div>
+            ) : null}
+
+            <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-center">
+              {postCallStatus === 'ready' && postCallRecordingUrl ? (
+                <a
+                  href={postCallRecordingUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  download
+                  className="min-h-11 rounded-full border border-[#79f5e4]/40 bg-[#79f5e4]/18 px-5 py-2.5 text-sm font-semibold text-[#d6fff5] transition hover:bg-[#79f5e4]/24"
+                >
+                  Download recording
+                </a>
+              ) : null}
+              <button
+                type="button"
+                onClick={dismissPostCall}
+                className="min-h-11 rounded-full border border-white/12 bg-white/6 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-white/10"
+              >
+                {postCallStatus === 'preparing' ? 'Skip and continue' : 'Continue'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
