@@ -182,6 +182,19 @@ export default async function handler(req: any, res: any) {
   }
   let initialBackendPayload: Record<string, unknown> | null = null
   let initialBackendStatus: number | null = null
+  try {
+    const initialResponse = await fetch(`${backendBaseUrl}/api/sessions/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestBody),
+    })
+    initialBackendStatus = initialResponse.status
+    const initialText = await initialResponse.text()
+    initialBackendPayload = initialText ? JSON.parse(initialText) : {}
+
+  } catch (error) {
+    console.warn('[video-call] initial backend probe failed', error)
+  }
   const normalizedLanguageCode = normalizeLanguageCode(body.language)
   const languageInstruction = buildLiveLanguageInstruction(normalizedLanguageCode)
   const currentTimeContext = buildCurrentTimeContext(timezone, normalizedLanguageCode)
@@ -205,6 +218,10 @@ export default async function handler(req: any, res: any) {
   if (typeof body.persona_override === 'boolean') {
     requestBody.persona_override = body.persona_override
   }
+  if (typeof body.glue_enabled === 'boolean') {
+    requestBody.glue_enabled = body.glue_enabled
+  }
+
   const { client: supabase } = getSupabaseAdmin()
   if (supabase && conversationId) {
     await syncChannelState({
@@ -570,20 +587,6 @@ export default async function handler(req: any, res: any) {
     } catch (error) {
       console.error('[video-call] meeting context load failed', error)
     }
-  }
-
-  // Tavus avatars rely on the GLUE speech pipeline. Keyframe requests do not.
-  if (!isKeyframeRequest) {
-    if (body.glue_enabled === false) {
-      console.warn('[video-call] overriding glue_enabled=false for Tavus request', {
-        conversationId: conversationId || null,
-        ownerId: ownerId || null,
-        persona: String(requestBody.persona_name || requestBody.persona || ''),
-      })
-    }
-    requestBody.glue_enabled = true
-  } else {
-    delete requestBody.glue_enabled
   }
 
   const requiresContextEnrichment = Boolean(conversationId || ownerId || meetingToken || incomingCallId)
