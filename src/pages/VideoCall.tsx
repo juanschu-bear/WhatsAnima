@@ -21,6 +21,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { resolveAvatarUrl } from '../lib/avatars'
 import { getConversation, sendMessage, checkUsage, incrementCallUsage } from '../lib/api'
 import { supabase } from '../lib/supabase'
+import { LocalCallRecorder, triggerDownload } from '../lib/recording/localCallRecorder'
 import './VideoCall.mobile.css'
 
 const ADMIN_EMAILS = new Set(['aicallyu.global@gmail.com'])
@@ -670,6 +671,8 @@ export default function VideoCall() {
   const [recordingId, setRecordingId] = useState<string | null>(null)
   const [recordingUrl, setRecordingUrl] = useState<string | null>(null)
   const [recordingError, setRecordingError] = useState<string | null>(null)
+  const [localRecordingDownload, setLocalRecordingDownload] = useState<{ url: string; filename: string } | null>(null)
+  const localRecorderRef = useRef<LocalCallRecorder | null>(null)
   const [joinUrl, setJoinUrl] = useState<string | null>(null)
   const [participants, setParticipants] = useState<any[]>([])
   const [activeSpeakerId, setActiveSpeakerId] = useState<string | null>(null)
@@ -856,6 +859,17 @@ export default function VideoCall() {
       landscape.removeEventListener('change', apply)
       narrow.removeEventListener('change', apply)
       shortVp.removeEventListener('change', apply)
+    }
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      try { localRecorderRef.current?.cleanup() } catch {}
+      localRecorderRef.current = null
+      setLocalRecordingDownload((prev) => {
+        if (prev?.url) URL.revokeObjectURL(prev.url)
+        return null
+      })
     }
   }, [])
 
@@ -1965,6 +1979,12 @@ export default function VideoCall() {
       setRecordingId(null)
       setRecordingUrl(null)
       setRecordingError(null)
+      setLocalRecordingDownload((prev) => {
+        if (prev?.url) URL.revokeObjectURL(prev.url)
+        return null
+      })
+      try { localRecorderRef.current?.cleanup() } catch {}
+      localRecorderRef.current = null
       endingSessionRef.current = false
       setStatusText(isMeetingGuest ? 'Joining room...' : 'Avatar joining...')
       setPhase('joining')
@@ -2913,41 +2933,74 @@ export default function VideoCall() {
   }
 
   async function toggleRecording(forceStop = false) {
-    if (!isMeetingMode) return
-    const activeSessionId = sessionIdRef.current
-    if (!activeSessionId || !meetingToken) return
-
     const action: 'start' | 'stop' = forceStop || recordingActive ? 'stop' : 'start'
     setRecordingBusy(true)
     setRecordingError(null)
     try {
-      const response = await fetch('/api/meeting-recording', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action,
-          session_id: activeSessionId,
-          meeting_token: meetingToken,
-          join_url: joinUrl || undefined,
-          recording_id: recordingId || undefined,
-          backendBaseUrl: LIVE_CALL_API_BASE,
-        }),
-      })
-      const payload = await response.json() as {
-        error?: string
-        detail?: string
-        active?: boolean
-        recording_id?: string | null
-        recording_url?: string | null
+      if (isLivekit) {
+        const activeSessionId = sessionIdRef.current
+        if (!activeSessionId) throw new Error('No active session')
+        const response = await fetch('/api/meeting-recording', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action,
+            session_id: activeSessionId,
+            meeting_token: meetingToken || undefined,
+            join_url: joinUrl || undefined,
+            recording_id: recordingId || undefined,
+            backendBaseUrl: LIVE_CALL_API_BASE,
+          }),
+        })
+        const payload = await response.json() as {
+          error?: string
+          detail?: string
+          active?: boolean
+          recording_id?: string | null
+          recording_url?: string | null
+        }
+        if (!response.ok) {
+          throw new Error(payload.detail || payload.error || `Unable to ${action} recording`)
+        }
+        setRecordingActive(Boolean(payload.active))
+        setRecordingId(payload.recording_id || null)
+        if (payload.recording_url) setRecordingUrl(payload.recording_url)
+      } else {
+        if (action === 'start') {
+          const callObject = callObjectRef.current
+          if (!callObject) throw new Error('Call is not active yet')
+          const participants = callObject.participants() || {}
+          const localParticipant = (participants as any).local
+          const remoteParticipant = Object.values(participants).find((p: any) => p && !p.local) as any
+          const recorder = new LocalCallRecorder({
+            getRemoteVideoTrack: () => getParticipantTrack(remoteParticipant, 'video'),
+            getRemoteAudioTrack: () => getParticipantTrack(remoteParticipant, 'audio'),
+            getLocalVideoTrack: () => getParticipantTrack(localParticipant, 'video'),
+            getLocalAudioTrack: () => getParticipantTrack(localParticipant, 'audio'),
+            filenameHint: `call-${personaName || 'avatar'}`,
+          })
+          await recorder.start()
+          localRecorderRef.current = recorder
+          setRecordingActive(true)
+          setLocalRecordingDownload(null)
+        } else {
+          const recorder = localRecorderRef.current
+          localRecorderRef.current = null
+          if (recorder) {
+            const result = await recorder.stop()
+            setLocalRecordingDownload({ url: result.url, filename: result.filename })
+          }
+          setRecordingActive(false)
+        }
       }
-      if (!response.ok) {
-        throw new Error(payload.detail || payload.error || `Unable to ${action} recording`)
-      }
-      setRecordingActive(Boolean(payload.active))
-      setRecordingId(payload.recording_id || null)
-      if (payload.recording_url) setRecordingUrl(payload.recording_url)
     } catch (error) {
       setRecordingError(error instanceof Error ? error.message : `Unable to ${action} recording`)
+      if (!isLivekit && action === 'start') {
+        const r = localRecorderRef.current
+        localRecorderRef.current = null
+        try { r?.cleanup() } catch {}
+        setRecordingActive(false)
+      }
     } finally {
       setRecordingBusy(false)
     }
@@ -3404,19 +3457,49 @@ export default function VideoCall() {
               </button>
             ) : null}
 
-            {isMeetingMode ? (
+            <button
+              type="button"
+              onClick={() => void toggleRecording(false)}
+              disabled={recordingBusy || phase !== 'connected'}
+              className={`vc-text-btn flex h-14 min-w-[6.5rem] touch-manipulation items-center justify-center rounded-full border px-4 text-sm font-semibold transition ${
+                recordingActive
+                  ? 'border-red-400/30 bg-red-500/18 text-red-100 hover:bg-red-500/24'
+                  : 'border-white/12 bg-white/6 text-white hover:bg-white/10'
+              } disabled:opacity-60`}
+              aria-label={recordingActive ? 'Stop recording' : 'Start recording'}
+            >
+              {recordingBusy ? '...' : recordingActive ? 'Stop Rec' : 'Record'}
+            </button>
+
+            {localRecordingDownload ? (
               <button
                 type="button"
-                onClick={() => void toggleRecording(false)}
-                disabled={recordingBusy || phase !== 'connected'}
-                className={`vc-text-btn flex h-14 min-w-[6.5rem] touch-manipulation items-center justify-center rounded-full border px-4 text-sm font-semibold transition ${
-                  recordingActive
-                    ? 'border-red-400/30 bg-red-500/18 text-red-100 hover:bg-red-500/24'
-                    : 'border-white/12 bg-white/6 text-white hover:bg-white/10'
-                } disabled:opacity-60`}
+                onClick={() => {
+                  if (!localRecordingDownload) return
+                  triggerDownload(localRecordingDownload.url, localRecordingDownload.filename)
+                }}
+                className="vc-text-btn flex h-14 min-w-[6.5rem] touch-manipulation items-center justify-center rounded-full border border-[#79f5e4]/40 bg-[#79f5e4]/18 px-4 text-sm font-semibold text-[#d6fff5] transition hover:bg-[#79f5e4]/24"
               >
-                {recordingBusy ? '...' : recordingActive ? 'Stop Rec' : 'Record'}
+                Download
               </button>
+            ) : null}
+
+            {recordingUrl && !localRecordingDownload ? (
+              <a
+                href={recordingUrl}
+                target="_blank"
+                rel="noreferrer"
+                download
+                className="vc-text-btn flex h-14 min-w-[6.5rem] touch-manipulation items-center justify-center rounded-full border border-[#79f5e4]/40 bg-[#79f5e4]/18 px-4 text-sm font-semibold text-[#d6fff5] transition hover:bg-[#79f5e4]/24"
+              >
+                Download
+              </a>
+            ) : null}
+
+            {recordingError ? (
+              <span className="text-xs text-red-300/90 max-w-[12rem] truncate" title={recordingError}>
+                {recordingError}
+              </span>
             ) : null}
 
             <button
