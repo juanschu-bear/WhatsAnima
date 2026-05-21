@@ -190,20 +190,22 @@ export default function Home() {
             </button>
             <div className="grid grid-cols-2 gap-3">
               {isOwner && (
-                <button
-                  type="button"
-                  onClick={() => navigate('/dashboard')}
-                  className="min-h-[52px] rounded-2xl border border-white/10 bg-[#1f2c34]/80 px-4 py-3 text-sm font-medium transition hover:border-[#00a884]/60 hover:text-[#00a884]"
-                >
-                  Dashboard
-                </button>
-                <button
-                  type="button"
-                  onClick={() => navigate('/analytics')}
-                  className="min-h-[52px] rounded-2xl border border-[#7F77DD]/20 bg-[#7F77DD]/5 px-4 py-3 text-sm font-medium text-[#AFA9EC]/80 transition hover:border-[#7F77DD]/40 hover:text-[#AFA9EC] hover:shadow-[0_0_20px_rgba(127,119,221,0.1)]"
-                >
-                  Analytics
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/dashboard')}
+                    className="min-h-[52px] rounded-2xl border border-white/10 bg-[#1f2c34]/80 px-4 py-3 text-sm font-medium transition hover:border-[#00a884]/60 hover:text-[#00a884]"
+                  >
+                    Dashboard
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/analytics')}
+                    className="min-h-[52px] rounded-2xl border border-[#7F77DD]/20 bg-[#7F77DD]/5 px-4 py-3 text-sm font-medium text-[#AFA9EC]/80 transition hover:border-[#7F77DD]/40 hover:text-[#AFA9EC] hover:shadow-[0_0_20px_rgba(127,119,221,0.1)]"
+                  >
+                    Analytics
+                  </button>
+                </>
               )}
               {isOwner ? (
                 <button
